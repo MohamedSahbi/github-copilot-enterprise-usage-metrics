@@ -1,0 +1,27 @@
+name: Bug backlog
+
+on:
+  # pull_request_target so the token can create issues for Copilot-authored PRs. It runs base-branch
+  # code only and reads the PR text from the event file; it never checks out or executes PR code.
+  pull_request_target:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  create-issues:
+    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/bug-backlog/create-issues.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
