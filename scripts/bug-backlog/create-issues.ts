@@ -26,7 +26,7 @@ function requireEnv(name: string): string {
 }
 
 async function github<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`https://api.github.com/repos/${repository}${path}`, {
+  const response = await fetch(`${process.env.GITHUB_API_URL ?? "https://api.github.com"}/repos/${repository}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -109,4 +109,7 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});
