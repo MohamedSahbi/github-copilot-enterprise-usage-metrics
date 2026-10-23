@@ -30,4 +30,4 @@ Results from a Copilot coding agent session (2026-10-23, issue #3).
 | `npx playwright --version` | `Version 1.64.1` |
 | `docker version` | Works; Docker Engine - Community 28.0.4 (API 1.48) |
 | `docker pull mcr.microsoft.com/mssql/server:2022-latest` | Works; `Status: Downloaded newer image for mcr.microsoft.com/mssql/server:2022-latest`, digest `sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718` |
-| Create issue "agent issue-creation probe" | Not possible: the agent's toolset has only read tools for issues (read, list, search) and no create or close tool, so no issue was created and nothing needed closing. Agents must record bugs by another route (for example the owner creates the issue). |
+| Create issue "agent issue-creation probe" | Not possible: the agent's toolset has only read tools for issues (read, list, search) and no create or close tool, so no issue was created and nothing needed closing. Agents must record bugs by another route (list them under `## Out-of-scope bugs found` in the PR description; the bug-backlog workflow creates the issues, see §13.5). |
