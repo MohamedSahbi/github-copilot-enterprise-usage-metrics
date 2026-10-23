@@ -1,0 +1,11 @@
+@import "tailwindcss";
+@import "@primer/primitives/dist/css/primitives.css";
+@import "@primer/primitives/dist/css/functional/themes/light.css";
+@import "@primer/tailwind-config/color";
+
+@theme inline {
+  --font-sans: var(--fontStack-system);
+  --default-font-family: var(--fontStack-system);
+}
+
+@source "../../upstream/src";
