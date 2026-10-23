@@ -36,8 +36,9 @@ export function parseBugReports(body: string): BugReport[] {
     if (parts.length < 4) continue;
     const [title, severity, where, ...steps] = parts;
     const normalizedSeverity = (severity ?? "").toLowerCase().replace(/^severity:/, "");
-    if (!title || !where || !isSeverity(normalizedSeverity)) continue;
-    reports.push({ title, severity: normalizedSeverity, where, steps: steps.join(" | ") });
+    const reproduction = steps.join(" | ").trim();
+    if (!title || !where || !reproduction || !isSeverity(normalizedSeverity)) continue;
+    reports.push({ title, severity: normalizedSeverity, where, steps: reproduction });
     if (reports.length === MAX_ISSUES_PER_PR) break;
   }
   return reports;
@@ -50,4 +51,32 @@ export function normalizeTitle(title: string): string {
 export function isEligibleAuthor(login: string, repositoryOwner: string): boolean {
   const normalized = login.toLowerCase();
   return normalized === repositoryOwner.toLowerCase() || normalized === "copilot";
+}
+
+/** Hidden marker written into every issue so the per-PR limit survives edits and reruns. */
+export function prMarker(prNumber: number): string {
+  return `<!-- bug-backlog-pr:${prNumber} -->`;
+}
+
+export interface ExistingIssue {
+  title: string;
+  body: string | null;
+}
+
+/** Reports to create now: not duplicates, and within what is left of the PR's allowance. */
+export function planIssues(reports: BugReport[], existing: ExistingIssue[], prNumber: number): BugReport[] {
+  const marker = prMarker(prNumber);
+  const known = new Set(existing.map((issue) => normalizeTitle(issue.title)));
+  const alreadyCreated = existing.filter((issue) => issue.body?.includes(marker)).length;
+  let remaining = Math.max(0, MAX_ISSUES_PER_PR - alreadyCreated);
+  const plan: BugReport[] = [];
+  for (const report of reports) {
+    if (remaining === 0) break;
+    const key = normalizeTitle(report.title);
+    if (known.has(key)) continue;
+    known.add(key);
+    plan.push(report);
+    remaining--;
+  }
+  return plan;
 }

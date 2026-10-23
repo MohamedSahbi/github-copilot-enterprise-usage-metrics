@@ -11,6 +11,12 @@ permissions:
   issues: write
   pull-requests: read
 
+# Runs for one PR are serialized and never cancelled; a newer edit replaces only a queued run of the
+# same PR, and each run reads the full current PR body, so no report is dropped.
+concurrency:
+  group: bug-backlog-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   create-issues:
     if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == github.repository_owner

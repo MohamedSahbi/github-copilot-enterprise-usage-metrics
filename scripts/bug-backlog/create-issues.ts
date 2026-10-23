@@ -1,5 +1,13 @@
 import { readFileSync } from "node:fs";
-import { isEligibleAuthor, normalizeTitle, parseBugReports, type BugReport } from "./parse.ts";
+import {
+  isEligibleAuthor,
+  normalizeTitle,
+  parseBugReports,
+  planIssues,
+  prMarker,
+  type BugReport,
+  type ExistingIssue,
+} from "./parse.ts";
 
 interface PullRequestEvent {
   pull_request: { number: number; body: string | null; html_url: string; user: { login: string } };
@@ -31,16 +39,33 @@ async function github<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function existingTitles(): Promise<Set<string>> {
-  const titles = new Set<string>();
+interface IssueSummary extends ExistingIssue {
+  number: number;
+  pull_request?: unknown;
+}
+
+async function listBugIssues(): Promise<IssueSummary[]> {
+  const found: IssueSummary[] = [];
   for (let page = 1; page <= 10; page++) {
-    const issues = await github<{ title: string; pull_request?: unknown }[]>(
-      `/issues?labels=bug&state=all&per_page=100&page=${page}`,
-    );
-    for (const issue of issues) if (!issue.pull_request) titles.add(normalizeTitle(issue.title));
+    const issues = await github<IssueSummary[]>(`/issues?labels=bug&state=all&per_page=100&page=${page}`);
+    found.push(...issues.filter((issue) => !issue.pull_request));
     if (issues.length < 100) break;
   }
-  return titles;
+  return found;
+}
+
+/** Concurrent runs for different PRs can both create the same title; the lowest issue number wins. */
+async function closeIfLaterDuplicate(created: { number: number }, title: string): Promise<void> {
+  const key = normalizeTitle(title);
+  const earlier = (await listBugIssues()).some(
+    (issue) => normalizeTitle(issue.title) === key && issue.number < created.number,
+  );
+  if (!earlier) return;
+  await github(`/issues/${created.number}`, {
+    method: "PATCH",
+    body: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
+  });
+  console.log(`Closed #${created.number} as a duplicate of an earlier issue`);
 }
 
 function issueBody(report: BugReport): string {
@@ -53,6 +78,8 @@ function issueBody(report: BugReport): string {
     "**Reproduction**",
     "",
     report.steps,
+    "",
+    prMarker(pr.number),
   ].join("\n");
 }
 
@@ -66,14 +93,10 @@ async function main(): Promise<void> {
     console.log("No out-of-scope bugs listed.");
     return;
   }
-  const known = await existingTitles();
-  for (const report of reports) {
-    const key = normalizeTitle(report.title);
-    if (known.has(key)) {
-      console.log(`Skipping duplicate: ${report.title}`);
-      continue;
-    }
-    const created = await github<{ html_url: string }>("/issues", {
+  const toCreate = planIssues(reports, await listBugIssues(), pr.number);
+  console.log(`${toCreate.length} of ${reports.length} reported bugs will be created`);
+  for (const report of toCreate) {
+    const created = await github<{ html_url: string; number: number }>("/issues", {
       method: "POST",
       body: JSON.stringify({
         title: report.title,
@@ -81,8 +104,8 @@ async function main(): Promise<void> {
         labels: ["bug", "triage", "found-by-agent", `severity:${report.severity}`],
       }),
     });
-    known.add(key);
     console.log(`Created ${created.html_url}`);
+    await closeIfLaterDuplicate(created, report.title);
   }
 }
 
