@@ -75,6 +75,7 @@ describe("check-upstream-boundary.sh", () => {
     mkdirSync(path.join(repo, "portal"), { recursive: true });
     git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "portal/upstream");
     git(repo, "commit", "-q", "-m", "add submodule");
+    expect(run("check-upstream-boundary.sh", repo, ["HEAD~1", "HEAD"]).status).toBe(0);
 
     git(repo, "checkout", "-q", "-b", "bump");
     writeFileSync(path.join(sub, "new.txt"), "x\n");
