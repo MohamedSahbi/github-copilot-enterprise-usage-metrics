@@ -1,0 +1,48 @@
+name: Bug
+description: A reproducible defect. Security problems must use private vulnerability reporting instead.
+title: "bug: <component>: <short symptom>"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "**Security issue?** Do not file it here. Use Security → Report a vulnerability."
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: File and line, page, or endpoint.
+    validations:
+      required: true
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: What happens and what should happen
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Persona, data, command. A failing test, screenshot, or exact steps is required.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Test output, screenshot, or log excerpt. No secrets or personal data.
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "high: wrong data, authorization or data-integrity risk, data loss, deployment blocked"
+        - "medium: feature broken with a workaround"
+        - "low: cosmetic or minor"
+    validations:
+      required: true
+  - type: input
+    id: found
+    attributes:
+      label: Found while
+      description: PR or task link.

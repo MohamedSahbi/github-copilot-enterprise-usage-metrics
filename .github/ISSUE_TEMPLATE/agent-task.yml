@@ -1,0 +1,62 @@
+name: Agent task
+description: A single, PR-sized task that can be assigned to a Copilot agent.
+title: "task: <area>: <short goal>"
+labels: ["task"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What must be true when this task is done? One or two sentences.
+    validations:
+      required: true
+  - type: input
+    id: decisions
+    attributes:
+      label: Decisions
+      description: Decision IDs this task implements or touches (for example D-11, D-28).
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Only one active agent task per area.
+      options:
+        - contracts (shared/)
+        - db
+        - functions
+        - portal-api
+        - portal-ui
+        - infra
+        - ci-cd
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable statements. Each one should map to a test or a visible result.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Tests and evidence
+      description: Which test layers apply (unit, contract, integration, E2E, smoke) and what evidence the PR must include.
+    validations:
+      required: true
+  - type: input
+    id: depends
+    attributes:
+      label: Depends on
+      description: Issue numbers that must be merged first (for example #12, #15). Leave empty if none.
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope
+      description: What the agent must not change in this task.
