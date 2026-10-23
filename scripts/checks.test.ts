@@ -60,7 +60,9 @@ describe("check-denylist.sh", () => {
     git(repo, "checkout", "-q", "-B", "topic", "main");
     writeFileSync(path.join(repo, "big.txt"), `zebracorp\n${"filler line\n".repeat(400_000)}`);
     git(repo, "add", "-A");
-    git(repo, "commit", "-q", "-m", `zebracorp\n\n${"body line\n".repeat(50_000)}`);
+    const messageFile = path.join(tmpdir(), `msg-${Date.now()}.txt`);
+    writeFileSync(messageFile, `zebracorp\n\n${"body line\n".repeat(50_000)}`);
+    git(repo, "commit", "-q", "-F", messageFile);
     const result = run("check-denylist.sh", repo, ["main", "topic"], { PRIVATE_TERMS_DENYLIST: "zebracorp" });
     expect(result.status).toBe(1);
     expect(result.output.match(/::error/g)?.length).toBe(2);
