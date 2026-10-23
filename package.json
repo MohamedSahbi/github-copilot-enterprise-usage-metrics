@@ -11,6 +11,7 @@
     "test": "vitest run",
     "build": "npm run build --workspaces --if-present",
     "test:e2e": "playwright test",
+    "test:smoke": "playwright test e2e/smoke",
     "ci": "bash scripts/ci.sh"
   },
   "devDependencies": {

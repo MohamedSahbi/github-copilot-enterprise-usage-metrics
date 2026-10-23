@@ -5,6 +5,8 @@ const baseURL = process.env.BASE_URL ?? `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "e2e",
+  // Against a deployed URL only the unauthenticated smoke suite runs; the other specs need test sign-in (D-41).
+  testMatch: process.env.BASE_URL ? "smoke/**/*.spec.ts" : "**/*.spec.ts",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
