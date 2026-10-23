@@ -19,7 +19,13 @@ terms_file="$(mktemp)"
 trap 'rm -f "$terms_file"' EXIT
 printf '%s\n' "$PRIVATE_TERMS_DENYLIST" | tr -d '\r' | sed '/^[[:space:]]*$/d' >"$terms_file"
 
-matches() { grep -q -i -F -f "$terms_file"; }
+if [[ ! -s "$terms_file" ]]; then
+  echo "::error::PRIVATE_TERMS_DENYLIST contains no usable terms"
+  exit 1
+fi
+
+# Reads all of stdin (no -q) so an early match cannot break the upstream pipe and be missed under pipefail.
+matches() { grep -i -F -f "$terms_file" >/dev/null; }
 
 status=0
 while IFS= read -r -d '' file; do

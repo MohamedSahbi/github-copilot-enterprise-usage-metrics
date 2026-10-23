@@ -56,6 +56,21 @@ describe("check-denylist.sh", () => {
     expect(result.output.toLowerCase()).not.toContain("zebracorp");
   });
 
+  it("detects a match on the first line of a very large diff and history", () => {
+    git(repo, "checkout", "-q", "-B", "topic", "main");
+    writeFileSync(path.join(repo, "big.txt"), `zebracorp\n${"filler line\n".repeat(400_000)}`);
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", `zebracorp\n\n${"body line\n".repeat(50_000)}`);
+    const result = run("check-denylist.sh", repo, ["main", "topic"], { PRIVATE_TERMS_DENYLIST: "zebracorp" });
+    expect(result.status).toBe(1);
+    expect(result.output.match(/::error/g)?.length).toBe(2);
+  });
+
+  it("fails closed when the list contains no usable terms", () => {
+    commitFile("notes.md", "x\n");
+    expect(run("check-denylist.sh", repo, ["main", "topic"], { PRIVATE_TERMS_DENYLIST: "  \n\n" }).status).toBe(1);
+  });
+
   it("passes when no term appears", () => {
     commitFile("notes.md", "nothing sensitive\n");
     expect(run("check-denylist.sh", repo, ["main", "topic"], { PRIVATE_TERMS_DENYLIST: "zebracorp" }).status).toBe(0);
