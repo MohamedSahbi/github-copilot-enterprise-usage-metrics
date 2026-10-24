@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.4...v0.2.5) (2026-10-24)
+
+
+### Bug Fixes
+
+* **infra:** make default SKUs deployable (zone redundancy, SQL size and serverless min capacity) ([#31](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/31)) ([4ac8d4b](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/4ac8d4b9aba4ab337598750b31b63878ca16a9b9))
+
 ## [0.2.4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.3...v0.2.4) (2026-10-24)
 
 
