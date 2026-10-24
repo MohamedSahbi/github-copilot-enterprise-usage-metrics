@@ -81,9 +81,10 @@ variable "private_endpoints_enabled" {
 variable "network" {
   description = "How each network dependency is provided: create (demo), existing (enterprise default), or import (D-35)."
   type = object({
-    mode              = optional(string, "existing")
-    subnet_id         = optional(string)
-    private_dns_zones = optional(map(string), {})
+    mode                  = optional(string, "existing")
+    subnet_id             = optional(string)
+    integration_subnet_id = optional(string)
+    private_dns_zones     = optional(map(string), {})
   })
   default = {}
 
@@ -96,6 +97,32 @@ variable "network" {
     condition     = var.network.mode != "existing" || !var.private_endpoints_enabled || var.network.subnet_id != null
     error_message = "network.subnet_id is required when network.mode is existing and private endpoints are enabled."
   }
+}
+
+variable "sql_admin" {
+  description = "Entra group or user that administers the demo SQL server. Required when existing_sql is null."
+  type = object({
+    login_username = string
+    object_id      = string
+  })
+  default = null
+
+  validation {
+    condition     = var.existing_sql != null || var.sql_admin != null
+    error_message = "sql_admin is required when existing_sql is null."
+  }
+}
+
+variable "sql_database_sku" {
+  description = "SKU of the demo database."
+  type        = string
+  default     = "GP_S_Gen5_1"
+}
+
+variable "app_service_sku" {
+  description = "SKU of the Linux App Service plan shared by the portal and the ingestion Functions."
+  type        = string
+  default     = "B1"
 }
 
 variable "existing_sql" {
