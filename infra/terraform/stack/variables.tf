@@ -13,6 +13,12 @@ variable "location" {
   type        = string
 }
 
+variable "existing_resource_group_name" {
+  description = "Name of a pre-existing resource group to deploy into. Null creates rg-<name_prefix>-<environment>. The deploying identity needs Owner or Contributor plus User Access Administrator on it."
+  type        = string
+  default     = null
+}
+
 variable "name_prefix" {
   description = "Short prefix for resource names, for example the product or team name."
   type        = string

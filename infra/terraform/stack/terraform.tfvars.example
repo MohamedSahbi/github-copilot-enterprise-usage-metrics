@@ -3,6 +3,9 @@ environment = "dev"
 location    = "westeurope"
 name_prefix = "cmp"
 
+# Optional: deploy into a pre-existing resource group.
+# existing_resource_group_name = "rg-existing"
+
 organization = {
   enterprise_slug    = "example-enterprise"
   organizations      = ["example-org"]
@@ -18,7 +21,7 @@ modules = {
   feedback      = true
 }
 
-# Required unless existing_sql is set: the Entra group that administers the demo SQL server.
+# Required unless existing_sql is set: the Entra user, group, or managed identity (passed in, not created) that administers the demo SQL server.
 sql_admin = {
   login_username = "example-sql-admins"
   object_id      = "00000000-0000-0000-0000-000000000000"
