@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.1...v0.2.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **infra:** fail early when terraform or az is missing ([#24](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/24)) ([f75f29c](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/f75f29c3968f0b84dc4df796427ab8ae1a9c160c))
+
 ## [0.2.1](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.0...v0.2.1) (2026-10-24)
 
 
