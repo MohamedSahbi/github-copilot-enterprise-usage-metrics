@@ -11,7 +11,7 @@ One root serves every environment. An environment is a tfvars file (with `enviro
 
 ## What exists now
 
-The root creates the resource group, monitoring, identities, Storage (raw archive and Functions host), Key Vault with empty secret slots, SQL (or references `existing_sql`), one Linux plan with the portal Web App and the ingestion Function App, and an alert action group. Alert rules and the SQL identity users (created by migrations) come with the code that needs them. Every module is pinned to an AVM version revalidated against the registry (§12.1).
+The root creates the resource group, monitoring, identities, Storage (raw archive and Functions host), Key Vault (secrets are created by the operator, see the `secret_names` output), SQL (or references `existing_sql`), one Linux plan with the portal Web App and the ingestion Function App, and an alert action group. Alert rules and the SQL identity users (created by migrations) come with the code that needs them. Every module is pinned to an AVM version revalidated against the registry (§12.1).
 
 Inputs worth knowing:
 
