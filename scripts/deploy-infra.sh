@@ -30,6 +30,8 @@ if [[ "$declared" != "$environment" ]]; then
   exit 2
 fi
 
+command -v terraform >/dev/null || { echo "terraform is required on PATH (1.11 or newer)" >&2; exit 2; }
+
 root="$(cd "$(dirname "$0")/../infra/terraform/stack" && pwd)"
 var_file="$(cd "$(dirname "$var_file")" && pwd)/$(basename "$var_file")"
 
