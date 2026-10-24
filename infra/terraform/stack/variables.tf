@@ -107,6 +107,26 @@ variable "existing_sql" {
   default = null
 }
 
+variable "existing_monitoring" {
+  description = "Existing Log Analytics workspace and Application Insights component, referenced and never changed (D-24). Null creates both."
+  type = object({
+    log_analytics_workspace_id = string
+    application_insights_id    = string
+  })
+  default = null
+}
+
+variable "log_retention_days" {
+  description = "Log Analytics retention in days when the workspace is created (30 to 730)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.log_retention_days >= 30 && var.log_retention_days <= 730
+    error_message = "log_retention_days must be between 30 and 730."
+  }
+}
+
 variable "tags" {
   description = "Tags applied to all resources."
   type        = map(string)

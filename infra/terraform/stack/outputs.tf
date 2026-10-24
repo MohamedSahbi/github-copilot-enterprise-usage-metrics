@@ -11,3 +11,18 @@ output "organization" {
   description = "Organization facts passed to the portal as app settings."
   value       = var.organization
 }
+
+output "log_analytics_workspace_id" {
+  value = local.log_analytics_workspace_id
+}
+
+output "identities" {
+  description = "Runtime identities by role; used for role assignments and app settings."
+  value = {
+    for role, id in module.identity : role => {
+      resource_id  = id.resource_id
+      client_id    = id.client_id
+      principal_id = id.principal_id
+    }
+  }
+}
