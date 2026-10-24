@@ -24,7 +24,9 @@ module "sql" {
     portal = {
       name        = "sqldb-${local.name}"
       sku_name    = var.sql_database_sku
-      max_size_gb = 32
+      max_size_gb = var.sql_max_size_gb
+      # Only serverless SKUs (GP_S_*) accept a minimum capacity; it must be above zero.
+      min_capacity = startswith(var.sql_database_sku, "GP_S_") ? var.sql_serverless_min_capacity : null
     }
   }
 

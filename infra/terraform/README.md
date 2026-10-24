@@ -23,6 +23,7 @@ Inputs worth knowing:
 | `private_endpoints_enabled` | On by default (D-19); disable only for development. |
 | `existing_sql` | Reference the shared SQL server and database; never imported (D-34). |
 | `existing_resource_group_name` | Deploy into a pre-existing resource group instead of creating `rg-<name_prefix>-<environment>`. The deploying identity needs Contributor and User Access Administrator on it. |
+| `app_service_zone_redundant`, `sql_max_size_gb`, `sql_serverless_min_capacity` | Zone redundancy of the plan (off by default; needs P1v2+), database max size (must suit the SKU: Basic and Standard reject 32), and serverless minimum vCores (default 0.5). |
 | `sql_admin`, `sql_database_sku` | Entra admin of the demo SQL server (Entra-only authentication) and the database SKU. `login_username` is the display name and `object_id` the object ID of a user, group, or managed identity you pass in; Terraform does not create it. The tenant comes from `organization.entra_tenant_id`. |
 | `organization.group_prefix` | Display-name prefix of the Entra groups that represent business areas (D-36). Published as the `GROUP_PREFIX` app setting; the directory sync (Phase 2) will read it, nothing uses it yet. Empty means no group-based business-area scoping. |
 | `app_service_sku` | Plan SKU shared by the portal and ingestion apps (default `B1`). |
