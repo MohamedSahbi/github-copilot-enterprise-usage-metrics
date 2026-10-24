@@ -12,6 +12,13 @@ updates:
       interval: weekly
     commit-message:
       prefix: "chore(deps):"
+    ignore:
+      # Runtime is Node 22; type definitions must match it.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Toolchain majors are adopted deliberately, not automatically.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
