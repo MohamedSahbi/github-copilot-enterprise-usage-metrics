@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.3...v0.2.4) (2026-10-24)
+
+
+### Bug Fixes
+
+* **infra:** stop creating Key Vault secrets in Terraform ([#29](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/29)) ([db8437e](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/db8437e087e5ad7986a8f70c3df77e49ddfffcef))
+
 ## [0.2.3](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.2...v0.2.3) (2026-10-24)
 
 
