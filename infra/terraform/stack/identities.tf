@@ -7,7 +7,7 @@ module "identity" {
 
   name                = "id-${local.name}-${each.key}"
   location            = var.location
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = local.resource_group_name
   tags                = local.tags
 
   enable_telemetry = false

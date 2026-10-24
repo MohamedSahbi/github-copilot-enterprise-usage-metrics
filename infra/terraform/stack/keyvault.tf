@@ -15,7 +15,7 @@ module "key_vault" {
 
   name                = local.key_vault_name
   location            = var.location
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = local.resource_group_name
   tenant_id           = var.organization.entra_tenant_id
   tags                = local.tags
 

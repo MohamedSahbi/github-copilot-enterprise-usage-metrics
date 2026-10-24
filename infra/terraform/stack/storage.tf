@@ -5,7 +5,7 @@ module "storage" {
 
   name                     = local.storage_name
   location                 = var.location
-  parent_id                = azurerm_resource_group.this.id
+  parent_id                = local.resource_group_id
   account_replication_type = "ZRS"
   tags                     = local.tags
 

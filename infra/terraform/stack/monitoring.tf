@@ -14,7 +14,7 @@ module "log_analytics" {
 
   name                = "log-${local.name}"
   location            = var.location
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = local.resource_group_name
   tags                = local.tags
 
   log_analytics_workspace_retention_in_days = var.log_retention_days
@@ -28,7 +28,7 @@ module "application_insights" {
 
   name         = "appi-${local.name}"
   location     = var.location
-  parent_id    = azurerm_resource_group.this.id
+  parent_id    = local.resource_group_id
   workspace_id = local.log_analytics_workspace_id
   tags         = local.tags
 

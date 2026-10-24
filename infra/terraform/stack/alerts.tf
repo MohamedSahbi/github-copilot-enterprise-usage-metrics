@@ -6,7 +6,7 @@ module "action_group" {
 
   name       = "ag-${local.name}"
   location   = "global"
-  parent_id  = azurerm_resource_group.this.id
+  parent_id  = local.resource_group_id
   short_name = substr("cmp${var.environment}", 0, 12)
   tags       = local.tags
 

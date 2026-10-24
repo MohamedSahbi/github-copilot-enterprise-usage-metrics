@@ -5,7 +5,7 @@ module "app_service_plan" {
 
   name      = "asp-${local.name}"
   location  = var.location
-  parent_id = azurerm_resource_group.this.id
+  parent_id = local.resource_group_id
   os_type   = "Linux"
   sku_name  = var.app_service_sku
   tags      = local.tags
@@ -36,7 +36,7 @@ module "portal" {
 
   name                     = "app-${local.name}-${local.suffix}"
   location                 = var.location
-  parent_id                = azurerm_resource_group.this.id
+  parent_id                = local.resource_group_id
   kind                     = "webapp"
   os_type                  = "Linux"
   service_plan_resource_id = module.app_service_plan.resource_id
@@ -66,7 +66,7 @@ module "ingestion" {
 
   name                     = "func-${local.name}-${local.suffix}"
   location                 = var.location
-  parent_id                = azurerm_resource_group.this.id
+  parent_id                = local.resource_group_id
   kind                     = "functionapp"
   os_type                  = "Linux"
   service_plan_resource_id = module.app_service_plan.resource_id

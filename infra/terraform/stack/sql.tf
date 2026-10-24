@@ -7,7 +7,7 @@ module "sql" {
 
   name                = local.sql_server_name
   location            = var.location
-  resource_group_name = azurerm_resource_group.this.name
+  resource_group_name = local.resource_group_name
   server_version      = "12.0"
   tags                = local.tags
 
