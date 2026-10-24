@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.3](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.2...v0.2.3) (2026-10-24)
+
+
+### Features
+
+* **infra:** split deploy-infra.sh into init, validate, plan and apply steps ([#27](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/27)) ([2b282d8](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/2b282d8b57fb701bcae6548038296c18a86c955a))
+
+
+### Bug Fixes
+
+* **infra:** use Entra and OIDC auth for the state backend ([#26](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/26)) ([5d81414](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/5d81414f3896907a474678a74b62636f02a2970b))
+
 ## [0.2.2](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.1...v0.2.2) (2026-10-24)
 
 
