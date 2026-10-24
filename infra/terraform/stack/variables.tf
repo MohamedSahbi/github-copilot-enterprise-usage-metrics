@@ -125,6 +125,24 @@ variable "sql_database_sku" {
   default     = "GP_S_Gen5_1"
 }
 
+variable "app_service_zone_redundant" {
+  description = "Spread the App Service plan across availability zones. Needs P1v2 or newer and a zone-capable region; false for dev."
+  type        = bool
+  default     = false
+}
+
+variable "sql_max_size_gb" {
+  description = "Maximum size of the demo database in GB. It must be valid for sql_database_sku: Basic and Standard SKUs do not accept 32."
+  type        = number
+  default     = 32
+}
+
+variable "sql_serverless_min_capacity" {
+  description = "Minimum vCores of a serverless database (GP_S_* SKUs only). Must be above zero."
+  type        = number
+  default     = 0.5
+}
+
 variable "app_service_sku" {
   description = "SKU of the Linux App Service plan shared by the portal and the ingestion Functions."
   type        = string

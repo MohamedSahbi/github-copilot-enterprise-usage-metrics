@@ -8,7 +8,10 @@ module "app_service_plan" {
   parent_id = local.resource_group_id
   os_type   = "Linux"
   sku_name  = var.app_service_sku
-  tags      = local.tags
+
+  # The module defaults to zone balancing, which Basic and Standard SKUs reject. Enable it only on P1v2 or newer in zone-capable regions.
+  zone_balancing_enabled = var.app_service_zone_redundant
+  tags                   = local.tags
 
   enable_telemetry = false
 }
