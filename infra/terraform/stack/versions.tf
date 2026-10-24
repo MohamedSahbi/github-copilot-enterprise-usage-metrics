@@ -8,4 +8,12 @@ terraform {
       version = "~> 4.0"
     }
   }
+
+  # Partial configuration; supply storage account, container, and one state key per environment at init time (see ../README.md).
+  backend "azurerm" {}
+}
+
+# Authentication is OIDC via ARM_CLIENT_ID, ARM_TENANT_ID, ARM_SUBSCRIPTION_ID, ARM_USE_OIDC (no stored secrets).
+provider "azurerm" {
+  features {}
 }

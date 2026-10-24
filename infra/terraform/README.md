@@ -4,13 +4,14 @@ Greenfield Terraform for the portal (§12). It is separate from any other IaC an
 
 ```
 bootstrap/                      state storage account (stub; created once per subscription)
-stack/                          thin composition layer; calls pinned Azure Verified Modules
-environments/{dev,test,prod}/   one root and one state per environment
+stack/                          the single root: calls pinned Azure Verified Modules
 ```
+
+One root serves every environment. An environment is a tfvars file (with `environment = "dev"`, `"test"` or `"prod"`) plus its own state key, so environments cannot drift in structure and nothing is copied. State, subscription and credentials stay separate per environment (separate state key and OIDC identity per GitHub environment).
 
 ## What exists now
 
-The `stack` module defines the full input surface and the resource group. The AVM resources (Log Analytics, Application Insights, Key Vault, Storage, SQL, identities, web and function apps, alerts) are added in later changes, each pinned to an AVM version revalidated against the registry (§12.1).
+The root defines the full input surface, the resource group, monitoring and identities. The remaining AVM resources (Key Vault, Storage, SQL, web and function apps, alerts) are added in later changes, each pinned to an AVM version revalidated against the registry (§12.1).
 
 Inputs worth knowing:
 
@@ -28,21 +29,21 @@ Inputs worth knowing:
 ## Use
 
 ```bash
-cd environments/dev
+cd stack
 cp terraform.tfvars.example terraform.tfvars   # git-ignored; non-secret values only
 terraform init \
   -backend-config="resource_group_name=<state-rg>" \
   -backend-config="storage_account_name=<state-account>" \
   -backend-config="container_name=tfstate" \
   -backend-config="key=dev.tfstate"
-terraform plan
+terraform plan -var-file=terraform.tfvars
 ```
 
 Authenticate with OIDC (`ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_USE_OIDC=true`). Never put secrets in variables or tfvars; Terraform state is sensitive.
 
 ## Check without Azure
 
-`bash scripts/terraform-check.sh` runs `terraform fmt -check` and `validate` for every root without a backend or credentials.
+`bash scripts/terraform-check.sh` runs `terraform fmt -check` and `validate` for the root without a backend or credentials.
 
 ## AVM versions (revalidated 2026-10-24, §12.1)
 

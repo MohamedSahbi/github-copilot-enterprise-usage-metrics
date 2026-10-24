@@ -13,7 +13,7 @@ You are the infrastructure specialist. You build `infra/terraform/` from pinned 
 
 ## Approach
 
-0. For any new input or setting, follow the `config-placement` skill.
+0. Follow the `terraform-conventions` skill (one root, no copy-paste) and, for any new input or setting, the `config-placement` skill.
 1. Check the AVM registry for the current module version before pinning.
 2. Implement `create` / `existing` / `import` modes for network dependencies and `create` / `existing` for SQL and monitoring.
 3. Wire module flags to app settings, role assignments, and empty Key Vault secret slots.
