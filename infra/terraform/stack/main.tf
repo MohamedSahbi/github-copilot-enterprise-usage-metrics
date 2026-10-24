@@ -11,6 +11,5 @@ resource "azurerm_resource_group" "this" {
   tags     = local.tags
 }
 
-# Next (separate changes, each pinned to a revalidated AVM version, §12.1): Log Analytics and Application Insights,
-# Key Vault (with one empty secret slot per enabled module), Storage, SQL (or existing_sql), managed identities,
-# the portal Web App, the ingestion Function App, and the alert action group.
+# Next (separate changes, each pinned to a revalidated AVM version, §12.1): Key Vault (with one empty secret slot per
+# enabled module), Storage, SQL (or existing_sql), the portal Web App, the ingestion Function App, and the alert action group.

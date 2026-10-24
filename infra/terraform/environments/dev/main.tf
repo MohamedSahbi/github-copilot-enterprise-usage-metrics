@@ -40,6 +40,14 @@ variable "existing_sql" {
   type    = any
   default = null
 }
+variable "existing_monitoring" {
+  type    = any
+  default = null
+}
+variable "log_retention_days" {
+  type    = number
+  default = 30
+}
 
 module "stack" {
   source = "../../stack"
@@ -53,4 +61,6 @@ module "stack" {
   private_endpoints_enabled = var.private_endpoints_enabled
   network                   = var.network
   existing_sql              = var.existing_sql
+  existing_monitoring       = var.existing_monitoring
+  log_retention_days        = var.log_retention_days
 }
