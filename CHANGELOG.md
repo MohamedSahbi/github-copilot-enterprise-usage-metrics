@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.1.0...v0.2.0) (2026-10-24)
+
+
+### Features
+
+* add storage, key vault, sql, apps, alerts and infra deploy scripts ([#19](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/19)) ([406b8cc](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/406b8cce45eb69439f4b5a6292fdd86daed62e94))
+* **infra:** add monitoring and runtime identities from AVM ([#17](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/17)) ([1abb6b1](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1abb6b164e11d8c69d9f0ca291b399186ceb77aa))
+
 ## 0.1.0 (2026-10-24)
 
 
