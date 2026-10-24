@@ -39,3 +39,9 @@ next-env.d.ts
 dist/
 playwright-report/
 test-results/
+
+# terraform (lockfiles are committed)
+.terraform/
+*.tfstate*
+terraform.tfvars
+*.auto.tfvars
