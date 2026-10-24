@@ -30,6 +30,10 @@ if [[ "$declared" != "$environment" ]]; then
   exit 2
 fi
 
+for tool in terraform az; do
+  command -v "$tool" >/dev/null || { echo "$tool is required on PATH" >&2; exit 2; }
+done
+
 root="$(cd "$(dirname "$0")/../infra/terraform/stack" && pwd)"
 var_file="$(cd "$(dirname "$var_file")" && pwd)/$(basename "$var_file")"
 
