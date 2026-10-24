@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.0...v0.2.1) (2026-10-24)
+
+
+### Features
+
+* **infra:** support deploying into an existing resource group ([#21](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/21)) ([7e82cf6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/7e82cf637c46c45cea1e783dbd809cdd6c46eb0f))
+
 ## [0.2.0](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.1.0...v0.2.0) (2026-10-24)
 
 
