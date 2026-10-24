@@ -1,10 +1,16 @@
 {
   "name": "github-copilot-enterprise-usage-metrics",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "workspaces": ["portal", "functions", "shared"],
-  "engines": { "node": ">=22.12.0" },
+  "workspaces": [
+    "portal",
+    "functions",
+    "shared"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && npm run typecheck --workspaces --if-present",
