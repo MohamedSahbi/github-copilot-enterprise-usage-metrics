@@ -11,7 +11,7 @@ One root serves every environment. An environment is a tfvars file (with `enviro
 
 ## What exists now
 
-The root defines the full input surface, the resource group, monitoring and identities. The remaining AVM resources (Key Vault, Storage, SQL, web and function apps, alerts) are added in later changes, each pinned to an AVM version revalidated against the registry (§12.1).
+The root creates the resource group, monitoring, identities, Storage (raw archive and Functions host), Key Vault with empty secret slots, SQL (or references `existing_sql`), one Linux plan with the portal Web App and the ingestion Function App, and an alert action group. Alert rules and the SQL identity users (created by migrations) come with the code that needs them. Every module is pinned to an AVM version revalidated against the registry (§12.1).
 
 Inputs worth knowing:
 
@@ -22,6 +22,9 @@ Inputs worth knowing:
 | `network.mode` | `create` (demo), `existing` (enterprise default), or `import` (D-35). |
 | `private_endpoints_enabled` | On by default (D-19); disable only for development. |
 | `existing_sql` | Reference the shared SQL server and database; never imported (D-34). |
+| `sql_admin`, `sql_database_sku` | Entra admin of the demo SQL server (Entra-only authentication) and the database SKU. |
+| `app_service_sku` | Plan SKU shared by the portal and ingestion apps (default `B1`). |
+| `network.integration_subnet_id`, `network.private_dns_zones` | Subnet for app VNet integration; private DNS zone IDs keyed `vault`, `blob`, `queue`, `table`, `sql`. |
 | `existing_monitoring` | Reference an existing Log Analytics workspace and Application Insights component instead of creating them (D-24). |
 | `log_retention_days` | Log Analytics retention when the workspace is created (default 30). |
 | `alert_emails`, `stale_data_threshold_hours` | Alert routing and the staleness threshold (D-50). |
@@ -54,4 +57,6 @@ Pinned exactly in the stack. Check the registry again before each new module.
 | `avm-res-operationalinsights-workspace` | 0.5.1 | Same as the record. |
 | `avm-res-insights-component` | 0.5.0 | Record said 0.4.0. 0.5.0 takes `parent_id` (resource group ID) instead of `resource_group_name` and uses the azapi provider. |
 | `avm-res-managedidentity-userassignedidentity` | 0.5.3 | Same as the record. |
-| `avm-res-keyvault-vault` 0.12.0, `avm-res-sql-server` 0.2.1, `avm-res-storage-storageaccount` 0.10.0, `avm-res-web-site` 0.24.1, `avm-res-network-virtualnetwork` 0.22.3, `avm-res-apimanagement-service` 0.9.0 | not yet used | Latest on the registry equals the record. |
+| `avm-res-keyvault-vault` 0.12.0, `avm-res-sql-server` 0.2.1, `avm-res-storage-storageaccount` 0.10.0, `avm-res-web-site` 0.24.1 | as pinned | Same as the record. Storage and web-site use `parent_id`. |
+| `avm-res-web-serverfarm` 2.0.8, `avm-res-insights-actiongroup` 0.1.0 | new | Not in §12.1; used for the App Service plan and the action group. |
+| `avm-res-network-virtualnetwork` 0.22.3, `avm-res-apimanagement-service` 0.9.0 | not yet used | Same as the record. |
