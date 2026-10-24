@@ -19,6 +19,7 @@ provider "azurerm" {
 
 variable "location" { type = string }
 variable "name_prefix" { type = string }
+variable "organization" { type = any }
 variable "modules" {
   type    = any
   default = {}
@@ -46,6 +47,7 @@ module "stack" {
   environment               = "prod"
   location                  = var.location
   name_prefix               = var.name_prefix
+  organization              = var.organization
   modules                   = var.modules
   alert_emails              = var.alert_emails
   private_endpoints_enabled = var.private_endpoints_enabled

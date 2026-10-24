@@ -33,6 +33,33 @@ variable "modules" {
   default = {}
 }
 
+variable "organization" {
+  description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
+  type = object({
+    enterprise_slug    = string
+    organizations      = list(string)
+    login_suffix       = string
+    group_prefix       = optional(string, "")
+    directory_provider = optional(string, "entra")
+    entra_tenant_id    = string
+  })
+
+  validation {
+    condition     = can(regex("^[a-z0-9-]+$", var.organization.enterprise_slug))
+    error_message = "organization.enterprise_slug must be lowercase letters, digits, or hyphens."
+  }
+
+  validation {
+    condition     = contains(["entra", "csv"], var.organization.directory_provider)
+    error_message = "organization.directory_provider must be entra or csv (D-4)."
+  }
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.organization.entra_tenant_id))
+    error_message = "organization.entra_tenant_id must be a GUID."
+  }
+}
+
 variable "alert_emails" {
   description = "Email receivers for the Azure Monitor action group (D-50)."
   type        = list(string)

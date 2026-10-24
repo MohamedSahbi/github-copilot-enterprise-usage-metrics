@@ -2,6 +2,15 @@
 location    = "westeurope"
 name_prefix = "cmp"
 
+organization = {
+  enterprise_slug    = "example-enterprise"
+  organizations      = ["example-org"]
+  login_suffix       = "_example"
+  group_prefix       = "copilot-"
+  directory_provider = "entra"
+  entra_tenant_id    = "00000000-0000-0000-0000-000000000000"
+}
+
 modules = {
   ai_credits    = true
   budget_lookup = false

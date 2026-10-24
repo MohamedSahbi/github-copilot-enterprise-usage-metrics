@@ -16,6 +16,7 @@ Inputs worth knowing:
 
 | Input | Meaning |
 | --- | --- |
+| `organization` | Enterprise slug, organizations, login suffix, group prefix, directory provider, Entra tenant ID. Passed to the portal as app settings; real values live in the private deployment repository (D-46). |
 | `modules` | Optional modules (D-1): `ai_credits`, `budget_lookup`, `feedback`. Toggling never changes the SQL schema. |
 | `network.mode` | `create` (demo), `existing` (enterprise default), or `import` (D-35). |
 | `private_endpoints_enabled` | On by default (D-19); disable only for development. |
