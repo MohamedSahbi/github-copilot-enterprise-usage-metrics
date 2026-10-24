@@ -18,6 +18,12 @@ modules = {
   feedback      = true
 }
 
+# Required unless existing_sql is set: the Entra group that administers the demo SQL server.
+sql_admin = {
+  login_username = "example-sql-admins"
+  object_id      = "00000000-0000-0000-0000-000000000000"
+}
+
 alert_emails = ["team@example.com"]
 
 # Development only: skip private endpoints. Keep true for test and prod.
