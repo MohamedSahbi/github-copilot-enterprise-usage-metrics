@@ -35,11 +35,14 @@ command -v terraform >/dev/null || { echo "terraform is required on PATH (1.11 o
 root="$(cd "$(dirname "$0")/../infra/terraform/stack" && pwd)"
 var_file="$(cd "$(dirname "$var_file")" && pwd)/$(basename "$var_file")"
 
+# The state account has shared key access disabled, so the backend must use Entra (and OIDC) explicitly.
 terraform -chdir="$root" init -input=false -reconfigure \
   -backend-config="resource_group_name=$TFSTATE_RESOURCE_GROUP" \
   -backend-config="storage_account_name=$TFSTATE_STORAGE_ACCOUNT" \
   -backend-config="container_name=$container" \
-  -backend-config="key=$environment.tfstate"
+  -backend-config="key=$environment.tfstate" \
+  -backend-config="use_azuread_auth=true" \
+  -backend-config="use_oidc=true"
 
 plan_file="$root/$environment.tfplan"
 terraform -chdir="$root" plan -input=false -var-file="$var_file" -out="$plan_file"
