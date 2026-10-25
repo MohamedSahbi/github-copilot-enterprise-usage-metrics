@@ -776,12 +776,19 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | --- | --- | --- |
 | Whether a GitHub App installation token works for `orgs/{org}/copilot/metrics/reports/users-1-day` (docs name the fine-grained permission but not App installations explicitly) | Fact check | Phase 0 |
 | `profileUrl` is returned by SCIM in practice but is not in the documented schema; confirm the normalized-`userName` fallback produces the same login for a sample, including hex-hash logins | Fact check | Phase 0 |
-| Submodule proof of concept outcome (§10.1) | Fact check | Phase 0 |
-| Whether the Copilot coding agent on github.com can create issues directly, or needs the PR-section workflow (§13.5) | Fact check | Phase 0 |
+| Submodule proof of concept outcome (§10.1) | Fact check | Phase 0. Checks 1 to 3 pass; check 4 (EMU fetch from public `github.com`) is open, issue #33 (`docs/architecture/poc-submodule.md`) |
+| Whether the Copilot coding agent on github.com can create issues directly, or needs the PR-section workflow (§13.5) | Fact check | **Resolved:** it cannot; it has read-only issue tools, so the PR-section workflow is required (`poc-submodule.md`) |
 | RPO/RTO, SQL tier and budget, data volumes | Decision | Before prod promotion |
 | Product-owner review of which portal-only charts (§4.1) to keep as owned pages | Decision | Phase 3 |
 | Feature-parity checklist reviewed by the owner (build kit `docs/architecture/feature-parity.md`) | Decision | Before Phase 3 |
-| Whether Docker (SQL Server container) runs in the Copilot coding agent environment, and the network allowlist it needs | Fact check | Phase 0 |
+| Whether Docker (SQL Server container) runs in the Copilot coding agent environment, and the network allowlist it needs | Fact check | **Resolved:** Docker works and the SQL Server image pulls (`poc-submodule.md`); the full allowlist is not recorded |
+| Add D-53 (config placement: Terraform inputs in tfvars, pipeline-only settings in a YAML deployment config, human-only facts in Markdown) to §14 | Decision | Proposed in PR #14 and the `config-placement` skill; needs owner approval (issue #36) |
+| Add D-54 (the deployment template is Azure DevOps first, GitHub Actions optional; the wrapper pins a portal tag and runs its scripts) to §14 | Decision | Needs owner approval (issue #36) |
+| Review the guarded test sign-in provider (§13.4) with the security and spec reviewers | Review | Before Phase 2 (issue #35) |
+| Move `bug-backlog.yml` off `pull_request_target` (deprecated from 2 December 2026) | Fix | Before 2 December 2026 (issue #34) |
+| Build the VNet for `network.mode = create` and the alert rules | Build | Before test and prod promotion (issue #37) |
+
+These items are not checked by CI. Update this table when one is resolved.
 
 ---
 
