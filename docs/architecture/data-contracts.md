@@ -255,6 +255,6 @@ The deployment template and the private environment repository supply these as t
 
 ## 14. Access-model review notes
 
-- Grant, revocation and unlink timestamps are `DATETIME2(7)`; `portal.v_active_grant` hides a grant when a revocation or unlink is at or after `granted_at`, so an exact tie fails closed.
+- Order between grants, directory revocations and unlinks comes from `event_seq` (`AccessGrant`, `GrantRevocation`) and `unlink_seq` (`PrincipalLinkState`), all drawn from the database-wide sequence `portal.seq_access_event`, never from timestamps (which can tie, so they stay `DATETIME2(7)` for display only). `portal.v_active_grant` hides a grant when a revocation or unlink has a higher position; a later re-grant has a higher position again and is visible. An unlink without a sequence is rejected by `CK_PrincipalLinkState_pair`, and the view hides the grant if one ever appears. Writers need UPDATE on the sequence to draw a value.
 - Entra columns of `Principal` are not directly updatable. `portal.usp_link_principal_entra` (EXECUTE for the portal writer) fills a missing Entra ID once (dual-provider linking, decision record §13.1); it never reassigns or clears one.
 - `validateSettings` rejects a non-object root or a supplied non-object section; omitted sections keep defaults.

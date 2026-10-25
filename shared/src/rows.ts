@@ -239,6 +239,8 @@ export interface AccessGrantRow {
   granted_at: IsoDateTime;
   revoked_at: IsoDateTime | null;
   principal_entra_oid: Guid;
+  // Position from portal.seq_access_event; orders grants against revocations and unlinks (timestamps can tie).
+  event_seq: number;
 }
 
 export type UnlinkReason = "entra_disabled" | "entra_deleted" | "github_removed";
@@ -250,6 +252,7 @@ export interface PrincipalLinkStateRow {
   github_user_id: number;
   linked_at: IsoDateTime;
   unlinked_at: IsoDateTime | null;
+  unlink_seq: number | null;
   unlink_reason: UnlinkReason | null;
   run_id: Guid | null;
 }
@@ -259,6 +262,7 @@ export interface GrantRevocationRow {
   entra_tenant_id: Guid;
   entra_object_id: Guid;
   revoked_at: IsoDateTime;
+  event_seq: number;
   reason: UnlinkReason;
   run_id: Guid | null;
 }
@@ -319,13 +323,13 @@ export const TABLE_COLUMNS = {
   ] as const satisfies readonly (keyof PrincipalRow)[],
   "portal.AccessGrant": [
     "grant_id", "principal_id", "role", "scope", "scope_value", "granted_by", "granted_at", "revoked_at",
-    "principal_entra_oid",
+    "principal_entra_oid", "event_seq",
   ] as const satisfies readonly (keyof AccessGrantRow)[],
   "portal.PrincipalLinkState": [
-    "link_id", "entra_tenant_id", "entra_object_id", "github_user_id", "linked_at", "unlinked_at", "unlink_reason", "run_id",
+    "link_id", "entra_tenant_id", "entra_object_id", "github_user_id", "linked_at", "unlinked_at", "unlink_seq", "unlink_reason", "run_id",
   ] as const satisfies readonly (keyof PrincipalLinkStateRow)[],
   "portal.GrantRevocation": [
-    "revocation_id", "entra_tenant_id", "entra_object_id", "revoked_at", "reason", "run_id",
+    "revocation_id", "entra_tenant_id", "entra_object_id", "revoked_at", "event_seq", "reason", "run_id",
   ] as const satisfies readonly (keyof GrantRevocationRow)[],
   "portal.IssueAction": [
     "action_id", "issue_id", "action", "actor_entra_oid", "requested_at", "correlation_id",

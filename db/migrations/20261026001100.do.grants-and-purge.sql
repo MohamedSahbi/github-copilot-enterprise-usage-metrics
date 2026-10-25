@@ -4,7 +4,7 @@
 --   portal.dim_user_login_history: ingestion (purged by portal.usp_purge_login_history, nobody else deletes)
 --
 -- Single-writer grants:
---   ingestion: INSERT and UPDATE(unlinked_at, unlink_reason) on PrincipalLinkState; INSERT on GrantRevocation and
+--   ingestion: INSERT and UPDATE(unlinked_at, unlink_seq, unlink_reason) on PrincipalLinkState; INSERT on GrantRevocation and
 --              IngestionAuditEvent; UPDATE(handled_at) on ValidationIssue only.
 --   portal:    INSERT on IssueAction. Reads the grant state through portal.v_active_grant.
 --   Append-only: UPDATE and DELETE are denied on GrantRevocation, IssueAction and IngestionAuditEvent for every role.
@@ -16,7 +16,9 @@
 -- measured from last_seen_day. Only admins can read the table through the API.
 
 GRANT INSERT ON portal.PrincipalLinkState TO portal_ingest;
-GRANT UPDATE (unlinked_at, unlink_reason) ON portal.PrincipalLinkState TO portal_ingest;
+GRANT UPDATE (unlinked_at, unlink_seq, unlink_reason) ON portal.PrincipalLinkState TO portal_ingest;
+-- Ordering token for grants, revocations and unlinks (portal.seq_access_event).
+GRANT UPDATE ON OBJECT::portal.seq_access_event TO portal_ingest, portal_writer;
 GRANT INSERT ON portal.GrantRevocation TO portal_ingest;
 GRANT INSERT ON portal.IngestionAuditEvent TO portal_ingest;
 GRANT UPDATE (handled_at) ON portal.ValidationIssue TO portal_ingest;

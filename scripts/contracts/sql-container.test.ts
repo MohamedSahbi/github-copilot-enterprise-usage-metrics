@@ -91,7 +91,7 @@ describe.skipIf(!enabled)("migrations on SQL Server 2022 (RUN_SQL_TESTS=1)", () 
     run(link(L1, 2001));
     fails(link(L1, 2002), /UX_PrincipalLinkState_entra/);
     fails(link(L2, 2001), /UX_PrincipalLinkState_github/);
-    run(`UPDATE portal.PrincipalLinkState SET unlinked_at = SYSUTCDATETIME(), unlink_reason = 'entra_disabled' WHERE entra_object_id = '${L1}'`);
+    run(`UPDATE portal.PrincipalLinkState SET unlinked_at = SYSUTCDATETIME(), unlink_seq = NEXT VALUE FOR portal.seq_access_event, unlink_reason = 'entra_disabled' WHERE entra_object_id = '${L1}'`);
     expect(() => run(link(L2, 2001))).not.toThrow();
     fails(`UPDATE portal.PrincipalLinkState SET unlink_reason = 'entra_disabled' WHERE entra_object_id = '${L2}'`, /CK_PrincipalLinkState_pair/);
   });
@@ -130,6 +130,37 @@ describe.skipIf(!enabled)("migrations on SQL Server 2022 (RUN_SQL_TESTS=1)", () 
     fails(`EXECUTE AS USER = 't_writer'; EXEC portal.usp_link_principal_entra @principal_id = '${pid}', @entra_tenant_id = '${T}', @entra_object_id = '${O8}'; REVERT`, /not found or already linked/);
     const other = principal(null, 1008);
     fails(`EXECUTE AS USER = 't_writer'; EXEC portal.usp_link_principal_entra @principal_id = '${other}', @entra_tenant_id = '${T}', @entra_object_id = '${O7}'; REVERT`, /UX_Principal_entra/);
+  });
+
+  it("orders grants, revocations and unlinks by event_seq, not by timestamp, even when timestamps are equal", () => {
+    const TS = "2031-01-01T00:00:00.0000000";
+    const O9 = "aaaaaaaa-0000-0000-0000-000000000009";
+    const pid = principal(O9, 1009);
+    const visible = (): string => run(`SELECT COALESCE(STRING_AGG(role, ','), '') FROM portal.v_active_grant WHERE principal_id = '${pid}'`);
+    const g = (role: string, scope: string): string =>
+      `INSERT INTO portal.AccessGrant (principal_id, principal_entra_oid, role, scope, scope_value, granted_at) VALUES ('${pid}', '${O9}', '${role}', '${scope}', N'', '${TS}')`;
+    const rev = `INSERT INTO portal.GrantRevocation (entra_tenant_id, entra_object_id, revoked_at, reason) VALUES ('${T}', '${O9}', '${TS}', 'entra_disabled')`;
+    run(g("user", "self"));
+    expect(visible()).toBe("user");
+    run(rev);
+    expect(visible()).toBe("");
+    run(g("manager", "self"));
+    expect(visible()).toBe("manager");
+    run(rev);
+    expect(visible()).toBe("");
+    // a grant keeps its position: a later grant cannot be hidden by an earlier revocation, an earlier one cannot come back
+    run(g("manager", "team"));
+    expect(visible()).toBe("manager");
+    expect(run(`SELECT COUNT(*) FROM portal.AccessGrant WHERE principal_id = '${pid}' AND event_seq IS NOT NULL`)).toBe("3");
+    expect(run(`SELECT COUNT(DISTINCT event_seq) FROM portal.AccessGrant WHERE principal_id = '${pid}'`)).toBe("3");
+    // unlink with an equal timestamp hides earlier grants, a later grant is visible
+    run(`INSERT INTO portal.PrincipalLinkState (entra_tenant_id, entra_object_id, github_user_id, linked_at) VALUES ('${T}', '${O9}', 1009, '${TS}')`);
+    run(`UPDATE portal.PrincipalLinkState SET unlinked_at = '${TS}', unlink_seq = NEXT VALUE FOR portal.seq_access_event, unlink_reason = 'entra_disabled' WHERE entra_object_id = '${O9}'`);
+    expect(visible()).toBe("");
+    run(g("executive", "company"));
+    expect(visible()).toBe("executive");
+    // incomplete ordering (unlinked without a sequence) is rejected by the database
+    fails(`UPDATE portal.PrincipalLinkState SET unlink_seq = NULL WHERE entra_object_id = '${O9}'`, /CK_PrincipalLinkState_pair/);
   });
 
   it("requires the manager email whenever a manager object ID is stored", () => {
@@ -194,7 +225,7 @@ describe.skipIf(!enabled)("migrations on SQL Server 2022 (RUN_SQL_TESTS=1)", () 
     run(`INSERT INTO portal.PrincipalLinkState (entra_tenant_id, entra_object_id, github_user_id) VALUES ('${T}', '${L3}', 4001)`);
     asUserFails("t_ingest", `UPDATE portal.PrincipalLinkState SET github_user_id = 4002 WHERE entra_object_id = '${L3}'`);
     asUserFails("t_ingest", `DELETE FROM portal.PrincipalLinkState WHERE entra_object_id = '${L3}'`);
-    expect(() => asUser("t_ingest", `UPDATE portal.PrincipalLinkState SET unlinked_at = SYSUTCDATETIME(), unlink_reason = 'entra_disabled' WHERE entra_object_id = '${L3}'`)).not.toThrow();
+    expect(() => asUser("t_ingest", `UPDATE portal.PrincipalLinkState SET unlinked_at = SYSUTCDATETIME(), unlink_seq = NEXT VALUE FOR portal.seq_access_event, unlink_reason = 'entra_disabled' WHERE entra_object_id = '${L3}'`)).not.toThrow();
     asUserFails("t_ingest", "UPDATE portal.IngestionAuditEvent SET outcome = 'failure'");
     asUserFails("t_ingest", "DELETE FROM portal.GrantRevocation");
   });

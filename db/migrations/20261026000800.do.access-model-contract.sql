@@ -85,6 +85,32 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_AccessGrant_active' A
 CREATE INDEX IX_AccessGrant_active ON portal.AccessGrant (principal_id) WHERE revoked_at IS NULL;
 GO
 
+-- Deterministic event order. Timestamps can tie, so grants, directory revocations and unlinks carry a position from one
+-- database-wide sequence; a grant is revoked only by an event with a higher position (a later re-grant has a higher one
+-- again). Existing grants are numbered in granted_at order.
+IF OBJECT_ID(N'portal.seq_access_event', N'SO') IS NULL
+CREATE SEQUENCE portal.seq_access_event AS BIGINT START WITH 1 INCREMENT BY 1 NO CACHE;
+GO
+IF COL_LENGTH(N'portal.AccessGrant', N'event_seq') IS NULL
+ALTER TABLE portal.AccessGrant ADD event_seq BIGINT NULL;
+GO
+IF EXISTS (SELECT 1 FROM portal.AccessGrant WHERE event_seq IS NULL)
+BEGIN
+    UPDATE g SET g.event_seq = n.rn
+    FROM portal.AccessGrant AS g
+    JOIN (SELECT grant_id, ROW_NUMBER() OVER (ORDER BY granted_at, grant_id) AS rn FROM portal.AccessGrant) AS n ON n.grant_id = g.grant_id
+    WHERE g.event_seq IS NULL;
+    DECLARE @next BIGINT = (SELECT MAX(event_seq) + 1 FROM portal.AccessGrant);
+    EXEC (N'ALTER SEQUENCE portal.seq_access_event RESTART WITH ' + @next);
+END
+GO
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'portal.AccessGrant') AND name = N'event_seq' AND is_nullable = 1)
+ALTER TABLE portal.AccessGrant ALTER COLUMN event_seq BIGINT NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE name = N'DF_AccessGrant_event_seq')
+ALTER TABLE portal.AccessGrant ADD CONSTRAINT DF_AccessGrant_event_seq DEFAULT (NEXT VALUE FOR portal.seq_access_event) FOR event_seq;
+GO
+
 IF OBJECT_ID(N'portal.BreakGlassConfig', N'U') IS NOT NULL
 DROP TABLE portal.BreakGlassConfig;
 GO
