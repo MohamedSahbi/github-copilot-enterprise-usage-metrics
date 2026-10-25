@@ -436,6 +436,8 @@ flowchart LR
 
 1. The EMU repository is created from our public repository and adds it as a read-only remote.
 2. It pulls **tagged releases only** (D-21), as a reviewed PR per release; each release PR is revertible as a unit.
+
+*Steps 1 and 2 are superseded by D-53 and D-54 (§12.8): the model is a public config-only template, a private repository created from it, and a pinned portal version; EMU never merges portal code.*
 3. It carries **configuration only**: tfvars, pipeline variables, and branding (D-13). Any other need goes upstream into our public repository as a module or setting.
 4. Organizations that need to change module behaviour fork our repository; there is no module-override framework (D-13).
 5. The submodule pin travels with each release, so EMU never syncs from Anton directly. CI must be able to fetch public `github.com` for the submodule (§10.1 check 4).
@@ -526,7 +528,7 @@ No plugin or override framework exists (D-13); changing module behaviour means f
 ### 12.6 CI/CD and releases (D-20, D-21, D-26, D-27)
 
 - **Logic lives in scripts** (npm scripts, shell scripts, Terraform). CI files only call them.
-- **GitHub Actions is primary**, authenticated to Azure with OIDC, and the only platform run end to end in our repository.
+- **GitHub Actions is primary**, authenticated to Azure with OIDC, and the only platform run end to end in our repository. *Partly superseded by D-54 (§12.8): for EMU deployments Azure Pipelines is primary because the EMU repository is on Azure Repos; GitHub Actions stays a secondary wrapper. The other §12.6 text is unchanged.*
 - **Azure Pipelines templates are also provided**, calling the same scripts, marked "provided, community-tested".
 - **Releases are automatic:** release-please derives the semantic version and changelog from conventional commits and keeps a release PR open; merging it creates the tag and GitHub Release. A workflow step adds the pinned upstream commit to the release notes. A repository instruction file teaches agents the commit conventions. This replaces `pipelines/scripts/release.sh` and `update-changelog.py`. Dependabot commit prefixes are configured (`fix(deps):`) so upstream bumps produce a release; the release workflow uses a GitHub App token, because tags created with `GITHUB_TOKEN` do not trigger downstream workflows.
 
@@ -542,6 +544,40 @@ No plugin or override framework exists (D-13); changing module behaviour means f
 | Azure cost | Azure budget on the resource group with email alerts at 80% and 100% |
 | Agent cost | GitHub budgets for Copilot (AI Credits) and Actions minutes set by the owner; agents prefer small tasks to keep sessions short |
 | Runbooks | `docs/runbooks/`: deploy, rollback, cut-over, credential rotation, restore, backfill, incident triage |
+
+### 12.8 Deployment repositories and configuration placement (D-53, D-54)
+
+Three repositories take part. The portal repository (this one) holds code, Terraform, scripts and releases. A **public, config-only template repository** holds the pipeline wrappers, placeholder configuration and a setup guide. Each organization creates a **private deployment repository** from the template and fills in its own values (D-13, D-46).
+
+**Where each kind of value lives (D-53)**
+
+| Value | Lives in |
+| --- | --- |
+| Input to Terraform or an app setting (enterprise slug, login suffix, group prefix, tenant ID, region, module flags, network mode, alert emails) | `config/<env>.tfvars` in the deployment repository, bound to a typed variable with `validation` in `infra/terraform/stack` |
+| Setting only the pipeline reads (portal repository, pinned portal version) | `config/deployment.yml` |
+| Non-secret pipeline identity (client, tenant and subscription IDs, state account names) | Azure DevOps pipeline variables or service connection; GitHub environment variables |
+| Secret or credential (GitHub App key, classic PAT, OAuth client secrets) | Key Vault at runtime, GitHub environment secrets in pipelines; never a file, variable default, output or state. Terraform creates the vault only; operators create the secrets (names in the `secret_names` output) |
+| Human-only fact (admins, expiry and rotation dates, rationale) | `docs/deployment-note.md`, private repository only |
+| Decision that applies to everyone | This record, under a new D-number |
+
+Public repositories carry placeholders only (`REPLACE` markers, `{enterprise}`, `{org}`); real organization values exist only in the private deployment repository (D-46). The `config-placement` skill is the checklist for a new setting.
+
+**Re-sync rule.** A repository created from a template has no shared history with it. The deployment repository takes template changes by reviewing them and copying wrapper, documentation and new configuration keys by hand, in a reviewed pull request; it never overwrites its own `config/*` values. Portal upgrades are separate: change `portal.version` to a released tag (D-21).
+
+**Deployment wrappers (D-54)**
+
+| Aspect | Azure Pipelines (primary for EMU) | GitHub Actions (secondary) |
+| --- | --- | --- |
+| File | `azure-pipelines.yml`, `azure-pipelines/` | `.github/workflows/deploy.yml` |
+| Trigger | Manual; `environment` and `apply` parameters | Manual; `environment` and `apply` inputs |
+| Stages | Plan (init, validate, plan, publish `tfplan-<env>` artifact), then Apply only when `apply` is true | One job runs init, validate, plan and, when `apply` is true, apply |
+| Approval | Apply is a `deployment` job on an Azure DevOps environment; approvals and checks are set there. It applies the published plan artifact | Environment protection rules on the job; the plan is applied in the same job |
+| Azure authentication | Service connection with workload identity federation | OIDC with `AZURE_*` environment variables |
+| Terraform | Version pinned in the pipeline, downloaded and verified against the published SHA256 sums | `hashicorp/setup-terraform` (version not pinned in the workflow) |
+| State | Entra authentication and OIDC; the state account has shared keys disabled (`scripts/bootstrap-state.sh`) | Same |
+| Verified | Run end to end for `dev` | Not yet run against a real subscription |
+
+The GitHub Actions wrapper is functional, not identical: no published plan artifact, and Terraform is not checksum-pinned. Both wrappers read `config/deployment.yml`, validate `portal.repository` and `portal.version`, clone the tag `v<version>` of the portal and call `portal/scripts/deploy-infra.sh <init|validate|plan|apply> <env> config/<env>.tfvars`. The script refuses an environment that does not match the `environment` value in the tfvars file, and refuses to apply without a plan file. The pipeline agent needs outbound HTTPS to `github.com`.
 
 ---
 
@@ -641,13 +677,13 @@ Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questi
 | D-17 | Fail closed; break-glass group; 5-minute permission freshness; configurable no-access page | §13.1 |
 | D-18 | Portal on App Service Linux, Node 22 minimum, Node 24 when supported | §8 |
 | D-19 | Private endpoints default; enterprise supplies subnets and DNS zones; demo creates them | §12.2 |
-| D-20 | GitHub Actions primary; Azure Pipelines templates also provided | §12.6 |
+| D-20 | GitHub Actions primary; Azure Pipelines templates also provided (partly superseded by D-54: Azure Pipelines is primary for EMU) | §12.6 |
 | D-21 | Semantic-version tags; EMU pulls tags only; upstream commit in release notes | §12.6 |
 | D-22 | Adopt upstream `FeatureAdoptionChart` with its calculator and types | §4.3, §9 |
 | D-23 | Backfill start date configurable; one-off importer for existing raw files | §6.4 |
 | D-24 | Monitoring created by default; enterprise may supply existing resources | §12.2 |
 | D-25 | MIT licence, Anton's notice preserved; owner is sole maintainer; CODEOWNERS and human approval on every PR | §10 |
-| D-26 | CI logic in scripts; Actions tested end to end; Azure Pipelines community-tested | §12.6 |
+| D-26 | CI logic in scripts; Actions tested end to end; Azure Pipelines community-tested (partly superseded by D-54: Azure Pipelines is primary for EMU) | §12.6 |
 | D-27 | release-please automation with agent commit-convention instructions | §12.6 |
 | D-28 | Idempotent per-day ingestion; importer only places raw files | §6.4 |
 | D-29 | TypeScript directory sync is the single writer of `CopilotUserDirectory` and `ManagerHierarchy`; PowerShell `Sync-CopilotUserDirectory-SQL` and `Sync-ManagerHierarchy` retired after a matching parallel run; budget Functions read through a documented contract (revised by Q33) | §6.5 |
@@ -671,6 +707,9 @@ Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questi
 | D-50 | Operations: email action group (list from tfvars), credential-expiry alerts, key rotation, quarterly restore test, Azure and GitHub budgets, runbooks | §12.7 |
 | D-51 | Structured logging with correlation IDs; no secrets or personal data in logs | §13.6 |
 | D-52 | Verification before done, test-first for logic and bug fixes, spec-compliance review on every PR, systematic debugging, evidence-based review responses | §13.6 |
+
+| D-53 | Configuration placement: a value any tool or the portal reads lives in a typed, validated file, never in Markdown: Terraform and app-setting inputs in `config/<env>.tfvars`, pipeline-only settings in `config/deployment.yml`; no secrets in tfvars, variables, outputs or state (Key Vault at runtime, environment secrets or workload identity federation in pipelines); human-only facts in the private deployment note; company-specific values only in the private deployment repository, never in a public repository. The private repository starts from the public config-only template and re-syncs from it by hand | §12.8 |
+| D-54 | The deployment template is Azure DevOps first: Azure Pipelines is the primary wrapper for EMU (Plan and Apply stages, Apply behind an environment approval and applying the published plan artifact, checksum-verified pinned Terraform, workload identity federation, Entra-authenticated state), GitHub Actions the equivalent secondary wrapper. The template pins one released portal version, and `scripts/deploy-infra.sh` (init, validate, plan, apply) is the only interface the wrappers call | §12.8 |
 
 Q31 and Q32 were confirmation questions and have no decision rows.
 
@@ -782,8 +821,8 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | Product-owner review of which portal-only charts (§4.1) to keep as owned pages | Decision | Phase 3 |
 | Feature-parity checklist reviewed by the owner (build kit `docs/architecture/feature-parity.md`) | Decision | Before Phase 3 |
 | Whether Docker (SQL Server container) runs in the Copilot coding agent environment, and the network allowlist it needs | Fact check | **Resolved:** Docker works and the SQL Server image pulls (`poc-submodule.md`); the full allowlist is not recorded |
-| Add D-53 (config placement: Terraform inputs in tfvars, pipeline-only settings in a YAML deployment config, human-only facts in Markdown) to §14 | Decision | Proposed in PR #14 and the `config-placement` skill; needs owner approval (issue #36) |
-| Add D-54 (the deployment template is Azure DevOps first, GitHub Actions optional; the wrapper pins a portal tag and runs its scripts) to §14 | Decision | Needs owner approval (issue #36) |
+| Add D-53 (config placement: Terraform inputs in tfvars, pipeline-only settings in a YAML deployment config, human-only facts in Markdown) to §14 | Decision | **Resolved:** added as D-53 (§12.8, issue #36); proposed in PR #14 and the `config-placement` skill |
+| Add D-54 (the deployment template is Azure DevOps first, GitHub Actions optional; the wrapper pins a portal tag and runs its scripts) to §14 | Decision | **Resolved:** added as D-54 (§12.8, issue #36) |
 | Review the guarded test sign-in provider (§13.4) with the security and spec reviewers | Review | Before Phase 2 (issue #35) |
 | Move `bug-backlog.yml` off `pull_request_target` (deprecated from 2 December 2026) | Fix | Before 2 December 2026 (issue #34) |
 | Build the VNet for `network.mode = create` and the alert rules | Build | Before test and prod promotion (issue #37) |
