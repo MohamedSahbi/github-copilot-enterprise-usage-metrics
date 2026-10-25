@@ -1,6 +1,6 @@
-// Directory column contract read by the budget Functions (D-29). Derived from the existing code, generic names only.
-// v1 = the columns the Functions read today. v2 (defined, not yet adopted) re-keys on the numeric GitHub user ID.
-// Any change here needs the contract test updated and a note for the budget Functions' owner.
+// Historical budget-directory descriptors, derived from the old code; not the new runtime schema.
+// D-29/D-34: the new database uses dim_user and never needs v1-compatible shadow tables or old-consumer adoption.
+// v2 describes a historical proposal, not an approved migration or Budget Lookup source.
 
 export const DIRECTORY_CONTRACT_V1_VERSION = 1;
 export const DIRECTORY_CONTRACT_V2_VERSION = 2;

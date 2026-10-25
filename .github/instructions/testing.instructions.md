@@ -8,7 +8,7 @@ applyTo: "**/*.test.ts,**/*.test.tsx,e2e/**,tests/**,fixtures/**"
 ## Layers
 
 - **Unit (Vitest):** pure logic only. Colocated `*.test.ts`.
-- **Contract:** shared DTOs, the directory column contract read by the PowerShell budget Functions, and the upstream test oracle. Never edit oracle fixtures to make a test pass.
+- **Contract:** shared DTOs, the new portal directory row/writer contracts, and the upstream test oracle. Historical v1/v2 budget-directory descriptor tests stay as reference evidence, not a requirement to create old-compatible runtime/shadow tables in the separate new database. Never edit oracle fixtures to make a test pass.
 - **Integration (Vitest):** real SQL Server container and Azurite; GitHub, Graph, and SCIM via recorded responses in `fixtures/`. No live network calls in tests.
 - **E2E (Playwright, `e2e/`):** run against a local build seeded from fixture NDJSON with test sign-in personas (admin, manager with reports, member, no-access, unlinked GitHub user).
 - **Smoke (Playwright, `e2e/smoke/`):** deployed environments only; unauthenticated paths and `/api/health` only.
@@ -20,6 +20,7 @@ applyTo: "**/*.test.ts,**/*.test.tsx,e2e/**,tests/**,fixtures/**"
 
 - Every behaviour change has a test; every authorization rule has an allowed and a denied case.
 - Cover empty, partial, malformed, and error responses for every external API.
+- Independent parallel operation still needs reconciliation/parity evidence. Use synthetic or explicitly authorized comparison inputs with provenance and coverage; missing evidence is incomplete, not a match. Do not add runtime old-database access merely for comparison. Final migration and decommission remain separately approved end-stage operations.
 - E2E tests assert no console errors and run axe on each page they visit.
 - Use role-based Playwright locators (`getByRole`, `getByLabel`); no CSS selectors tied to styling.
 - Tests are independent and order-free; reset the database between integration tests.
