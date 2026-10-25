@@ -1,5 +1,4 @@
 import { validateSettings } from "../../../shared/src/settings";
-import { isGuid } from "../../../shared/src/access";
 
 type Env = Record<string, string | undefined>;
 
@@ -9,13 +8,10 @@ export function readAccessSettings(env: Env = process.env) {
     throw new Error("Invalid access.permission_freshness_minutes");
   }
   const breakGlass = env.ACCESS_BREAK_GLASS_GROUP_ID ?? "";
-  if (breakGlass && !isGuid(breakGlass)) {
-    console.warn(JSON.stringify({ level: "warn", event: "access.invalid_break_glass_group" }));
-  }
   const validated = validateSettings({
     access: {
-      breakGlassGroupId: isGuid(breakGlass) ? breakGlass : "",
-      permissionFreshnessMinutes: Math.min(60, Math.max(1, freshness)),
+      breakGlassGroupId: breakGlass,
+      permissionFreshnessMinutes: freshness,
     },
     directory: {
       departmentAttribute: env.DIRECTORY_DEPARTMENT_ATTRIBUTE,

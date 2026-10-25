@@ -7,4 +7,6 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+trap 'npm run stack:down' EXIT
+npm run stack:up
 npm run test:e2e

@@ -94,14 +94,12 @@ describe("access settings", () => {
     }
   });
   it("rejects invalid freshness instead of silently falling back", () => {
-    for (const value of ["NaN", "1.5", ""]) {
+    for (const value of ["0", "61", "NaN", "1.5", ""]) {
       expect(() => readAccessSettings({ ACCESS_PERMISSION_FRESHNESS_MINUTES: value })).toThrow();
     }
   });
   it("rejects unsafe request links and malformed break-glass IDs", () => {
     expect(() => readAccessSettings({ ACCESS_REQUEST_URL: "javascript:alert(1)" })).toThrow();
-    expect(readAccessSettings({ ACCESS_BREAK_GLASS_GROUP_ID: "admin" }).breakGlassGroupId).toBe("");
-    expect(readAccessSettings({ ACCESS_PERMISSION_FRESHNESS_MINUTES: "0" }).permissionFreshnessMinutes).toBe(1);
-    expect(readAccessSettings({ ACCESS_PERMISSION_FRESHNESS_MINUTES: "61" }).permissionFreshnessMinutes).toBe(60);
+    expect(() => readAccessSettings({ ACCESS_BREAK_GLASS_GROUP_ID: "admin" })).toThrow();
   });
 });

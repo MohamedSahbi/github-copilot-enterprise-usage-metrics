@@ -13,8 +13,8 @@ The portal reads only the new portal database. Configure the following app setti
 | `AUTH_GITHUB_SECRET` | Sign-in OAuth app secret, Key Vault reference; not an ingestion or directory credential |
 | `SQL_SERVER`, `SQL_DATABASE` | New database FQDN and name; encrypted SQL connection using `DefaultAzureCredential` |
 | `AZURE_CLIENT_ID` | Portal user-assigned managed identity client ID |
-| `ACCESS_BREAK_GLASS_GROUP_ID` | `access.break_glass_group_id`; empty or invalid disables break-glass |
-| `ACCESS_PERMISSION_FRESHNESS_MINUTES` | `access.permission_freshness_minutes`; default 5, integer values clamped to 1–60; malformed values fail startup |
+| `ACCESS_BREAK_GLASS_GROUP_ID` | `access.break_glass_group_id`; empty disables break-glass; a nonempty invalid GUID fails startup |
+| `ACCESS_PERMISSION_FRESHNESS_MINUTES` | `access.permission_freshness_minutes`; default 5; must be an integer from 1–60; invalid values fail startup |
 | `ACCESS_NO_ACCESS_MESSAGE` | No access page message; generic default |
 | `ACCESS_REQUEST_URL` | Optional HTTPS request-access link; empty hides it |
 | `ACCESS_CONTACT` | Optional plain-text contact; empty hides it |
