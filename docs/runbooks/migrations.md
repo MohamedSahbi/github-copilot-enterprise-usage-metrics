@@ -47,7 +47,17 @@ Authentication today is a connection string. The `mssql` driver also accepts Ent
 
 ## Restore plan
 
-Migrations are not transactional. Before the first migration of a release on a database that holds data, take a point-in-time restore marker (note the UTC time) or copy the database. If a file fails half-way, the schema may be partly changed and the history has no row for it: since files are idempotent, fix forward and re-run; if the state is unusable, restore to the marker and re-run after the fix. Rollback, cut-over and restore runbooks (D-50) are still to be written.
+Migrations are not transactional. Before the first migration of a release on a database that holds data, verify that a recoverable backup or database copy exists and record the pre-migration UTC restore point in the private deployment record. A timestamp alone is not a backup: verify that it is within the database's available restore window. If a file fails half-way, the schema may be partly changed and the history has no row for it. Stop deployment and inspect the state before retrying. Correct missing prerequisites or bad data and re-run only when the file is safe to retry; faulty merged SQL needs an owner-approved recovery plan as described above.
+
+### Access-model migration prerequisite
+
+`20261026000800.do.access-model-contract.sql` drops `portal.BreakGlassConfig`, backfills grant identities and makes `AccessGrant.principal_entra_oid` non-nullable. It has no down migration. Redeploying the previous application does not recreate the table or recover its rows, and a retry does not undo completed batches.
+
+Before applying this migration, check whether `portal.BreakGlassConfig` exists and contains rows. Its no-data assumption is not permission to discard existing configuration. If rows exist, stop until the owner has approved how to preserve them and supply the break-glass group through the deployment setting `access.break_glass_group_id` (D-17). Verify the replacement setting before deployment; keep actual values and backup locations out of public logs and PRs.
+
+If database recovery is necessary, the recovery plan must restore from the verified pre-migration backup or copy, reconcile the migration history with the restored schema, and validate the compatible application and break-glass configuration before traffic resumes. Restoring the database can lose writes made after the restore point; stop writers and obtain owner approval before recovery. Do not recreate only the dropped table, edit merged migrations, or patch `portal.schema_version` to simulate rollback.
+
+The full restore, rollback and cut-over procedures, including recovery ownership, verification and an exercised non-production restore, remain tracked in [#55](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/55) (D-49, D-50). **Data-bearing deployment is blocked until that runbook is completed and reviewed.** This prerequisite is not a replacement runbook or evidence that a restore has been exercised.
 
 ## Failures
 
