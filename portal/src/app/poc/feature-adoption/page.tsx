@@ -1,15 +1,21 @@
-import { cookies } from "next/headers";
 import FeatureAdoptionChart from "@upstream/components/charts/FeatureAdoptionChart";
 import AccessibleUpstreamCharts from "@/components/AccessibleUpstreamCharts";
 import { toFeatureAdoptionData } from "@/adapters/featureAdoption";
-import { personaLabel, TEST_SESSION_COOKIE } from "@/auth/test-auth";
+import { auth } from "@/auth/config";
+import { getAccess } from "@/authz/server";
+import { redirect } from "next/navigation";
 import { featureAdoptionFixture } from "@/poc/featureAdoptionFixture";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Feature adoption proof of concept" };
 
 export default async function FeatureAdoptionPocPage() {
-  const persona = personaLabel((await cookies()).get(TEST_SESSION_COOKIE)?.value);
+  const access = await getAccess();
+  if (access.state === "signed-out") redirect("/sign-in");
+  if (access.state === "unavailable") redirect("/service-unavailable");
+  if (access.state === "no-access") redirect("/no-access");
+  const session = await auth();
+  const persona = session?.user?.name;
 
   return (
     <main className="mx-auto max-w-6xl p-6">

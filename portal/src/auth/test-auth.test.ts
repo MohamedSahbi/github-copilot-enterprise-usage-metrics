@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertTestAuthAllowed, isTestAuthEnabled, isTestPersonaId, resolveTestPersona } from "./test-auth";
+import { assertTestAuthAllowed, isTestAuthEnabled, isTestPersonaId } from "./test-auth";
 
 describe("assertTestAuthAllowed", () => {
   it("allows a normal production start without the flag", () => {
@@ -33,8 +33,7 @@ describe("test personas", () => {
     expect(isTestPersonaId("admin")).toBe(true);
   });
 
-  it("ignores a persona cookie when test auth is disabled", () => {
-    expect(resolveTestPersona("admin", {})).toBeNull();
-    expect(resolveTestPersona("admin", { E2E_TEST_AUTH: "1" })).toBe("admin");
+  it("refuses even checking test auth when production is misconfigured", () => {
+    expect(() => isTestAuthEnabled({ NODE_ENV: "production", E2E_TEST_AUTH: "1" })).toThrow(/production/);
   });
 });

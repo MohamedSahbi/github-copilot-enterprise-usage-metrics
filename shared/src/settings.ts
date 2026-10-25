@@ -2,8 +2,12 @@
 // Real values live in the private deployment repository; defaults and examples here are generic.
 
 import { isGuid } from "./access";
+import { backfillFromSchema, DirectoryProviderSchema } from "./ingestion-settings";
+import type { z } from "zod";
 
 export interface DeploymentSettings {
+  backfillFrom?: string;
+  organization: { directory_provider: z.infer<typeof DirectoryProviderSchema> };
   retention: { perUserMonths: number; loginHistoryMonths: number };
   privacy: { minGroupSize: number };
   access: { breakGlassGroupId: string; permissionFreshnessMinutes: number };
@@ -17,6 +21,7 @@ export const MAX_PER_USER_MONTHS = 36;
 export const MAX_LOGIN_HISTORY_MONTHS = 60;
 
 export const DEFAULT_SETTINGS: DeploymentSettings = {
+  organization: { directory_provider: "entra" },
   retention: { perUserMonths: 13, loginHistoryMonths: 24 },
   privacy: { minGroupSize: MIN_GROUP_SIZE_FLOOR },
   access: { breakGlassGroupId: "", permissionFreshnessMinutes: 5 },
@@ -33,7 +38,7 @@ const ATTRIBUTE_PATH = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$/;
 type Bag = Record<string, unknown>;
 const isBag = (v: unknown): v is Bag => typeof v === "object" && v !== null && !Array.isArray(v);
 
-export function validateSettings(input: unknown): SettingsValidation {
+export function validateSettings(input: unknown, today = new Date().toISOString().slice(0, 10)): SettingsValidation {
   const errors: { setting: string; issue: string }[] = [];
   // Omitted (undefined) roots and sections keep their defaults; anything else must be a plain object.
   const bag = (v: unknown, setting: string): Bag => {
@@ -45,6 +50,11 @@ export function validateSettings(input: unknown): SettingsValidation {
     return v;
   };
   const root = bag(input, "settings");
+  const organization = bag(root.organization, "organization");
+  const provider = DirectoryProviderSchema.safeParse(organization.directory_provider);
+  if (!provider.success) errors.push({ setting: "organization.directory_provider", issue: "must be entra or csv" });
+  const backfill = backfillFromSchema(today).safeParse(root.backfillFrom);
+  if (!backfill.success) errors.push({ setting: "backfillFrom", issue: "must be a calendar date within the API-start/365-day window, not in the future" });
   const retention = bag(root.retention, "retention");
   const privacy = bag(root.privacy, "privacy");
   const access = bag(root.access, "access");
@@ -78,6 +88,8 @@ export function validateSettings(input: unknown): SettingsValidation {
   }
 
   const settings: DeploymentSettings = {
+    ...(backfill.success && backfill.data !== undefined ? { backfillFrom: backfill.data } : {}),
+    organization: { directory_provider: provider.success ? provider.data : "entra" },
     retention: {
       perUserMonths: int(retention.perUserMonths, "retention.perUserMonths", d.retention.perUserMonths, 1, MAX_PER_USER_MONTHS),
       loginHistoryMonths: int(retention.loginHistoryMonths, "retention.loginHistoryMonths", d.retention.loginHistoryMonths, 1, MAX_LOGIN_HISTORY_MONTHS),

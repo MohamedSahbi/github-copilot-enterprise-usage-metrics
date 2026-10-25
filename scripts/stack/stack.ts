@@ -5,6 +5,7 @@ import sql from "mssql";
 import { migrate } from "../db/migrate";
 import { LOCAL_DATABASE, assertLocalHost, localConnectionString } from "./config";
 import { loadFixtures } from "./load-fixtures";
+import { loadLocalCuratedData } from "./local-curated-data";
 
 const compose = join(__dirname, "..", "..", "docker", "compose.local.yml");
 
@@ -31,6 +32,8 @@ async function up(): Promise<void> {
   console.log(applied.length ? `Applied: ${applied.join(", ")}` : "Database is up to date");
   const { runs } = await loadFixtures(cs);
   for (const r of runs) console.log(`Fixtures ${r.file}: ${r.lines} lines, ${r.loaded} staged, ${r.issues} issues`);
+  const curated = await loadLocalCuratedData(cs);
+  console.log(`Test-only curated seed: ${curated.users} users, ${curated.organizations} organizations, ${curated.usageFacts} usage facts, ${curated.aiCreditFacts} AI Credits facts`);
   console.log(`Stack ready. Connection: ${cs.replace(/Password=[^;]*/, "Password=***")}`);
 }
 
@@ -39,8 +42,11 @@ async function main(): Promise<void> {
   if (command === "up") await up();
   else if (command === "down") docker("down", "-v", "--remove-orphans");
   else if (command === "fixtures") {
-    const { runs } = await loadFixtures(localConnectionString(process.env));
+    const cs = localConnectionString(process.env);
+    const { runs } = await loadFixtures(cs);
     for (const r of runs) console.log(`Fixtures ${r.file}: ${r.lines} lines, ${r.loaded} staged, ${r.issues} issues`);
+    const curated = await loadLocalCuratedData(cs);
+    console.log(`Test-only curated seed: ${curated.users} users, ${curated.organizations} organizations, ${curated.usageFacts} usage facts, ${curated.aiCreditFacts} AI Credits facts`);
   } else {
     console.error("usage: stack.ts up|down|fixtures");
     process.exit(2);
