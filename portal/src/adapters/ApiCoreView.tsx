@@ -3,7 +3,7 @@ import type { UsageBreakdownRow, UsageSeriesPoint, UserUsageRow } from "../../..
 import { toFeatureAdoptionData } from "@/adapters/featureAdoption";
 import AccessibleUpstreamCharts from "@/components/AccessibleUpstreamCharts";
 import type { ApiCorePageData } from "@/data/portalDataSource";
-import InteractionTotal from "./InteractionTotal";
+import OverviewSummary from "./OverviewSummary";
 
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -151,6 +151,18 @@ function ApiPageContent({ data, pageTitle }: { data: ApiCorePageData; pageTitle:
   }
 
   const adoption = data.overview.adoption;
+  if (data.page === "overview") {
+    const series = visibleSeries(data);
+    return (
+      <section className="space-y-4">
+        <h2 className="text-2xl font-semibold">{pageTitle}</h2>
+        <p className="text-sm text-muted">Curated usage activity for the latest seven available days.</p>
+        <OverviewSummary adoption={adoption} series={data.overview.series} />
+        <SeriesTable rows={series} />
+      </section>
+    );
+  }
+
   if (adoption.suppressed || adoption.value === null) {
     return null;
   }
@@ -212,26 +224,7 @@ function ApiPageContent({ data, pageTitle }: { data: ApiCorePageData; pageTitle:
       </section>
     );
   }
-
-  return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-semibold">{pageTitle}</h2>
-      <p className="text-sm text-muted">Curated usage activity for the latest seven available days.</p>
-      <dl className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded border border-default bg-white p-4">
-          <dt className="text-sm text-muted">Observed users</dt>
-          <dd className="mt-2 text-2xl font-semibold">{formatNumber(adoption.value.totalUsers)}</dd>
-        </div>
-        <div className="rounded border border-default bg-white p-4">
-          <dt className="text-sm text-muted">Interactions</dt>
-          <dd className="mt-2 text-2xl font-semibold">
-            <InteractionTotal series={data.overview.series} />
-          </dd>
-        </div>
-      </dl>
-      <SeriesTable rows={series} />
-    </section>
-  );
+  return null;
 }
 
 export default function ApiCoreView({
