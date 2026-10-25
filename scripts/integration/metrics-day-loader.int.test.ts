@@ -42,6 +42,11 @@ function ndjson(ids: readonly number[], extra: Record<string, unknown> = {}): Ui
   return Buffer.from(`${lines.join("\n")}\n`, "utf8");
 }
 
+function ndjsonWithAiCredits(userId: number, numericToken: string): Uint8Array {
+  const line = Buffer.from(ndjson([userId])).toString("utf8").trimEnd();
+  return Buffer.from(`${line.slice(0, -1)},"ai_credits_used":${numericToken}}\n`, "utf8");
+}
+
 function newInput(content: Uint8Array, runId = randomUUID()) {
   runIds.push(runId);
   blobPaths.push(`raw/users_1_day/${orgLogin}/${reportDay.replaceAll("-", "/")}/${runId}.ndjson`);
@@ -144,6 +149,35 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
       .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey")).recordset[0];
     expect(checkpoint?.last_run_id?.toLowerCase()).toBe(second.runId);
   });
+
+  it.each(["123456789.123456789", "999999999.999999999"])(
+    "preserves exact ai_credits_used %s through staging, facts, and aggregate",
+    async (creditToken) => {
+      const input = newInput(ndjsonWithAiCredits(userIds[0]!, creditToken));
+      const result = await loadMetricsDay(input, { sqlConfig, blobContainer });
+
+      expect(result.status).toBe("published");
+      const staging = await pool.request()
+        .input("runId", sql.UniqueIdentifier, input.runId)
+        .query<{ amount: string }>(
+          "SELECT CONVERT(VARCHAR(40), ai_credits_used) AS amount FROM portal.stg_user_daily WHERE run_id = @runId",
+        );
+      const fact = await pool.request()
+        .input("runId", sql.UniqueIdentifier, input.runId)
+        .query<{ amount: string }>(
+          "SELECT CONVERT(VARCHAR(40), ai_credits_used) AS amount FROM portal.fact_user_daily_usage WHERE run_id = @runId",
+        );
+      const aggregate = await pool.request()
+        .input("runId", sql.UniqueIdentifier, input.runId)
+        .query<{ amount: string }>(
+          "SELECT CONVERT(VARCHAR(40), ai_credits_used) AS amount FROM portal.agg_daily_usage WHERE run_id = @runId",
+        );
+
+      expect(staging.recordset[0]?.amount).toBe(creditToken);
+      expect(fact.recordset[0]?.amount).toBe(creditToken);
+      expect(aggregate.recordset[0]?.amount).toBe(creditToken);
+    },
+  );
 
   it("publishes with the portal_ingest role's SourceArtifact permissions", async () => {
     const login = `metrics_ingest_${randomUUID().replaceAll("-", "")}`;

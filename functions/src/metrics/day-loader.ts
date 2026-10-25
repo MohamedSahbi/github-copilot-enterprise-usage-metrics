@@ -148,7 +148,7 @@ function dailyTable(rows: readonly StgUserDailyRow[]): sql.Table {
     "used_agent", "used_chat", "used_cli", "used_coding_agent", "used_cloud_agent", "used_copilot_app",
     "used_vscode_agent", "used_code_review_active", "used_code_review_passive",
   ]) addColumn(table, name, sql.Bit);
-  addColumn(table, "ai_credits_used", sql.Decimal(18, 9));
+  addColumn(table, "ai_credits_used", sql.VarChar(40));
   addColumn(table, "ai_adoption_phase_number", sql.TinyInt, true);
   addColumn(table, "ai_adoption_phase", sql.VarChar(64), true);
   addColumn(table, "extra_json", sql.NVarChar(sql.MAX), true);
@@ -631,7 +631,7 @@ async function writeOrganizationAggregate(
     .input("codeReviewUsers", sql.Int, adoption.codeReviewUsers)
     .input("advancedUsers", sql.Int, adoption.advancedUsers)
     .input("completionOnlyUsers", sql.Int, adoption.completionOnlyUsers)
-    .input("credits", sql.Decimal(18, 9), totals.ai_credits_used ?? "0")
+    .input("credits", sql.VarChar(40), totals.ai_credits_used ?? "0")
     .input("runId", sql.UniqueIdentifier, runId)
     .query(`
       INSERT INTO portal.agg_daily_usage (
@@ -642,7 +642,7 @@ async function writeOrganizationAggregate(
       VALUES (@organizationId, @reportDay, 'organization', N'', 1, @userCount, @interactionCount,
         @codeGenerationCount, @codeAcceptanceCount, @locAdded, @locDeleted, @chatUsers, @agentUsers,
         @cliUsers, @cloudAgentUsers, @vscodeAgentUsers, @appUsers, @codeReviewUsers, @advancedUsers,
-        @completionOnlyUsers, @credits, @runId, '${TRANSFORM_VERSION}')`);
+        @completionOnlyUsers, CONVERT(DECIMAL(18, 9), @credits), @runId, '${TRANSFORM_VERSION}')`);
 }
 
 function classifiedError(error: unknown): string {
