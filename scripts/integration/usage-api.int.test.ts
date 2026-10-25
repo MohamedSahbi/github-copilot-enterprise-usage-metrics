@@ -145,12 +145,23 @@ describe("scoped usage API SQL (curated integration)", () => {
   });
 
   it.each([
-    ["last_7_days", "2026-02-24"],
-    ["last_28_days", "2026-02-03"],
-    ["last_90_days", "2025-12-03"],
-  ] as const)("resolves %s against the latest curated usage day", async (period, from) => {
+    ["last_7_days", 7],
+    ["last_28_days", 28],
+    ["last_90_days", 90],
+  ] as const)("resolves %s against the latest curated usage day", async (period, days) => {
+    const latestResult = await pool.request().query<{ latestUsageDay: Date | null }>(`
+      SELECT MAX(usage_day) AS latestUsageDay
+      FROM portal.fact_user_daily_usage
+    `);
+    const latestUsageDay = latestResult.recordset[0]?.latestUsageDay;
+    if (!latestUsageDay) throw new Error("Expected curated usage fixtures to contain a usage day");
+
+    const to = latestUsageDay.toISOString().slice(0, 10);
+    const expectedFrom = new Date(`${to}T00:00:00.000Z`);
+    expectedFrom.setUTCDate(expectedFrom.getUTCDate() - days + 1);
+    const from = expectedFrom.toISOString().slice(0, 10);
     const resolved = await resolveUsageRange(pool, { period });
-    expect(resolved).toEqual({ ok: true, range: { from, to: DAY } });
+    expect(resolved).toEqual({ ok: true, range: { from, to } });
   });
 
   it("resolves only complete calendar months against the latest curated usage day", async () => {
