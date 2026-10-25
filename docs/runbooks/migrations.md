@@ -7,7 +7,7 @@ Forward-only SQL for the `portal` schema (D-34, D-48). One runner, `scripts/db/m
 1. Connects with `SQL_CONNECTION_STRING` (never printed) and takes `sp_getapplock('portal-migrations', Exclusive, Session)`. A second runner waits up to `MIGRATION_LOCK_TIMEOUT_MS` (default 60000), then fails with `LOCK_TIMEOUT`.
 2. Creates the `portal` schema and `portal.schema_version` if they do not exist, never anything in `dbo`.
 3. Checks every previously applied migration against its file (md5 of the LF-normalised content). A changed, missing or checksum-less file stops the run with `CHECKSUM_MISMATCH`, `FILE_MISSING` or `CHECKSUM_MISSING` before anything new is applied.
-4. Applies pending files in version order, splitting each on `GO`. A file older than the newest applied one (two PRs merged out of timestamp order) is still applied, with a warning in the log.
+4. Applies pending files in version order, splitting each on `GO`. A pending file older than the newest applied one (two PRs merged out of timestamp order) is refused with `OUT_OF_ORDER` before anything is applied; give it a newer timestamp in a follow-up PR.
 5. Records each file in `portal.schema_version` after it succeeds, then releases the lock.
 
 A second run with nothing pending is a no-op. A failing file is not recorded; fix it by adding a new migration only if the file already merged, otherwise correct it in the PR.
@@ -56,5 +56,6 @@ Migrations are not transactional. Before the first migration of a release on a d
 | `CHECKSUM_MISMATCH` | An applied file was edited | Revert the edit; add a new migration for the change |
 | `FILE_MISSING` | An applied version has no file | Restore the file from history |
 | `CHECKSUM_MISSING` | History row without checksum | Stop and ask the owner; do not patch the table by hand |
+| `OUT_OF_ORDER` | A pending file is older than the newest applied one | Rename it with a newer timestamp (only if not yet applied anywhere), then re-run |
 | `LOCK_TIMEOUT` | Another runner holds the lock | Wait for it to finish, then re-run |
 | A migration fails | Nothing was recorded for it | Fix the cause, re-run; the earlier files stay applied |

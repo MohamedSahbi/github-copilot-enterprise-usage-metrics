@@ -69,7 +69,6 @@ describe("planMigrations", () => {
   it("returns every migration, ascending, when nothing is applied", () => {
     const plan = planMigrations([file(3, "c"), file(1, "a"), file(2, "b")], []);
     expect(plan.pending.map((m) => m.version)).toEqual([1, 2, 3]);
-    expect(plan.outOfOrder).toEqual([]);
   });
 
   it("is a no-op when everything is applied with matching checksums", () => {
@@ -94,10 +93,14 @@ describe("planMigrations", () => {
     );
   });
 
-  it("applies a migration older than the newest applied one and reports it as out of order", () => {
-    const plan = planMigrations([file(1, "a"), file(2, "b"), file(3, "c")], [row(1, "a"), row(3, "c")]);
-    expect(plan.pending.map((m) => m.version)).toEqual([2]);
-    expect(plan.outOfOrder).toEqual([2]);
+  it("rejects a pending migration older than the newest applied one and names it", () => {
+    const run = () => planMigrations([file(1, "a"), file(2, "b"), file(3, "c")], [row(1, "a"), row(3, "c")]);
+    expect(run).toThrowError(expect.objectContaining({ code: "OUT_OF_ORDER", message: expect.stringContaining("2") }));
+  });
+
+  it("still plans newer pending migrations", () => {
+    const plan = planMigrations([file(1, "a"), file(2, "b"), file(3, "c")], [row(1, "a"), row(2, "b")]);
+    expect(plan.pending.map((m) => m.version)).toEqual([3]);
   });
 
   it("checks checksums before planning anything, so a mismatch applies nothing", () => {

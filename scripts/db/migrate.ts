@@ -20,7 +20,6 @@ export interface MigrateOptions {
 
 export interface MigrateResult {
   applied: string[];
-  outOfOrder: number[];
 }
 
 // Same shape as db/migrations/20261026000100: the table must exist before the history can be read, and it must live in
@@ -94,7 +93,6 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
     const applied: AppliedMigration[] = rows.map((r) => ({ version: Number(r.version), name: r.name, md5: r.md5 }));
 
     const plan = planMigrations(files, applied);
-    if (plan.outOfOrder.length > 0) log(`warning: applying migrations older than the newest applied one: ${plan.outOfOrder.join(", ")}`);
     const pending = new Set(plan.pending.map((m) => m.version));
     const toRun = found.filter((m) => pending.has(m.version)).sort((a, b) => a.version - b.version);
 
@@ -105,7 +103,7 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
       throw new Error(`Migration failed: ${(error as Error).message}. Earlier migrations stay applied; fix and re-run.`, { cause: error });
     }
     log(`applied ${toRun.length} migration(s); ${applied.length} already applied`);
-    return { applied: toRun.map((m) => `${m.version}.${m.name}`), outOfOrder: plan.outOfOrder };
+    return { applied: toRun.map((m) => `${m.version}.${m.name}`) };
   } finally {
     try {
       if (locked) {

@@ -5,6 +5,7 @@ export type MigrationErrorCode =
   | "CHECKSUM_MISMATCH"
   | "CHECKSUM_MISSING"
   | "FILE_MISSING"
+  | "OUT_OF_ORDER"
   | "LOCK_TIMEOUT";
 
 export class MigrationError extends Error {
@@ -32,7 +33,6 @@ export interface AppliedMigration {
 
 export interface MigrationPlan {
   pending: MigrationFile[];
-  outOfOrder: number[];
 }
 
 // Forward-only `.do.` names only. The restricted description keeps names safe to embed in the history insert.
@@ -50,7 +50,7 @@ export function parseMigrationName(filename: string): { version: number; name: s
 }
 
 // Validates every applied migration first, so a changed or missing file applies nothing.
-// A file older than the newest applied version is still applied (parallel PRs can merge out of timestamp order).
+// A pending file older than the newest applied version is refused: rename it with a newer timestamp (rebase) and re-run.
 export function planMigrations(files: MigrationFile[], applied: AppliedMigration[]): MigrationPlan {
   const byVersion = new Map(files.map((f) => [f.version, f]));
   const appliedVersions = new Set(applied.map((a) => a.version));
@@ -73,5 +73,12 @@ export function planMigrations(files: MigrationFile[], applied: AppliedMigration
 
   const newest = Math.max(0, ...appliedVersions);
   const pending = files.filter((f) => !appliedVersions.has(f.version)).sort((a, b) => a.version - b.version);
-  return { pending, outOfOrder: pending.filter((f) => f.version < newest).map((f) => f.version) };
+  const late = pending.filter((f) => f.version < newest);
+  if (late.length > 0) {
+    throw new MigrationError(
+      "OUT_OF_ORDER",
+      `Pending migration(s) ${late.map((f) => `${f.version} (${f.name})`).join(", ")} are older than the newest applied version ${newest}; give them a newer timestamp and re-run`,
+    );
+  }
+  return { pending };
 }

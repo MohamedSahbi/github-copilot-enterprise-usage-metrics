@@ -35,7 +35,7 @@ ALTER ROLE portal_writer ADD MEMBER [<portal-identity-name>];
 ALTER ROLE portal_ingest ADD MEMBER [<ingest-identity-name>];
 ```
 
-`TYPE = E` is an Azure SQL feature; the local SQL Server 2022 container rejects it, so this step runs only against Azure SQL and is not part of `stack:up`. The role grants themselves are applied by the migration and covered by the container test.
+**Azure SQL validation is required before the first deployment:** run this step and the verify query against a non-production Azure SQL database and record the result. `TYPE = E` is an Azure SQL feature; the local SQL Server 2022 container rejects it, so this step runs only against Azure SQL and is not part of `stack:up`. The role grants themselves are applied by the migration and covered by the container test.
 
 Replace the `<...>` placeholders in the pipeline, not in a committed file. Re-running is safe: existing users are kept and role membership is idempotent.
 

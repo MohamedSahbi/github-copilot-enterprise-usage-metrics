@@ -126,16 +126,16 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(failed).toHaveLength(0);
   }, 240_000);
 
-  it("applies a migration older than the newest applied one and reports it", async () => {
+  it("rejects a pending migration older than the newest applied one and applies nothing", async () => {
     const db = await freshDb();
     const dir = copyMigrations();
     writeFileSync(join(dir, "20260101000000.do.older-merged-later.sql"), "IF OBJECT_ID(N'portal.older_table', N'U') IS NULL CREATE TABLE portal.older_table (id INT);\n");
     // Seed the history as if the older file did not exist yet.
     const withoutOlder = copyMigrations();
     await migrate({ connectionString: cs(db), dir: withoutOlder });
-    const result = await migrate({ connectionString: cs(db), dir });
-    expect(result.outOfOrder).toEqual([20260101000000]);
-    expect(await query(db, "SELECT name FROM sys.tables WHERE name = 'older_table'")).toHaveLength(1);
+    await expect(migrate({ connectionString: cs(db), dir })).rejects.toMatchObject({ code: "OUT_OF_ORDER" });
+    expect(await query(db, "SELECT name FROM sys.tables WHERE name = 'older_table'")).toHaveLength(0);
+    expect(await query(db, "SELECT version FROM portal.schema_version WHERE version = 20260101000000")).toHaveLength(0);
   }, 240_000);
 
   it("serialises two runners started at once: each migration is applied exactly once", async () => {
