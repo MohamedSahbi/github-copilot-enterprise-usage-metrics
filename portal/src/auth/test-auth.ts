@@ -30,6 +30,11 @@ export function isTestPersonaId(value: unknown): value is TestPersonaId {
   return typeof value === "string" && Object.hasOwn(TEST_PERSONAS, value);
 }
 
+export function testPersonaObjectId(persona: TestPersonaId): string {
+  const index = Object.keys(TEST_PERSONAS).indexOf(persona) + 1;
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
 export function testProviders() {
   if (!isTestAuthEnabled()) return [];
   return [Credentials({
@@ -39,12 +44,11 @@ export function testProviders() {
     authorize(credentials) {
       assertTestAuthAllowed();
       if (!isTestAuthEnabled() || !isTestPersonaId(credentials.persona)) return null;
-      const index = Object.keys(TEST_PERSONAS).indexOf(credentials.persona) + 1;
       return {
         id: credentials.persona,
         name: TEST_PERSONAS[credentials.persona],
         tid: process.env.ENTRA_TENANT_ID,
-        oid: `00000000-0000-4000-8000-00000000000${index}`,
+        oid: testPersonaObjectId(credentials.persona),
       };
     },
   })];
