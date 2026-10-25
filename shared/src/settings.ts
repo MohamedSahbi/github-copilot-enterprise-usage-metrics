@@ -12,6 +12,9 @@ export interface DeploymentSettings {
 
 export const MIN_GROUP_SIZE_FLOOR = 5;
 export const MIN_PERMISSION_FRESHNESS_MINUTES = 1;
+export const MAX_PERMISSION_FRESHNESS_MINUTES = 60;
+export const MAX_PER_USER_MONTHS = 36;
+export const MAX_LOGIN_HISTORY_MONTHS = 60;
 
 export const DEFAULT_SETTINGS: DeploymentSettings = {
   retention: { perUserMonths: 13, loginHistoryMonths: 24 },
@@ -67,8 +70,8 @@ export function validateSettings(input: unknown): SettingsValidation {
 
   const settings: DeploymentSettings = {
     retention: {
-      perUserMonths: int(retention.perUserMonths, "retention.perUserMonths", d.retention.perUserMonths, 1),
-      loginHistoryMonths: int(retention.loginHistoryMonths, "retention.loginHistoryMonths", d.retention.loginHistoryMonths, 1),
+      perUserMonths: int(retention.perUserMonths, "retention.perUserMonths", d.retention.perUserMonths, 1, MAX_PER_USER_MONTHS),
+      loginHistoryMonths: int(retention.loginHistoryMonths, "retention.loginHistoryMonths", d.retention.loginHistoryMonths, 1, MAX_LOGIN_HISTORY_MONTHS),
     },
     privacy: { minGroupSize: int(privacy.minGroupSize, "privacy.minGroupSize", d.privacy.minGroupSize, MIN_GROUP_SIZE_FLOOR) },
     access: {
@@ -78,6 +81,7 @@ export function validateSettings(input: unknown): SettingsValidation {
         "access.permissionFreshnessMinutes",
         d.access.permissionFreshnessMinutes,
         MIN_PERMISSION_FRESHNESS_MINUTES,
+        MAX_PERMISSION_FRESHNESS_MINUTES,
       ),
     },
     directory: {

@@ -58,26 +58,53 @@ describe("deriveIssueStatus", () => {
 
 describe("evaluateDayReplacement (item 9)", () => {
   it("allows an equal or larger replacement", () => {
-    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 10, adminForce: false })).toEqual({ decision: "allow" });
-    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 11, adminForce: false })).toEqual({ decision: "allow" });
+    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 10, adminForce: false, reportDay: "2026-01-05" })).toEqual({ decision: "allow" });
+    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 11, adminForce: false, reportDay: "2026-01-05" })).toEqual({ decision: "allow" });
   });
   it("blocks and quarantines a smaller day by default", () => {
-    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 9, adminForce: false })).toEqual({
+    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 9, adminForce: false, reportDay: "2026-01-05" })).toEqual({
       decision: "quarantine",
       issueCode: "smaller_day_blocked",
     });
   });
   it("lets a smaller day through only with the admin force flag, and records an audit row", () => {
-    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 9, adminForce: true })).toEqual({
+    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 9, adminForce: true, reportDay: "2026-01-05" })).toEqual({
       decision: "allow",
       audit: "day.replace_forced",
+      auditDetail: { reportDay: "2026-01-05", storedRows: 10, incomingRows: 9, emptyDayConfirmed: false },
     });
   });
   it("never forces when nothing is stored", () => {
-    expect(evaluateDayReplacement({ storedRows: 0, incomingRows: 0, adminForce: true })).toEqual({ decision: "allow" });
+    expect(evaluateDayReplacement({ storedRows: 0, incomingRows: 0, adminForce: true, reportDay: "2026-01-05" })).toEqual({ decision: "allow" });
+  });
+  it("requires the typed day confirmation to force an empty day", () => {
+    const base = { storedRows: 10, incomingRows: 0, adminForce: true, reportDay: "2026-01-05" };
+    expect(evaluateDayReplacement(base)).toEqual({
+      decision: "quarantine",
+      issueCode: "smaller_day_blocked",
+      reason: "empty_day_confirmation_required",
+    });
+    expect(evaluateDayReplacement({ ...base, confirmDate: "2026-01-06" })).toMatchObject({ decision: "quarantine" });
+    expect(evaluateDayReplacement({ ...base, confirmDate: "2026-01-05" })).toEqual({
+      decision: "allow",
+      audit: "day.replace_forced",
+      auditDetail: { reportDay: "2026-01-05", storedRows: 10, incomingRows: 0, emptyDayConfirmed: true },
+    });
+  });
+  it("records the day and counts in the audit detail of a forced smaller day", () => {
+    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: 9, adminForce: true, reportDay: "2026-01-05" })).toMatchObject({
+      auditDetail: { reportDay: "2026-01-05", storedRows: 10, incomingRows: 9, emptyDayConfirmed: false },
+    });
+  });
+  it("rejects a force action on an empty day without the typed date", () => {
+    const ctx = { reportDay: "2026-01-05", incomingRows: 0 };
+    const req = { issueId: 7, action: "force", confirm: true };
+    expect(validateIssueActionRequest(req, "smaller_day", true, ctx)).toEqual({ ok: false, code: "empty_day_confirmation_required" });
+    expect(validateIssueActionRequest({ ...req, confirmDate: "2026-01-05" }, "smaller_day", true, ctx)).toEqual({ ok: true });
+    expect(validateIssueActionRequest({ ...req }, "smaller_day", true, { reportDay: "2026-01-05", incomingRows: 3 })).toEqual({ ok: true });
   });
   it("treats invalid counts as blocked", () => {
-    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: Number.NaN, adminForce: false })).toMatchObject({ decision: "quarantine" });
+    expect(evaluateDayReplacement({ storedRows: 10, incomingRows: Number.NaN, adminForce: false, reportDay: "2026-01-05" })).toMatchObject({ decision: "quarantine" });
   });
 });
 

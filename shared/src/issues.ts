@@ -46,16 +46,31 @@ export interface IssueActionRequest {
   issueId: number;
   action: string;
   confirm: boolean;
+  // Forcing an empty (0-row) day: the admin types the day's date (YYYY-MM-DD).
+  confirmDate?: string;
 }
-export type IssueActionErrorCode = "forbidden" | "invalid_action" | "confirmation_required" | "not_found";
+export type IssueActionErrorCode = "forbidden" | "invalid_action" | "confirmation_required" | "empty_day_confirmation_required" | "not_found";
+
+export interface IssueActionContext {
+  reportDay: IsoDate | null;
+  incomingRows: number;
+}
 export type IssueActionResponse = ApiResponse<{ issueId: number; action: IssueAction; status: IssueStatus; reprocessRequested: boolean; audit: AuditAction }>;
 
 export type IssueActionValidation = { ok: true } | { ok: false; code: IssueActionErrorCode };
 
-export function validateIssueActionRequest(req: IssueActionRequest, type: IssueType, isAdmin: boolean): IssueActionValidation {
+export function validateIssueActionRequest(
+  req: IssueActionRequest,
+  type: IssueType,
+  isAdmin: boolean,
+  ctx?: IssueActionContext,
+): IssueActionValidation {
   if (!isAdmin) return { ok: false, code: "forbidden" };
   if (!(ISSUE_ACTIONS[type] as readonly string[]).includes(req.action)) return { ok: false, code: "invalid_action" };
   if (req.confirm !== true) return { ok: false, code: "confirmation_required" };
+  if (req.action === "force" && ctx !== undefined && ctx.incomingRows === 0 && req.confirmDate !== ctx.reportDay) {
+    return { ok: false, code: "empty_day_confirmation_required" };
+  }
   return { ok: true };
 }
 
@@ -74,16 +89,38 @@ export interface DayReplacementInput {
   storedRows: number;
   incomingRows: number;
   adminForce: boolean;
+  reportDay: IsoDate;
+  // Required, equal to reportDay, to force an empty (0-row) day.
+  confirmDate?: string;
+}
+
+// Detail stored with the day.replace_forced audit row.
+export interface DayReplaceForcedDetail {
+  reportDay: IsoDate;
+  storedRows: number;
+  incomingRows: number;
+  emptyDayConfirmed: boolean;
 }
 
 export type DayReplacementDecision =
-  | { decision: "allow"; audit?: Extract<AuditAction, "day.replace_forced"> }
-  | { decision: "quarantine"; issueCode: "smaller_day_blocked" };
+  | { decision: "allow"; audit?: Extract<AuditAction, "day.replace_forced">; auditDetail?: DayReplaceForcedDetail }
+  | { decision: "quarantine"; issueCode: "smaller_day_blocked"; reason?: "empty_day_confirmation_required" };
 
 // §6.2 step 9: a day replaced by less data is blocked by default; only an admin force flag lets it through, and that is audited.
+// Forcing an empty day also needs the typed date confirmation.
 export function evaluateDayReplacement(i: DayReplacementInput): DayReplacementDecision {
   const valid = Number.isInteger(i.incomingRows) && i.incomingRows >= 0 && Number.isInteger(i.storedRows) && i.storedRows >= 0;
   if (valid && i.incomingRows >= i.storedRows) return { decision: "allow" };
-  if (valid && i.adminForce) return { decision: "allow", audit: "day.replace_forced" };
+  if (valid && i.adminForce) {
+    const empty = i.incomingRows === 0;
+    if (empty && i.confirmDate !== i.reportDay) {
+      return { decision: "quarantine", issueCode: "smaller_day_blocked", reason: "empty_day_confirmation_required" };
+    }
+    return {
+      decision: "allow",
+      audit: "day.replace_forced",
+      auditDetail: { reportDay: i.reportDay, storedRows: i.storedRows, incomingRows: i.incomingRows, emptyDayConfirmed: empty },
+    };
+  }
   return { decision: "quarantine", issueCode: "smaller_day_blocked" };
 }

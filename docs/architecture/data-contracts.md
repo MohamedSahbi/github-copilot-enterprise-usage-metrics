@@ -8,14 +8,14 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `retention.per_user_months` | 13 | Per-user rows and PII are purged after this window (D-12) |
+| `retention.per_user_months` | 13 (1 to 36) | Per-user rows and PII are purged after this window (D-12) |
 | `retention.aggregate_months` | unlimited | Aggregates kept indefinitely (D-12) |
-| `retention.login_history_months` | 24 | `dim_user_login_history` is purged only after this maximum age; explicit exception to the per-user rule (§11) |
+| `retention.login_history_months` | 24 (1 to 60) | `dim_user_login_history` is purged only after this maximum age; explicit exception to the per-user rule (§11) |
 | `privacy.min_group_size` | 5 (floor 5) | Groups below this size are suppressed for every scope, including business area (§6.3) |
 | `privacy.per_user_detail` | off | Named users in responses (see §6) |
 | `staging.retention_days` | 14 | Staged rows of published or failed runs are deleted after this; quarantined runs are kept until an admin acts |
 | `access.break_glass_group_id` | empty | Entra group whose members reach admin and health pages when permissions cannot be read (D-17). Empty or a GUID. A setting, not a table |
-| `access.permission_freshness_minutes` | 5 (minimum 1) | Maximum age of the permission data before the portal fails closed (D-17) |
+| `access.permission_freshness_minutes` | 5 (1 to 60) | Maximum age of the permission data before the portal fails closed (D-17) |
 | `directory.department_attribute` | empty | Entra attribute (Graph path) that holds the department. Empty = department scope disabled |
 | `directory.business_area_attribute` | empty | Entra attribute (Graph path) that holds the business area. Empty = business_area scope disabled |
 | `directory.empty_attribute_threshold_percent` | 20 | An enabled attribute that is empty for more than this share of users records the `attribute_empty_share` ValidationIssue |
@@ -223,7 +223,7 @@ The directory sync reads `directory.department_attribute` and `directory.busines
 
 ## 12. Day replacement guard and Admin issues inbox (issue #44 items 9, 10; §6.2 step 9)
 
-- A day replaced by less data is blocked by default (`evaluateDayReplacement`): the run is quarantined with `smaller_day_blocked`. Only an admin force flag lets it through; that is audited as `day.replace_forced`. The incoming data stays in staging and the raw blob meanwhile; the run status is `quarantined`.
+- A day replaced by less data is blocked by default (`evaluateDayReplacement`): the run is quarantined with `smaller_day_blocked`. Only an admin force flag lets it through; that is audited as `day.replace_forced` (detail: `reportDay`, `storedRows`, `incomingRows`, `emptyDayConfirmed`). Forcing an empty (0-row) day also needs a typed confirmation: the admin types the day's date (`confirmDate` must equal the report day), otherwise the day stays quarantined (`empty_day_confirmation_required`). The incoming data stays in staging and the raw blob meanwhile; the run status is `quarantined`.
 - A duplicate user key in a day file, or duplicate nested names, quarantines the whole file (`duplicate_file`, `duplicate_nested_name`).
 - Inbox, backed by `ValidationIssue` (`issue_type`, `report_day`, `handled_at`) and `IssueAction`. Admin only; every action is audited as `issue.action_applied`.
 
@@ -240,13 +240,13 @@ The deployment template and the private environment repository supply these as t
 
 ```yaml
 # retention:
-#   per_user_months: 13
-#   login_history_months: 24          # audit history; purged only after this age
+#   per_user_months: 13               # 1 to 36
+#   login_history_months: 24          # 1 to 60; audit history, purged only after this age
 # privacy:
 #   min_group_size: 5                 # floor 5, applies to every scope
 # access:
 #   break_glass_group_id: ""          # Entra group object ID, or empty
-#   permission_freshness_minutes: 5   # minimum 1
+#   permission_freshness_minutes: 5   # 1 to 60
 # directory:
 #   department_attribute: ""          # example: department. Empty disables the department scope
 #   business_area_attribute: ""       # example: onPremisesExtensionAttributes.extensionAttribute1. Empty disables the business_area scope

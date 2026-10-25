@@ -35,6 +35,14 @@ describe("deployment settings (items 6, 8, 11)", () => {
     }
   });
 
+  it("enforces the upper bounds: 36 per-user months, 60 minutes freshness, 60 login-history months", () => {
+    expect(validateSettings({ retention: { perUserMonths: 36, loginHistoryMonths: 60 }, access: { permissionFreshnessMinutes: 60 } }).ok).toBe(true);
+    expect(validateSettings({ retention: { perUserMonths: 37 } }).ok).toBe(false);
+    expect(validateSettings({ retention: { loginHistoryMonths: 61 } }).ok).toBe(false);
+    expect(validateSettings({ access: { permissionFreshnessMinutes: 61 } }).ok).toBe(false);
+    expect(validateSettings({ retention: { perUserMonths: 0 } }).ok).toBe(false);
+  });
+
   it("rejects a break-glass group ID that is not a GUID", () => {
     const r = validateSettings({ access: { breakGlassGroupId: "admins" } });
     expect(r).toMatchObject({ ok: false });
