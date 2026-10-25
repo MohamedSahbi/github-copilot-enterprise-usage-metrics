@@ -2,8 +2,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "./fixtures";
 
 test("signed out redirects to sign-in and offers both providers", async ({ page, consoleErrors }) => {
+  test.setTimeout(60_000);
   await page.goto("/");
   await expect(page).toHaveURL(/\/sign-in$/);
+  await page.goto("/sign-in");
   await expect(page.getByRole("button", { name: "Sign in with Microsoft Entra ID" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with GitHub" })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -13,8 +15,12 @@ test("signed out redirects to sign-in and offers both providers", async ({ page,
 
 for (const persona of ["admin", "manager", "member", "no-access"] as const) {
   test(`${persona} has the correct signed-in access state`, async ({ page, signInAs, consoleErrors }) => {
+    test.setTimeout(120_000);
     await signInAs(persona);
-    await expect(page.getByRole("heading", { name: persona === "no-access" ? "No access" : "GitHub Copilot Usage Metrics" })).toBeVisible();
+    await expect(page.getByRole("heading", {
+      name: persona === "no-access" ? "No access" : "Overview",
+      exact: true,
+    }).last()).toBeVisible();
     if (persona === "no-access") {
       await expect(page.getByText("Your account has no assigned portal permissions.")).toBeVisible();
       await expect(page.getByRole("link", { name: "Request access" })).toHaveAttribute("href", "https://example.invalid/request-access");

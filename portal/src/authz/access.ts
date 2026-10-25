@@ -8,6 +8,13 @@ export type Identity =
 
 export type Grant = { role: Role; scope: Scope; scope_value: string };
 export type Principal = Pick<PrincipalRow, "principal_id" | "entra_tenant_id" | "entra_object_id" | "github_user_id" | "status">;
+export interface AccessScopedUser {
+  user_id: number;
+  entra_object_id: string | null;
+  manager_entra_object_id: string | null;
+  department: string | null;
+  business_area: string | null;
+}
 export interface AccessSnapshot {
   principal: Principal | null;
   grants: Grant[];

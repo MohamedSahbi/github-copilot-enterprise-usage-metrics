@@ -1,8 +1,16 @@
 import sql from "mssql";
-import type { AccessRepository, AccessSnapshot, Grant, Identity, Principal } from "./access";
+import type { AccessRepository, AccessScopedUser, AccessSnapshot, Grant, Identity, Principal } from "./access";
 import type { GrantValidationContext } from "../../../shared/src/access";
 import { enabledScopes } from "../../../shared/src/access";
 import type { AccessSettings } from "../auth/settings";
+
+function safeUserId(value: number | string): number {
+  const userId = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    throw new Error("Directory user ID is not a safe positive integer");
+  }
+  return userId;
+}
 
 export class SqlAccessRepository implements AccessRepository {
   constructor(private readonly pool: sql.ConnectionPool) {}
@@ -48,5 +56,63 @@ export class SqlAccessRepository implements AccessRepository {
       "SELECT source, last_success_at FROM portal.DirectorySyncState",
     )).recordset;
     return { principal, grants, sync };
+  }
+
+  async readScopedUsers(principalObjectId: string, grants: readonly Grant[]): Promise<AccessScopedUser[]> {
+    const request = this.pool.request().input("principal_oid", sql.UniqueIdentifier, principalObjectId);
+    const predicates: string[] = [];
+    let usesTeamScope = false;
+
+    grants.forEach((grant, index) => {
+      switch (grant.scope) {
+        case "company":
+          predicates.push("1 = 1");
+          break;
+        case "self":
+          predicates.push("u.entra_object_id = @principal_oid");
+          break;
+        case "team":
+          usesTeamScope = true;
+          predicates.push("u.user_id IN (SELECT user_id FROM team_tree WHERE entra_object_id <> @principal_oid)");
+          break;
+        case "department":
+        case "business_area": {
+          const value = grant.scope_value.trim().toLowerCase();
+          if (!value) break;
+          const param = `scope_value_${index}`;
+          request.input(param, sql.NVarChar(255), value);
+          const column = grant.scope === "department" ? "department" : "business_area";
+          predicates.push(`LOWER(LTRIM(RTRIM(u.${column}))) = @${param}`);
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    if (!predicates.length) return [];
+
+    const teamTree = usesTeamScope ? `
+      WITH team_tree AS (
+        SELECT user_id, entra_object_id,
+          CAST(CONCAT('/', CONVERT(varchar(36), entra_object_id), '/') AS varchar(max)) AS path
+        FROM portal.dim_user
+        WHERE state = 'active' AND entra_object_id = @principal_oid
+        UNION ALL
+        SELECT child.user_id, child.entra_object_id,
+          CAST(CONCAT(parent.path, CONVERT(varchar(36), child.entra_object_id), '/') AS varchar(max))
+        FROM portal.dim_user child
+        INNER JOIN team_tree parent ON child.manager_entra_object_id = parent.entra_object_id
+        WHERE child.state = 'active'
+          AND (child.entra_object_id IS NULL OR CHARINDEX(CONCAT('/', CONVERT(varchar(36), child.entra_object_id), '/'), parent.path) = 0)
+      )` : "";
+
+    const query = await request.query<Omit<AccessScopedUser, "user_id"> & { user_id: number | string }>(`
+      ${teamTree}
+      SELECT DISTINCT u.user_id, u.entra_object_id, u.manager_entra_object_id, u.department, u.business_area
+      FROM portal.dim_user u
+      WHERE u.state = 'active' AND (${predicates.join(" OR ")})
+      ${usesTeamScope ? "OPTION (MAXRECURSION 100)" : ""}`);
+    return query.recordset.map(({ user_id, ...user }) => ({ ...user, user_id: safeUserId(user_id) }));
   }
 }
