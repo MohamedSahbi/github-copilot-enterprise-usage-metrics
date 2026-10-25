@@ -10,7 +10,7 @@ applyTo: "infra/**"
 - Network dependencies (subnets, private endpoints, private DNS zones) support three modes: `create` (demo), `existing` (enterprise default, read-only references), `import` (import blocks kept in the deployment's own config).
 - SQL server and database support `existing` (shared with the budget Function App) and `create` (demo).
 - Application Insights and Log Analytics are created by default; accept existing resource IDs.
-- Module toggles: `modules = { ai_credits, budget_lookup, feedback }`. A flag creates the module's app settings, role assignments, and an empty Key Vault secret slot. It never changes SQL schema.
-- No secret values in variables, outputs, or state. Create empty Key Vault secrets; operators fill them.
+- Module toggles: `modules = { ai_credits, budget_lookup, feedback }`. A flag wires the module's app settings, Key Vault references, role assignments, and required secret names in the existing `secret_names` output. It never changes SQL schema.
+- Names only: no secret values in variables, tfvars, outputs, or state. Terraform provisions the vault and references, but neither manages/imports secret values nor creates empty secret slots. Operators create and rotate values in Key Vault using the names in `secret_names`; preserve the existing output and Key Vault references.
 - Least-privilege managed identities per component: portal, ingestion, directory sync, deployment.
 - `terraform fmt`, `validate`, and a saved plan must pass in CI; prod apply needs approval.

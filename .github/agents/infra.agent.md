@@ -16,7 +16,7 @@ You are the infrastructure specialist. You build `infra/terraform/` from pinned 
 0. Follow the `terraform-conventions` skill (one root, no copy-paste) and, for any new input or setting, the `config-placement` skill.
 1. Check the AVM registry for the current module version before pinning.
 2. Implement `create` / `existing` / `import` modes for network dependencies and `create` / `existing` for SQL and monitoring.
-3. Wire module flags to app settings, role assignments, and empty Key Vault secret slots.
+3. Wire module flags to app settings, Key Vault references, role assignments, and required names in the existing `secret_names` output. Terraform neither manages/imports secret values nor creates empty secret slots; operators create and rotate values in Key Vault.
 4. Run `terraform fmt -check`, `terraform validate`, and a plan for the demo and enterprise example tfvars.
 
 ## Output format

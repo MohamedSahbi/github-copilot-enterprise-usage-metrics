@@ -254,7 +254,7 @@ Principles:
 
 | Parameter | Decision | Configurable |
 | --- | --- | --- |
-| Raw archive | Keep raw NDJSON in Blob, immutable, lifecycle policy (default 13 months, then delete or cool tier) (D-11) | Yes |
+| Raw archive | Keep raw NDJSON in Blob, immutable; move to Cool after a configurable age (default 13 months) and retain without deletion (D-11). Separate from SQL retention (D-12) | Yes |
 | Per-user daily rows in SQL | 13 months default, maximum 36 (D-12) | Yes |
 | `dim_user_login_history` | Kept for audit and purged after a maximum age: default 24 months, maximum 60; admin read only. Explicit exception to the per-user rule above (D-12) | Yes |
 | Aggregates in SQL | Kept indefinitely (D-12) | Yes |
@@ -519,9 +519,9 @@ Each optional module is ready-made automation that needs only a secret and a per
 | What changes | Where |
 | --- | --- |
 | Flag | `modules = { ai_credits = true, budget_lookup = false, feedback = true }` in tfvars |
-| Infrastructure | The flag creates the module's timer trigger settings, managed-identity role assignments, an empty Key Vault secret slot, and the portal app setting |
+| Infrastructure | The flag wires the module's timer trigger settings, managed-identity role assignments, Key Vault references, required names in the existing `secret_names` output, and the portal app setting; no secret resources or empty slots |
 | Schema | SQL migrations always include every module's tables; toggling never changes schema |
-| Operator | Put the token or key in Key Vault and grant the GitHub or Entra permission |
+| Operator | Create and rotate the token or key in Key Vault using the names in `secret_names`, and grant the GitHub or Entra permission; Terraform neither manages nor imports secret values |
 | Check | Admin health page shows per module: secret present, permission OK, last run OK |
 
 No plugin or override framework exists (D-13); changing module behaviour means forking the repository.
@@ -669,7 +669,7 @@ Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questi
 | D-8 | AI Credits module includes read-only usage ingestion into SQL; budget and cost-center automation excluded | §1 |
 | D-9 | GitHub App for AI Credits reports (documented); usage metrics via App if the org-metrics permission works for installations, else classic PAT `read:org`; SCIM and consumed-licenses require a classic PAT (§2.3) | §12.4 |
 | D-10 | TypeScript timer Functions replace metrics runbooks after a matching parallel run | §7.1 |
-| D-11 | Raw NDJSON archived in Blob with lifecycle policy; SQL the only runtime store | §6.4 |
+| D-11 | Raw NDJSON archived in Blob; move to Cool after a configurable age (default 13 months), retain without deletion; SQL the only runtime store, with separate retention under D-12 | §6.4 |
 | D-12 | Per-user rows 13 months (max 36), aggregates indefinitely; both configurable. Exception: `dim_user_login_history` is kept for audit and purged after a maximum age (deployment setting, default 24 months, max 60), admin read only | §6.4 |
 | D-13 | EMU repositories are configuration-only; no override framework | §11 |
 | D-14 | Upstream as git submodule, never edited; Dependabot bumps; agent fixes adapters; subtree fallback | §10.1 |
