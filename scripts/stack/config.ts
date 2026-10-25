@@ -15,14 +15,23 @@ export function localConnectionString(env: Record<string, string | undefined>, d
 
 // Fixture loading writes staging tables, which only ingestion may do against a real database (D-34).
 export function assertLocalHost(connectionString: string): void {
-  const hosts = connectionString
+  const parts = connectionString
     .split(";")
+    .map((part) => part.trim());
+  const hosts = parts
     .map((part) => /^\s*(server|data source|address|addr|network address)\s*=\s*(.*)$/i.exec(part))
     .filter((m): m is RegExpExecArray => m !== null)
     .map((m) => (m[2] ?? "").trim().replace(/^tcp:/i, "").split(",")[0]!.trim().toLowerCase());
   // Exactly one host key, so a later duplicate cannot override the checked one.
   if (hosts.length !== 1 || (hosts[0] !== "127.0.0.1" && hosts[0] !== "localhost")) {
     throw new Error("Refusing to run: the target is not a local SQL Server (127.0.0.1 or localhost).");
+  }
+  const databases = parts
+    .map((part) => /^\s*(database|initial catalog)\s*=\s*(.*)$/i.exec(part))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => (m[2] ?? "").trim().toLowerCase());
+  if (databases.length !== 1 || databases[0] !== LOCAL_DATABASE.toLowerCase()) {
+    throw new Error(`Refusing to run: the target database must be ${LOCAL_DATABASE}.`);
   }
 }
 
