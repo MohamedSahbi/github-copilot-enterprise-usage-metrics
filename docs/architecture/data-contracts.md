@@ -40,7 +40,7 @@ One JSON object per line; one line = one user, one organization, one day. Fact k
 | `used_copilot_coding_agent` | `used_coding_agent` | BIT | no | |
 | `used_copilot_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | `used_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | BIT | no | Absent in some rows → false |
 | `used_copilot_code_review_active` / `_passive` | `used_code_review_active` / `_passive` | BIT | no | Absent/null → false |
-| `ai_credits_used` | `ai_credits_used` | DECIMAL(18,9) | no | Absent → 0; never rounded |
+| `ai_credits_used` | `ai_credits_used` | DECIMAL(18,9) | no | Absent/null → exact string `"0"`; numeric JSON tokens preserved losslessly; never rounded |
 | `ai_adoption_phase{phase_number,phase,version}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR | yes | |
 | `totals_by_ide[]` | breakdown `ide` (key_1 = ide) | | | `last_known_ide_version` and `last_known_plugin_version` → `version_info` (compact JSON of the documented string fields, NULL when absent) |
 | `totals_by_feature[]` | breakdown `feature` | | | |
@@ -52,6 +52,13 @@ One JSON object per line; one line = one user, one organization, one day. Fact k
 | any other field | `extra_json` (daily) | | | Warn `unknown_field`, load. `totals_by_client` is not in the pinned upstream types and is not staged |
 
 Language names are normalized with the upstream language normalizer before loading (oracle parity).
+
+SQL-row `ai_credits_used` is an exact decimal **string** in staging and inherited fact types
+(owner-approved correction to the former `number` contract, issue #45). The reference mapper uses
+Node 22's JSON reviver source token, including exponent notation, to avoid binary floating-point
+conversion. Non-negative values must fit DECIMAL(18,9) exactly or are rejected with `negative_count`;
+numeric strings in NDJSON are not accepted as numeric tokens. Conversion to a number happens only
+at the display/upstream-oracle boundary; public numeric display DTOs and metric version 1 are unchanged.
 
 Observed sample shapes (schema only; staging behavior is unchanged):
 
@@ -106,6 +113,25 @@ Source: `POST /enterprises/{ent}/settings/billing/reports` then poll and downloa
 | `input`, `output`, `cache_read`, `cache_write` | `*_tokens` | BIGINT | yes | V |
 
 Natural key: `(date, organization, username, model, sku, cost_center_name, repository, app_client_id)`; the tables key on a persisted SHA-256 `natural_key` of these text columns because they exceed SQL Server's index key size limits (1700 bytes nonclustered, 900 clustered). Duplicates in one export → reject `duplicate_key`. Unknown columns → warn `unknown_field` (ignored, since CSV has no JSON overflow column). Decimals are never rounded.
+
+CSV parsing accepts quoted commas, escaped quotes, multiline cells, LF/CRLF, and a final record
+without a newline. Empty physical records are ignored without renumbering source lines. Unclosed,
+misplaced, or followed-by-text quotes, duplicate/empty headers, and missing required headers are fatal
+`unsupported_schema` errors: no rows or multipart duplicate state are committed from that part.
+Wrong-width records are rejected as `malformed_json`. Every supplied decimal must fit
+DECIMAL(18,9) exactly (`negative_count` otherwise), canonicalized to plain decimal notation for SQL.
+The existing non-negative constraints on quantity, gross amount, and AIC quantity remain; signed
+adjustment amounts in the other columns remain supported. Supplied token counts must be non-negative safe
+integers, never silently converted to NULL. Empty optional decimals/counts remain NULL.
+
+The reference duplicate key uses a JSON tuple, so embedded delimiters cannot alias other tuples.
+SQL keys use concatenated `DATALENGTH(value):value` NVARCHAR frames (UTF-16 byte lengths), ordered as
+organization, username, model, cost center, repository, app client, sku; aggregates use organization,
+model, cost center. Date (and staging run) stay outside the hash in the unique key. NULL sku still
+equals empty sku. Migration `20261026001200` atomically rebuilds the three persisted hash columns
+and their unique indexes/primary keys, rehashing existing rows; it is safe to rerun. Schedule a
+maintenance window because persisted-column and clustered-key rebuilds rewrite/lock the tables.
+Rows rejected by old collisions are not recoverable from SQL: replay their archived sources separately.
 
 Private, owner-run schema-only verification of a local report confirmed the 22 columns listed above, in that order, with 3,242 data rows and a consistent 22-field row width. No row values were retained, and the source report is not included. These are the owner's local verification results; public reviewers cannot independently verify the report's origin or reproduce the check from this repository. Download parts are named `AIUsageReport_<part>_<hash>.csv` (`ai_credit` report type); `download_urls` can contain several parts, each with the same header.
 
@@ -171,6 +197,7 @@ No other difference was found while reading the calculators (only the adoption a
 | Health | status only, no data | same |
 
 Date ranges are bounded (max 400 days) and page sizes are bounded (max 100, default 50).
+Both date boundaries must be real ISO calendar dates; rollover dates such as `2025-02-31` are invalid.
 
 ## 7. Directory column contract (D-29), versions
 

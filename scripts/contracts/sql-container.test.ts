@@ -8,6 +8,7 @@ import { join } from "node:path";
 import sql from "mssql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "../db/migrate";
+import { createStagingContext, mapUsersDayLine } from "./reference/staging";
 
 const enabled = process.env.RUN_SQL_TESTS === "1";
 const realMigrations = join(__dirname, "..", "..", "db", "migrations");
@@ -82,6 +83,125 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(again.applied).toEqual([]);
     const [count] = await query<{ n: number }>(db, "SELECT COUNT(*) AS n FROM portal.schema_version");
     expect(count?.n).toBe(realFiles.length);
+  }, 240_000);
+
+  it("keeps delimiter-containing billing keys distinct across staging, facts and aggregates", async () => {
+    const db = await freshDb();
+    const migration = "20261026001200.do.billing-key-framing.sql";
+    const oldDir = copyMigrations();
+    rmSync(join(oldDir, migration));
+    await migrate({ connectionString: cs(db), dir: oldDir });
+    await query(db, `
+      DECLARE @run UNIQUEIDENTIFIER = '00000000-0000-4000-8000-000000000045';
+      INSERT INTO portal.IngestionRun (run_id, source_kind, scope_key, status, transform_version)
+        VALUES (@run, 'ai_credit', 'fixture', 'staged', '1');
+      INSERT INTO portal.SourceArtifact (run_id, blob_container, blob_path, sha256, size_bytes)
+        VALUES (@run, 'fixture', 'keys.csv', REPLICATE('0', 64), 1);
+      DECLARE @artifact BIGINT = SCOPE_IDENTITY();
+      INSERT INTO portal.stg_ai_credit_line
+        (run_id, artifact_id, line_number, usage_date, username, model, organization)
+        VALUES (@run, @artifact, 100, '2026-03-02', N'existing', N'model', N'org');
+      INSERT INTO portal.fact_ai_credit_line
+        (usage_date, organization_login, username, model, cost_center_name, repository, app_client_id,
+         run_id, source_artifact_id, transform_version)
+        VALUES ('2026-03-02', N'org', N'existing', N'model', N'', N'', N'', @run, @artifact, '1');
+      INSERT INTO portal.agg_ai_credit_daily
+        (usage_date, organization_login, model, cost_center_name, metric_version, user_count,
+         aic_quantity, aic_gross_amount, net_amount, run_id, transform_version)
+        VALUES ('2026-03-02', N'org', N'model', N'', 1, 5, 1, 1, 1, @run, '1');
+    `);
+    const oldHashes = await query<{ natural_key: Buffer }>(db, "SELECT natural_key FROM portal.stg_ai_credit_line");
+    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(1);
+    const newHashes = await query<{ natural_key: Buffer }>(db, "SELECT natural_key FROM portal.stg_ai_credit_line");
+    expect(newHashes[0]!.natural_key.equals(oldHashes[0]!.natural_key)).toBe(false);
+    await query(db, readFileSync(join(realMigrations, migration), "utf8"));
+    expect(await query(db, "SELECT natural_key FROM portal.stg_ai_credit_line")).toEqual(newHashes);
+    await query(db, `
+      DECLARE @run UNIQUEIDENTIFIER = '00000000-0000-4000-8000-000000000045';
+      DECLARE @artifact BIGINT = (SELECT artifact_id FROM portal.SourceArtifact WHERE run_id = @run);
+      INSERT INTO portal.stg_ai_credit_line
+        (run_id, artifact_id, line_number, usage_date, username, model, organization, cost_center_name, repository, app_client_id, sku)
+      SELECT @run, @artifact, n, '2026-03-02', username, model, organization, cc, repository, app, sku
+      FROM (VALUES
+        (1, N'a|b', N'c', N'org', N'', N'', N'', N''),
+        (2, N'a', N'b|c', N'org', N'', N'', N'', N''),
+        (3, NCHAR(937), N'c', N'org', N'12:|', N'repo', N'app', NULL),
+        (4, NCHAR(937), N'c', N'org', N'12:', N'|repo', N'app', NULL)
+      ) AS k(n, username, model, organization, cc, repository, app, sku);
+      INSERT INTO portal.fact_ai_credit_line
+        (usage_date, organization_login, username, model, cost_center_name, repository, app_client_id, sku,
+         run_id, source_artifact_id, transform_version)
+      SELECT usage_date, organization, username, model, cost_center_name, repository, app_client_id, sku,
+        run_id, artifact_id, '1' FROM portal.stg_ai_credit_line WHERE line_number < 100;
+      INSERT INTO portal.agg_ai_credit_daily
+        (usage_date, organization_login, model, cost_center_name, metric_version, user_count,
+         aic_quantity, aic_gross_amount, net_amount, run_id, transform_version)
+      VALUES
+        ('2026-03-02', N'a|b', N'c', N'', 1, 5, 1, 1, 1, @run, '1'),
+        ('2026-03-02', N'a', N'b|c', N'', 1, 5, 1, 1, 1, @run, '1');
+    `);
+    const [counts] = await query<{ staging: number; facts: number; aggregates: number }>(db, `
+      SELECT
+        (SELECT COUNT(DISTINCT natural_key) FROM portal.stg_ai_credit_line) AS staging,
+        (SELECT COUNT(DISTINCT natural_key) FROM portal.fact_ai_credit_line) AS facts,
+        (SELECT COUNT(DISTINCT natural_key) FROM portal.agg_ai_credit_daily) AS aggregates`);
+    expect(counts).toEqual({ staging: 5, facts: 5, aggregates: 3 });
+    const [parity] = await query<{ n: number }>(db, `
+      SELECT COUNT(*) AS n FROM portal.stg_ai_credit_line s JOIN portal.fact_ai_credit_line f
+        ON s.usage_date = f.usage_date AND s.natural_key = f.natural_key`);
+    expect(parity?.n).toBe(5);
+    await expect(query(db, `
+      INSERT INTO portal.stg_ai_credit_line
+        (run_id, artifact_id, line_number, usage_date, username, model, organization, cost_center_name, repository, app_client_id, sku)
+      SELECT TOP (1) run_id, artifact_id, 200, usage_date, username, model, organization, cost_center_name, repository, app_client_id, sku
+        FROM portal.stg_ai_credit_line
+    `)).rejects.toThrow(/UX_stg_ai_credit_key/);
+    await expect(query(db, `
+      INSERT INTO portal.fact_ai_credit_line
+        (usage_date, organization_login, username, model, cost_center_name, repository, app_client_id, sku,
+         run_id, source_artifact_id, transform_version)
+      SELECT TOP (1) usage_date, organization_login, username, model, cost_center_name, repository, app_client_id, sku,
+        run_id, source_artifact_id, transform_version FROM portal.fact_ai_credit_line
+    `)).rejects.toThrow(/PK_fact_ai_credit_line/);
+    await expect(query(db, `
+      INSERT INTO portal.agg_ai_credit_daily
+        (usage_date, organization_login, model, cost_center_name, metric_version, user_count,
+         aic_quantity, aic_gross_amount, net_amount, run_id, transform_version)
+      SELECT usage_date, organization_login, model, cost_center_name, metric_version, user_count,
+        aic_quantity, aic_gross_amount, net_amount, run_id, transform_version FROM portal.agg_ai_credit_daily
+    `)).rejects.toThrow(/PK_agg_ai_credit_daily/);
+  }, 240_000);
+
+  it("stores the original NDJSON credit token as an exact SQL decimal", async () => {
+    const db = await freshDb();
+    await migrate({ connectionString: cs(db) });
+    const run = "00000000-0000-4000-8000-000000000046";
+    const [artifact] = await query<{ artifact_id: number }>(db, `
+      INSERT INTO portal.IngestionRun (run_id, source_kind, scope_key, status, transform_version)
+        VALUES ('${run}', 'users_1_day', 'fixture', 'staged', '1');
+      INSERT INTO portal.SourceArtifact (run_id, blob_container, blob_path, sha256, size_bytes)
+        OUTPUT INSERTED.artifact_id
+        VALUES ('${run}', 'fixture', 'credits.ndjson', REPLICATE('0', 64), 1);
+    `);
+    const mapped = mapUsersDayLine(
+      '{"day":"2026-03-02","user_id":1,"organization_id":1,"loc_added_sum":0,"loc_deleted_sum":0,"loc_suggested_to_add_sum":0,"loc_suggested_to_delete_sum":0,"ai_credits_used":999999999.999999999}',
+      1, createStagingContext(run, { start: "2026-03-02", end: "2026-03-02" }), artifact!.artifact_id,
+    );
+    expect(mapped.issues).toEqual([]);
+    expect(mapped.daily!.ai_credits_used).toBe("999999999.999999999");
+    const pool = await new sql.ConnectionPool(cs(db)).connect();
+    try {
+      const entries = Object.entries(mapped.daily!);
+      const request = pool.request();
+      entries.forEach(([, value], i) => request.input(`p${i}`, value));
+      await request.query(`INSERT INTO portal.stg_user_daily (${entries.map(([key]) => `[${key}]`).join(",")})
+        VALUES (${entries.map((_, i) => `@p${i}`).join(",")})`);
+    } finally {
+      await pool.close();
+    }
+    const [stored] = await query<{ credits: string }>(db,
+      "SELECT CONVERT(NVARCHAR(40), ai_credits_used) AS credits FROM portal.stg_user_daily");
+    expect(stored?.credits).toBe("999999999.999999999");
   }, 240_000);
 
   it("re-executes every script safely when history is lost after the scripts succeeded", async () => {

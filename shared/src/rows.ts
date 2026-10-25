@@ -1,5 +1,5 @@
 // SQL row shapes for the portal schema (db/migrations). Dates are ISO strings (YYYY-MM-DD or UTC ISO-8601);
-// BIGINT ids are numbers (GitHub IDs stay below 2^53); DECIMAL(18,9) is a number only for display, ingestion keeps strings.
+// BIGINT ids are numbers (GitHub IDs stay below 2^53); DECIMAL(18,9) SQL rows keep exact strings, numbers are display-only.
 
 export type IsoDate = string;
 export type IsoDateTime = string;
@@ -98,7 +98,7 @@ export interface StgUserDailyRow {
   used_vscode_agent: boolean;
   used_code_review_active: boolean;
   used_code_review_passive: boolean;
-  ai_credits_used: number;
+  ai_credits_used: string;
   ai_adoption_phase_number: number | null;
   ai_adoption_phase: string | null;
   extra_json: string | null;

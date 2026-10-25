@@ -2,6 +2,7 @@
 // Pure and deterministic; test-only oracle for the contract; the ingestion code (a later change) implements the same rules and must pass these tests.
 
 import { createHash } from "node:crypto";
+import { exactDecimal18_9 } from "../../../shared/src/decimal";
 import { normalizeLanguage } from "../../../shared/src/languages";
 import {
   VALIDATION_ERROR_CODES,
@@ -108,8 +109,16 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
   const fail = (): UsersDayResult => ({ loaded: false, breakdown: [], families: [], issues });
 
   let raw: unknown;
+  const creditTokens = new WeakMap<Obj, string>();
   try {
-    raw = JSON.parse(line);
+    // Node 22 supplies the original primitive token to revivers, before numeric precision is lost.
+    raw = JSON.parse(line, function (this: Obj, key: string, value: unknown, context?: { source?: string }): unknown {
+      if (key === "ai_credits_used" && typeof value === "number") {
+        if (context?.source === undefined) throw new Error("JSON source-token support is required");
+        creditTokens.set(this, context.source);
+      }
+      return value;
+    });
   } catch {
     issue("malformed_json", null, "line is not valid JSON");
     return fail();
@@ -185,12 +194,14 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
   const rootCounts = counts(raw, "$");
   const bool = (k: string): boolean => raw[k] === true;
 
-  let credits = 0;
+  let credits = "0";
   if (raw.ai_credits_used !== undefined && raw.ai_credits_used !== null) {
-    if (typeof raw.ai_credits_used !== "number" || !Number.isFinite(raw.ai_credits_used) || raw.ai_credits_used < 0) {
+    const token = creditTokens.get(raw);
+    const exact = token === undefined ? null : exactDecimal18_9(token);
+    if (exact === null || exact.startsWith("-")) {
       negative = true;
-      issue("negative_count", "ai_credits_used", "ai_credits_used must be a finite number >= 0");
-    } else credits = raw.ai_credits_used;
+      issue("negative_count", "ai_credits_used", "ai_credits_used must be an exact non-negative DECIMAL(18,9) number");
+    } else credits = exact;
   }
 
   const breakdown: StgUserBreakdownRow[] = [];
@@ -350,22 +361,48 @@ const AI_COLUMNS = [
 ] as const;
 const AI_REQUIRED = ["date", "username", "model", "organization", "aic_quantity"] as const;
 
-export function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let q = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
-    if (q) {
-      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (ch === '"') q = false;
-      else cur += ch;
-    } else if (ch === '"') q = true;
-    else if (ch === ",") { out.push(cur); cur = ""; }
-    else cur += ch;
+interface CsvRecord { cells: string[]; lineNumber: number; raw: string }
+class CsvSyntaxError extends Error {
+  constructor(readonly lineNumber: number) {
+    super("invalid CSV quoting");
   }
-  out.push(cur);
-  return out;
+}
+
+function csvRecords(csv: string): CsvRecord[] {
+  const records: CsvRecord[] = [];
+  let cells: string[] = [], cell = "";
+  let state: "start" | "unquoted" | "quoted" | "closed" = "start";
+  let lineNumber = 1, startLine = 1, start = 0;
+  for (let i = 0; i <= csv.length; i++) {
+    const ch = csv[i];
+    if (state === "quoted") {
+      if (ch === undefined) throw new CsvSyntaxError(startLine);
+      if (ch === '"') {
+        if (csv[i + 1] === '"') { cell += '"'; i++; }
+        else state = "closed";
+      } else {
+        cell += ch;
+        if (ch === "\n" || (ch === "\r" && csv[i + 1] !== "\n")) lineNumber++;
+      }
+    } else if (ch === undefined || ch === "\r" || ch === "\n") {
+      const raw = csv.slice(start, i);
+      if (raw !== "") records.push({ cells: [...cells, cell], lineNumber: startLine, raw });
+      if (ch === "\r" && csv[i + 1] === "\n") i++;
+      lineNumber++;
+      startLine = lineNumber;
+      start = i + 1;
+      cells = []; cell = ""; state = "start";
+    } else if (ch === ",") {
+      cells.push(cell); cell = ""; state = "start";
+    } else if (ch === '"' && state === "start") {
+      state = "quoted";
+    } else {
+      if (ch === '"' || state === "closed") throw new CsvSyntaxError(startLine);
+      cell += ch;
+      state = "unquoted";
+    }
+  }
+  return records;
 }
 
 // One call per CSV part. Pass the same `seen` map for every part of a run so duplicates across parts are caught.
@@ -379,41 +416,64 @@ export function parseAiCreditCsv(
   const add = (lineNumber: number | null, code: ValidationErrorCode, field: string | null, message: string, raw: string | null): void => {
     issues.push({ run_id: runId, artifact_id: artifactId, line_number: lineNumber, raw_row_sha256: raw === null ? null : sha(raw), severity: severityOf(code), error_code: code, field_path: field, message });
   };
-  const lines = csv.split(/\r?\n/).filter((l) => l !== "");
-  if (!lines.length) {
+  let records: CsvRecord[];
+  try {
+    records = csvRecords(csv);
+  } catch (error) {
+    if (!(error instanceof CsvSyntaxError)) throw error;
+    add(error.lineNumber, "unsupported_schema", null, error.message, null);
+    return { rows: [], issues };
+  }
+  if (!records.length) {
     add(null, "unsupported_schema", null, "empty file", null);
     return { rows: [], issues };
   }
-  const header = splitCsvLine(lines[0]!).map((h) => h.trim());
-  const missing = AI_REQUIRED.filter((c) => !header.includes(c));
-  if (missing.length) {
-    add(1, "unsupported_schema", null, `missing required columns: ${missing.join(",")}`, lines[0]!);
+  const first = records[0]!;
+  const header = first.cells.map((h) => h.trim());
+  if (new Set(header).size !== header.length || header.some((h) => h === "")) {
+    add(first.lineNumber, "unsupported_schema", null, "duplicate or empty header", first.raw);
     return { rows: [], issues };
   }
-  for (const h of header) if (!(AI_COLUMNS as readonly string[]).includes(h)) add(1, "unknown_field", h, `unknown column ${h}`, null);
+  const missing = AI_REQUIRED.filter((c) => !header.includes(c));
+  if (missing.length) {
+    add(first.lineNumber, "unsupported_schema", null, `missing required columns: ${missing.join(",")}`, first.raw);
+    return { rows: [], issues };
+  }
+  for (const h of header) if (!(AI_COLUMNS as readonly string[]).includes(h)) add(first.lineNumber, "unknown_field", h, `unknown column ${h}`, null);
 
   const rows: StgAiCreditLineRow[] = [];
-  lines.slice(1).forEach((l, i) => {
-    const lineNumber = i + 2;
-    const cells = splitCsvLine(l);
+  records.slice(1).forEach(({ raw: l, cells, lineNumber }) => {
+    if (cells.length !== header.length) return add(lineNumber, "malformed_json", null, "CSV row width differs from header", l);
     const g = (c: string): string => {
       const idx = header.indexOf(c);
       return idx >= 0 ? (cells[idx] ?? "").trim() : "";
     };
-    const dec = (c: string): string | null => (g(c) === "" ? null : g(c));
+    const text = (c: string): string | null => (g(c) === "" ? null : g(c));
+    const dec = (c: string): string | null => (g(c) === "" ? null : exactDecimal18_9(g(c)));
     const int = (c: string): number | null => (/^\d+$/.test(g(c)) ? Number(g(c)) : null);
     if (!isRealDate(g("date"))) return add(lineNumber, "invalid_day", "date", "date unparseable", l);
     if (g("username") === "" || g("model") === "") return add(lineNumber, "malformed_json", null, "username or model missing", l);
-    if ([g("aic_quantity"), g("quantity"), g("gross_amount")].some((v) => v !== "" && (!Number.isFinite(Number(v)) || Number(v) < 0))) {
-      return add(lineNumber, "negative_count", null, "decimal value negative or not numeric", l);
+    for (const column of ["aic_quantity", "quantity", "applied_cost_per_quantity", "gross_amount", "discount_amount", "net_amount", "total_monthly_quota", "aic_gross_amount"]) {
+      const value = g(column);
+      const exact = value === "" ? null : exactDecimal18_9(value);
+      const nonNegative = ["aic_quantity", "quantity", "gross_amount"].includes(column);
+      if (value !== "" && (exact === null || (nonNegative && exact.startsWith("-")))) {
+        return add(lineNumber, "negative_count", column, "value must fit DECIMAL(18,9) without rounding and respect its sign constraint", l);
+      }
     }
-    const nk = [g("date"), g("username"), g("model"), g("organization"), g("sku"), g("app_client_id"), g("repository"), g("cost_center_name")].join("|");
+    for (const column of ["input", "output", "cache_read", "cache_write"]) {
+      const value = g(column);
+      if (value !== "" && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))) {
+        return add(lineNumber, "negative_count", column, "token count must be a non-negative safe integer", l);
+      }
+    }
+    const nk = JSON.stringify([g("date"), g("username"), g("model"), g("organization"), g("sku"), g("app_client_id"), g("repository"), g("cost_center_name")]);
     const prev = seen.get(nk);
     if (prev !== undefined) return add(lineNumber, "duplicate_key", null, `duplicate of artifact ${prev}; first row wins`, l);
     seen.set(nk, `${artifactId}:${lineNumber}`);
     rows.push({
       run_id: runId, artifact_id: artifactId, line_number: lineNumber, usage_date: g("date"), username: g("username"), organization: g("organization"),
-      model: g("model"), product: dec("product"), sku: dec("sku"), quantity: dec("quantity"), unit_type: dec("unit_type"),
+      model: g("model"), product: text("product"), sku: text("sku"), quantity: dec("quantity"), unit_type: text("unit_type"),
       applied_cost_per_quantity: dec("applied_cost_per_quantity"), gross_amount: dec("gross_amount"),
       discount_amount: dec("discount_amount"), net_amount: dec("net_amount"), total_monthly_quota: dec("total_monthly_quota"),
       aic_quantity: dec("aic_quantity"), aic_gross_amount: dec("aic_gross_amount"),
