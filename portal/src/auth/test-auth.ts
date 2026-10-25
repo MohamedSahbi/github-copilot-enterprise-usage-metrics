@@ -19,14 +19,9 @@ export function isTestAuthEnabled(env: Env = process.env): boolean {
   return env.E2E_TEST_AUTH === "1";
 }
 
-/**
- * Production builds refuse to start with the flag set. A local end-to-end run needs a production
- * build, so it must also set E2E_LOCAL_BUILD=1; that is never honoured on Azure App Service.
- */
+/** Production processes refuse to start with the flag set. */
 export function assertTestAuthAllowed(env: Env = process.env): void {
   if (!isTestAuthEnabled(env) || env.NODE_ENV !== "production") return;
-  const isAppService = Boolean(env.WEBSITE_SITE_NAME);
-  if (env.E2E_LOCAL_BUILD === "1" && !isAppService) return;
   throw new Error("E2E_TEST_AUTH must not be enabled in a production deployment");
 }
 

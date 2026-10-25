@@ -14,20 +14,9 @@ describe("assertTestAuthAllowed", () => {
     expect(() => assertTestAuthAllowed({ NODE_ENV: "development", E2E_TEST_AUTH: "1" })).not.toThrow();
   });
 
-  it("allows a local production build only when explicitly marked local", () => {
+  it("refuses the flag in production even when marked as a local build", () => {
     expect(() =>
       assertTestAuthAllowed({ NODE_ENV: "production", E2E_TEST_AUTH: "1", E2E_LOCAL_BUILD: "1" }),
-    ).not.toThrow();
-  });
-
-  it("refuses the local-build marker on Azure App Service", () => {
-    expect(() =>
-      assertTestAuthAllowed({
-        NODE_ENV: "production",
-        E2E_TEST_AUTH: "1",
-        E2E_LOCAL_BUILD: "1",
-        WEBSITE_SITE_NAME: "portal",
-      }),
     ).toThrow(/production/);
   });
 });

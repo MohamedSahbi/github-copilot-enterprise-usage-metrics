@@ -22,9 +22,9 @@ export default defineConfig({
   webServer: process.env.BASE_URL
     ? undefined
     : {
-        command: "npm run start -w portal -- --port " + port,
+        command: "npm run dev -w portal -- --port " + port,
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
-        env: { E2E_TEST_AUTH: "1", E2E_LOCAL_BUILD: "1" },
+        env: { E2E_TEST_AUTH: "1" },
       },
 });
