@@ -94,11 +94,12 @@ here.
 
 ## Preconditions before an authorized deployment
 
-1. Keep the Function App and SCM site disabled until the separate directory
-   artifact/build-routing work is approved and merged after #73/#117, and the
-   SQL writer/access design has been approved and its grants are separately
-   implemented and tested. Slice A does not create a runnable package or SQL
-   principal.
+1. Keep the Function App and SCM site disabled. #73/#117 has merged, which
+   releases only the packaging work's merge prerequisite; it does not provide
+   the directory artifact/build-routing implementation. That work still needs
+   separate approval, implementation, and review. The SQL writer/access design
+   also requires approval, with grants separately implemented and tested.
+   Slice A does not create a runnable package or SQL principal.
 2. Resolve #67's manager-read app-only limitation above before granting Graph
    application permissions. Do not treat incomplete coverage as absence or
    revocation.
