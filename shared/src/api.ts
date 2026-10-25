@@ -217,7 +217,11 @@ export function validateBudgetLookupRequest(request: unknown): BudgetLookupReque
     if (typeof costCenterName !== "string" || costCenterName.trim().length === 0) {
       return { ok: false, code: "invalid_request" };
     }
-    return { ok: true, request: { costCenterName: costCenterName.trim() } };
+    const normalizedName = costCenterName.trim();
+    if (Array.from(normalizedName).length > 255) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { costCenterName: normalizedName } };
   }
 
   return { ok: false, code: "invalid_request" };

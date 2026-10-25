@@ -33,6 +33,21 @@ describe("Budget Lookup contract", () => {
     expect(validateBudgetLookupRequest(request)).toEqual({ ok: false, code: "invalid_request" });
   });
 
+  it("accepts cost-center names at GitHub's 255-character limit", () => {
+    const costCenterName = "c".repeat(255);
+    expect(validateBudgetLookupRequest({ costCenterName })).toEqual({
+      ok: true,
+      request: { costCenterName },
+    });
+  });
+
+  it("rejects cost-center names longer than GitHub's 255-character limit", () => {
+    expect(validateBudgetLookupRequest({ costCenterName: "c".repeat(256) })).toEqual({
+      ok: false,
+      code: "invalid_request",
+    });
+  });
+
   it("keeps live budget, effective-budget, and cost-center amounts as exact decimal strings", () => {
     const response = {
       meta: { correlationId: "correlation-id", generatedAt: "2026-10-25T00:00:00Z", minGroupSize: 5, metricVersion: 1 },

@@ -527,10 +527,10 @@ Each optional module is ready-made automation that needs only a secret and a per
 | What changes | Where |
 | --- | --- |
 | Flag | `modules = { ai_credits = true, budget_lookup = false, feedback = true }` in tfvars |
-| Infrastructure | The flag wires the module's timer trigger settings, managed-identity role assignments, Key Vault references, required names in the existing `secret_names` output, and the portal app setting; no secret resources or empty slots |
+| Infrastructure | For scheduled modules only, the flag wires timer trigger settings; it also wires managed-identity role assignments, Key Vault references, required names in the existing `secret_names` output, and the portal app setting; no secret resources or empty slots |
 | Schema | SQL migrations always include every module's tables; toggling never changes schema |
 | Operator | Create and rotate the token or key in Key Vault using the names in `secret_names`, and grant the GitHub or Entra permission; Terraform neither manages nor imports secret values |
-| Check | Admin health page shows per module: secret present, permission OK, last run OK |
+| Check | Admin health page shows per module whether the credential is present and permission is OK. Scheduled modules additionally report last run status; live modules report live API reachability. Budget Lookup health checks its GitHub credential and read-only API access, not a scheduled run |
 
 No plugin or override framework exists (D-13); changing module behaviour means forking the repository.
 
