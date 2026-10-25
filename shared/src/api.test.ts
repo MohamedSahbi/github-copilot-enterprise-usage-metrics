@@ -1,9 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { validateBudgetLookupRequest } from "./api";
-import type { BudgetLookupRequest, BudgetLookupResponse, GitHubBudgetUserStatesPage } from "./api";
+import type { BudgetLookupBudget, BudgetLookupRequest, BudgetLookupResponse, GitHubBudgetUserStatesPage } from "./api";
 import { exactDecimal18_9 } from "./decimal";
 
 describe("Budget Lookup contract", () => {
+  it("represents BundlePricing and losslessly normalized singular and plural product SKUs", () => {
+    const examples = [
+      {
+        source: { budget_type: "BundlePricing", budget_product_skus: ["ai_credits"] },
+        normalized: { budgetType: "BundlePricing", budgetProductSkus: ["ai_credits"] },
+      },
+      {
+        source: { budget_type: "SkuPricing", budget_product_sku: "actions_linux" },
+        normalized: { budgetType: "SkuPricing", budgetProductSkus: ["actions_linux"] },
+      },
+      {
+        source: { budget_type: "ProductPricing", budget_product_skus: ["actions_linux", "actions_windows"] },
+        normalized: { budgetType: "ProductPricing", budgetProductSkus: ["actions_linux", "actions_windows"] },
+      },
+    ] satisfies {
+      source: { budget_type: string; budget_product_sku?: string; budget_product_skus?: string[] };
+      normalized: Pick<BudgetLookupBudget, "budgetType" | "budgetProductSkus">;
+    }[];
+
+    for (const { source, normalized } of examples) {
+      expect(normalized.budgetType).toBe(source.budget_type);
+      expect(normalized.budgetProductSkus).toEqual(source.budget_product_skus ?? [source.budget_product_sku]);
+    }
+  });
+
   it("accepts numeric GitHub user IDs and cost-center names as distinct lookup keys", () => {
     const userRequest: BudgetLookupRequest = { userId: 123 };
     const costCenterRequest: BudgetLookupRequest = { costCenterName: "{cost-center}" };
@@ -72,7 +97,7 @@ describe("Budget Lookup contract", () => {
             scope: { type: "universal", githubScope: "multi_user_customer" },
             entityName: null,
             budgetType: "ProductPricing",
-            budgetProductSku: "ai_credits",
+            budgetProductSkus: ["ai_credits"],
             amount: "1250",
             preventFurtherUsage: true,
             budgetAlerting: { willAlert: false, alertRecipients: [] },
@@ -84,7 +109,7 @@ describe("Budget Lookup contract", () => {
             scope: { type: "raw", githubScope: "repository" },
             entityName: "{repository}",
             budgetType: "SkuPricing",
-            budgetProductSku: "ai_credits",
+            budgetProductSkus: ["ai_credits"],
             amount: "20",
             preventFurtherUsage: false,
             budgetAlerting: { willAlert: false, alertRecipients: [] },
@@ -96,7 +121,7 @@ describe("Budget Lookup contract", () => {
             scope: { type: "individual", githubScope: "user" },
             entityName: null,
             budgetType: "SkuPricing",
-            budgetProductSku: "ai_credits",
+            budgetProductSkus: ["ai_credits"],
             amount: "75",
             preventFurtherUsage: true,
             budgetAlerting: { willAlert: false, alertRecipients: [] },
@@ -164,7 +189,7 @@ describe("Budget Lookup contract", () => {
           scope: { type: "cost_center", githubScope: "cost_center" },
           entityName: "{cost-center}",
           budgetType: "ProductPricing",
-          budgetProductSku: "ai_credits",
+          budgetProductSkus: ["ai_credits"],
           amount: "1000",
           preventFurtherUsage: false,
           budgetAlerting: { willAlert: true, alertRecipients: ["{login}"] },

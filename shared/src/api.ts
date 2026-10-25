@@ -190,8 +190,13 @@ export type AiCreditsResponse = PagedResponse<Suppressible<AiCreditsDailyRow>>;
  * Callers provide an immutable numeric GitHub user ID, never a login or email. For user lookups,
  * resolve that ID to the current login from the portal's identity data, then call
  * `GET /enterprises/{enterprise}/settings/billing/budgets?scope=user&user=<current login>&per_page=100`.
- * Also query `scope=multi_user_customer` and each applicable `scope=multi_user_cost_center` with
- * the same user and page size. Page until `has_next_page` is false and verify `total_count`.
+ * Then query `scope=multi_user_customer` and `scope=multi_user_cost_center` with the same user and
+ * page size. The list's `user` parameter filters consumed-amount details, not necessarily budget
+ * records or cost-center membership. There is no cost-center query parameter: page each scope
+ * once, then select applicable budgets from returned scope/entity, the resolved user identity,
+ * and known cost-center membership. Exclude unmatched records; ambiguous mappings fail visibly.
+ * Never treat repeated identical requests as selecting different centers.
+ * Page until `has_next_page` is false and verify `total_count`.
  * `GET .../budgets/{budget_id}` (a budget GUID) and
  * `GET .../budgets/{budget_id}/user-states?user=<current login>&per_page=100` are follow-ups;
  * match returned state logins against the resolved current login, and map response logins back to
@@ -255,8 +260,9 @@ export interface BudgetLookupBudget {
   id: string;
   scope: BudgetLookupScope;
   entityName: string | null;
-  budgetType: "SkuPricing" | "ProductPricing";
-  budgetProductSku: string;
+  budgetType: "SkuPricing" | "ProductPricing" | "BundlePricing";
+  // Wrap singular budget_product_sku in an array; preserve every plural budget_product_skus entry.
+  budgetProductSkus: string[];
   // Preserve JSON number tokens as text, then canonicalize with exactDecimal18_9; never parse through Number.
   amount: string;
   preventFurtherUsage: boolean;
