@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateBudgetLookupRequest } from "./api";
-import type { BudgetLookupRequest, BudgetLookupResponse } from "./api";
+import type { BudgetLookupRequest, BudgetLookupResponse, GitHubBudgetUserStatesPage } from "./api";
 import { exactDecimal18_9 } from "./decimal";
 
 describe("Budget Lookup contract", () => {
@@ -49,54 +49,108 @@ describe("Budget Lookup contract", () => {
   });
 
   it("keeps live budget, effective-budget, and cost-center amounts as exact decimal strings", () => {
+    const githubUserStatesPage = {
+      user_states: [
+        {
+          user: "{login}",
+          consumed_amount: "42.500000009",
+          target_amount: "1250",
+          override_budget_id: "00000000-0000-4000-8000-000000000001",
+        },
+      ],
+      has_next_page: false,
+      total_count: 1,
+    } satisfies GitHubBudgetUserStatesPage;
+
     const response = {
       meta: { correlationId: "correlation-id", generatedAt: "2026-10-25T00:00:00Z", minGroupSize: 5, metricVersion: 1 },
       data: {
         userId: 123,
         budgets: [
           {
-            id: "budget-id",
+            id: "00000000-0000-4000-8000-000000000001",
             scope: { type: "universal", githubScope: "multi_user_customer" },
             entityName: null,
-            amount: "1250.000000001",
-            currency: "USD",
+            budgetType: "ProductPricing",
+            budgetProductSku: "ai_credits",
+            amount: "1250",
+            preventFurtherUsage: true,
+            budgetAlerting: { willAlert: false, alertRecipients: [] },
             consumedAmount: "42.500000009",
-            consumedAgainstType: "universal_default",
             expiresAt: null,
           },
           {
-            id: "raw-budget-id",
+            id: "00000000-0000-4000-8000-000000000002",
             scope: { type: "raw", githubScope: "repository" },
             entityName: "{repository}",
+            budgetType: "SkuPricing",
+            budgetProductSku: "ai_credits",
             amount: "20",
-            currency: "USD",
+            preventFurtherUsage: false,
+            budgetAlerting: { willAlert: false, alertRecipients: [] },
             consumedAmount: null,
-            consumedAgainstType: "repository",
             expiresAt: null,
           },
           {
-            id: "individual-budget-id",
+            id: "00000000-0000-4000-8000-000000000003",
             scope: { type: "individual", githubScope: "user" },
             entityName: null,
+            budgetType: "SkuPricing",
+            budgetProductSku: "ai_credits",
             amount: "75",
-            currency: "USD",
+            preventFurtherUsage: true,
+            budgetAlerting: { willAlert: false, alertRecipients: [] },
             consumedAmount: "10.25",
-            consumedAgainstType: "individual_budget",
             expiresAt: null,
           },
         ],
         effectiveBudget: {
-          id: "budget-id",
-          amount: "1250.000000001",
+          id: "00000000-0000-4000-8000-000000000001",
+          amount: "1250",
           consumedAmount: "42.500000009",
-          consumedAgainstType: "universal_default",
         },
+        userStates: [
+          {
+            budgetId: "00000000-0000-4000-8000-000000000001",
+            userId: 123,
+            consumedAmount: "42.500000009",
+            targetAmount: "1250",
+            overrideBudgetId: null,
+          },
+        ],
         costCenterMemberships: [{ id: "center-id", name: "{cost-center}", state: "active" }],
       },
     } satisfies BudgetLookupResponse;
 
-    expect(exactDecimal18_9(response.data.budgets[0]!.amount)).toBe("1250.000000001");
+    expect(exactDecimal18_9(response.data.budgets[0]!.amount)).toBe("1250");
+    expect(exactDecimal18_9(response.data.effectiveBudget!.amount)).toBe("1250");
     expect(exactDecimal18_9(response.data.effectiveBudget!.consumedAmount)).toBe("42.500000009");
+    expect(exactDecimal18_9("42.500000009")).toBe("42.500000009");
+    expect(response.data.userStates[0]!.overrideBudgetId).toBeNull();
+    expect(exactDecimal18_9(githubUserStatesPage.user_states[0]!.consumed_amount)).toBe("42.500000009");
+    expect(githubUserStatesPage.has_next_page).toBe(false);
+    expect(githubUserStatesPage.total_count).toBe(1);
+
+    const unmappedUserResponse = {
+      meta: { correlationId: "correlation-id", generatedAt: "2026-10-25T00:00:00Z", minGroupSize: 5, metricVersion: 1 },
+      data: {
+        userId: null,
+        budgets: [],
+        effectiveBudget: null,
+        userStates: [
+          {
+            budgetId: "00000000-0000-4000-8000-000000000006",
+            userId: null,
+            consumedAmount: "0",
+            targetAmount: "0",
+            overrideBudgetId: null,
+          },
+        ],
+        costCenterMemberships: [],
+      },
+    } satisfies BudgetLookupResponse;
+    expect(unmappedUserResponse.data.userId).toBeNull();
+    expect(unmappedUserResponse.data.userStates[0]!.userId).toBeNull();
   });
 
   it("contracts cost-center views with budget and member amounts", () => {
@@ -104,22 +158,42 @@ describe("Budget Lookup contract", () => {
       meta: { correlationId: "correlation-id", generatedAt: "2026-10-25T00:00:00Z", minGroupSize: 5, metricVersion: 1 },
       data: {
         costCenterName: "{cost-center}",
+        state: "active",
         budget: {
-          id: "budget-id",
+          id: "00000000-0000-4000-8000-000000000004",
           scope: { type: "cost_center", githubScope: "cost_center" },
           entityName: "{cost-center}",
+          budgetType: "ProductPricing",
+          budgetProductSku: "ai_credits",
           amount: "1000",
-          currency: "USD",
+          preventFurtherUsage: false,
+          budgetAlerting: { willAlert: true, alertRecipients: ["{login}"] },
           consumedAmount: "250.25",
-          consumedAgainstType: "cost_center",
           expiresAt: null,
         },
         members: [
-          { resourceType: "user", resourceName: "{member}", userId: 123, consumedAmount: "250.25", targetAmount: "500" },
+          {
+            resourceType: "user",
+            resourceName: "{login}",
+            userId: 123,
+            consumedAmount: "250.25",
+            targetAmount: "500",
+            overrideBudgetId: "00000000-0000-4000-8000-000000000005",
+          },
+          {
+            resourceType: "user",
+            resourceName: "{unmapped-login}",
+            userId: null,
+            consumedAmount: "0",
+            targetAmount: "500",
+            overrideBudgetId: null,
+          },
         ],
       },
     } satisfies BudgetLookupResponse;
 
     expect(response.data.members[0]!.userId).toBe(123);
+    expect(response.data.members[1]!.userId).toBeNull();
+    expect(response.data.members[0]!.overrideBudgetId).toBe("00000000-0000-4000-8000-000000000005");
   });
 });

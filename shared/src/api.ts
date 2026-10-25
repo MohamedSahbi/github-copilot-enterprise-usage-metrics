@@ -186,7 +186,19 @@ export type AiCreditsResponse = PagedResponse<Suppressible<AiCreditsDailyRow>>;
 
 // ---- Budget Lookup (read-only) ----------------------------------------------------------------------------------
 
-// Email and login are never lookup or permission keys.
+/**
+ * Callers provide an immutable numeric GitHub user ID, never a login or email. For user lookups,
+ * resolve that ID to the current login from the portal's identity data, then call
+ * `GET /enterprises/{enterprise}/settings/billing/budgets?scope=user&user=<current login>&per_page=100`.
+ * Also query `scope=multi_user_customer` and each applicable `scope=multi_user_cost_center` with
+ * the same user and page size. Page until `has_next_page` is false and verify `total_count`.
+ * `GET .../budgets/{budget_id}` (a budget GUID) and
+ * `GET .../budgets/{budget_id}/user-states?user=<current login>&per_page=100` are follow-ups;
+ * match returned state logins against the resolved current login, and map response logins back to
+ * numeric IDs through portal identity data. Never infer an ID for an unmapped login; return
+ * `userId: null`. Any failed or truncated page sequence must fail visibly rather than return
+ * partial data.
+ */
 export type BudgetLookupRequest =
   | { userId: number; costCenterName?: never }
   | { userId?: never; costCenterName: string };
@@ -227,29 +239,30 @@ export function validateBudgetLookupRequest(request: unknown): BudgetLookupReque
   return { ok: false, code: "invalid_request" };
 }
 
-// Raw values preserve unknown upstream scopes without expanding which scopes callers may request.
+// Raw values preserve documented GitHub scopes without expanding which scopes callers may request.
 export type BudgetLookupScope =
   | { type: "universal"; githubScope: "multi_user_customer" | "multi_user_cost_center" }
   | { type: "individual"; githubScope: "user" }
   | { type: "cost_center"; githubScope: "cost_center" }
   | { type: "raw"; githubScope: string };
 
-// The string intersection preserves recognized labels while allowing GitHub's raw fallback values.
-export type BudgetLookupConsumedAgainstType =
-  | "universal_default"
-  | "team_budget"
-  | "individual_budget"
-  | "cost_center"
-  | (string & {});
+export interface BudgetLookupAlerting {
+  willAlert: boolean;
+  alertRecipients: string[];
+}
 
 export interface BudgetLookupBudget {
   id: string;
   scope: BudgetLookupScope;
   entityName: string | null;
+  budgetType: "SkuPricing" | "ProductPricing";
+  budgetProductSku: string;
+  // Preserve JSON number tokens as text, then canonicalize with exactDecimal18_9; never parse through Number.
   amount: string;
-  currency: string;
+  preventFurtherUsage: boolean;
+  budgetAlerting: BudgetLookupAlerting;
   consumedAmount: string | null;
-  consumedAgainstType: BudgetLookupConsumedAgainstType | null;
+  // Listed as `expires_at` by the enterprise budgets list endpoint; not every budget has one.
   expiresAt: IsoDate | null;
 }
 
@@ -257,7 +270,6 @@ export interface BudgetLookupEffectiveBudget {
   id: string;
   amount: string;
   consumedAmount: string;
-  consumedAgainstType: BudgetLookupConsumedAgainstType | null;
 }
 
 export interface BudgetLookupCostCenterMembership {
@@ -266,27 +278,65 @@ export interface BudgetLookupCostCenterMembership {
   state: "active" | "deleted";
 }
 
+/**
+ * Normalized `user-states` row. GitHub's login is used transiently for exact identity matching and
+ * omitted from this portal response; numeric identity comes only from the portal's identity data.
+ */
+export interface BudgetLookupUserState {
+  budgetId: string;
+  /** Resolved by exact current-login match in portal identity data; null when no mapping exists. */
+  userId: number | null;
+  // Numeric tokens use the same lossless text conversion and exactDecimal18_9 validation as budgets.
+  consumedAmount: string;
+  targetAmount: string;
+  /** GitHub omits this field when there is no override. */
+  overrideBudgetId: string | null;
+}
+
+/**
+ * Internal adapter input for GitHub's login-keyed user-states response. The login is transient
+ * matching data only and must not be returned to callers or used as a permission key. The adapter
+ * losslessly decodes the numeric JSON tokens into decimal strings before constructing this shape.
+ */
+export interface GitHubBudgetUserStatesPage {
+  user_states: GitHubBudgetUserState[];
+  has_next_page: boolean;
+  total_count: number;
+}
+
+export interface GitHubBudgetUserState {
+  user: string;
+  consumed_amount: string;
+  target_amount: string;
+  override_budget_id?: string;
+}
+
 export interface BudgetLookupCostCenterMember {
   // Member data is scope-sensitive; consumers must authorize server-side under D-17 before returning it.
   resourceType: string;
-  // Descriptive only; never a lookup or permission key.
+  // GitHub resource name/login, descriptive only; never a lookup or permission key.
   resourceName: string;
+  // Resolved from the current login in portal identity data; null when no exact mapping exists.
   userId: number | null;
   consumedAmount: string | null;
   targetAmount: string | null;
+  overrideBudgetId: string | null;
 }
 
 /** Per-user budget data is scope-sensitive and must be authorized server-side under D-17. */
 export interface BudgetLookupUserData {
-  userId: number;
+  /** Portal identity for the requested numeric user; null if GitHub response identity cannot be mapped. */
+  userId: number | null;
   budgets: BudgetLookupBudget[];
   effectiveBudget: BudgetLookupEffectiveBudget | null;
+  userStates: BudgetLookupUserState[];
   costCenterMemberships: BudgetLookupCostCenterMembership[];
 }
 
 /** Member-level detail must be authorized server-side under D-17 before it is returned. */
 export interface BudgetLookupCostCenterData {
   costCenterName: string;
+  state: "active" | "deleted";
   budget: BudgetLookupBudget | null;
   members: BudgetLookupCostCenterMember[];
 }
