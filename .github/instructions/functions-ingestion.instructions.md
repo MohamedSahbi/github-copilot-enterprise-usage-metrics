@@ -22,7 +22,8 @@ applyTo: "functions/**"
 ## Directory sync
 
 - Single writer of `CopilotUserDirectory`, `ManagerHierarchy`, and `HierarchySyncRun`; keep the documented column contract the PowerShell budget Functions read. Write one `HierarchySyncRun` row per run; budget reconciliation trusts only the latest `success` row, so never write `success` for a partial run.
-- Sources: SCIM `GET /scim/v2/enterprises/{ent}/Users` (login from `profileUrl`, fallback normalized `userName`; `externalId` = Entra object ID; business area from SCIM `groups`), seats `GET /orgs/{org}/copilot/billing/seats` (numeric user ID + login), Graph bulk reads for manager and department.
+- Sources: SCIM `GET /scim/v2/enterprises/{ent}/Users` supplies identity and groups (login from `profileUrl`, fallback normalized `userName`; `externalId` = Entra object ID), seats `GET /orgs/{org}/copilot/billing/seats` supplies numeric user ID + login, and Entra Graph bulk reads supply manager, department, and business area.
+- Department and business area come from configurable Entra attributes (`directory.department_attribute` and `directory.business_area_attribute`, D-5/§13.1), copied into `department` and `business_area`. An empty attribute setting disables that scope. Never derive these attributes from SCIM groups; keep organization-specific attribute names in private deployment configuration.
 - Store `github_user_id` ↔ `entra_object_id`. Login string rules are the last resort and never grant permissions.
 - Do not call `consumed-licenses` (D-38).
 

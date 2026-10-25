@@ -27,7 +27,8 @@ Keep the IaC boring. Prefer fewer files, fewer layers, and no copy-paste.
 
 ## Secrets
 
-- No secret values in variables, outputs, tfvars or state. Create empty Key Vault secret slots; operators fill them.
+- Names only: no secret values in variables, outputs, tfvars or state. Terraform provisions the vault and references, but neither manages/imports secret values nor creates empty secret slots. Operators create and rotate values in Key Vault.
+- Preserve the existing `secret_names` output and Key Vault references; module flags wire required names and references, not secret resources or values.
 - Mark outputs that carry connection strings `sensitive`.
 
 ## Checks before a PR
