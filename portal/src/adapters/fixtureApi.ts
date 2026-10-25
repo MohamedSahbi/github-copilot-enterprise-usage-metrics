@@ -3,9 +3,9 @@ import {
   suppressForScope,
   type Meta,
   type Suppressible,
+  type DateRange,
   type UsageBreakdownResponse,
   type UsageBreakdownRow,
-  type UsageOverviewRequest,
   type UsageOverviewResponse,
   type UsageSeriesPoint,
   type UserUsageResponse,
@@ -24,7 +24,7 @@ export interface FixtureCoreData {
 }
 
 export interface FixtureApiInput {
-  request: UsageOverviewRequest;
+  request: DateRange;
   scope: Scope;
   metrics: CopilotMetrics[];
   aggregatedMetrics: AggregatedMetrics;

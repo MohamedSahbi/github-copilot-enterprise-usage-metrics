@@ -17,7 +17,10 @@ for (const persona of ["admin", "manager", "member", "no-access"] as const) {
   test(`${persona} has the correct signed-in access state`, async ({ page, signInAs, consoleErrors }) => {
     test.setTimeout(120_000);
     await signInAs(persona);
-    await expect(page.getByRole("heading", { name: persona === "no-access" ? "No access" : "Overview" })).toBeVisible();
+    await expect(page.getByRole("heading", {
+      name: persona === "no-access" ? "No access" : "Overview",
+      exact: true,
+    }).last()).toBeVisible();
     if (persona === "no-access") {
       await expect(page.getByText("Your account has no assigned portal permissions.")).toBeVisible();
       await expect(page.getByRole("link", { name: "Request access" })).toHaveAttribute("href", "https://example.invalid/request-access");

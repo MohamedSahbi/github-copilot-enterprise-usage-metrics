@@ -55,10 +55,9 @@ test.describe("core pages by persona", () => {
           fullPage: true,
         });
       }
-
       if (persona === "manager") {
         await page.goto("/");
-        await expect(page.getByText("2 users in the selected scope.")).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Overview", exact: true }).last()).toBeVisible();
         await page.getByLabel("Scope").selectOption("department:department-a");
         await page.getByRole("button", { name: "Apply" }).click();
         await expect(page).toHaveURL(/scope=department%3Adepartment-a/);
@@ -75,8 +74,8 @@ test.describe("core pages by persona", () => {
         await expectNoAxeViolations(page);
       }
       if (persona === "member") {
-        await expect(page.getByText("Metrics are hidden because this scope is smaller than the minimum group size.")).toBeVisible();
-        await expect(page.getByText("1 users in the selected scope.")).toBeVisible();
+        await expect(page.getByText("Metrics are hidden because this scope is smaller than the minimum group size.")).toHaveCount(1);
+        await expect(page.getByText(/observed users in the selected scope/)).toHaveCount(0);
         await expect(page.getByLabel("Scope")).toHaveValue("self:self");
         await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Users" })).toHaveCount(0);
         await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Executive Summary" })).toHaveCount(0);

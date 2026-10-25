@@ -1,4 +1,5 @@
 import { getAccess, getAuthorizedScopeUsers } from "../authz/server";
+import type { AccessResult } from "../authz/access";
 import { portalViewerFromAccess } from "./portalViewer";
 
 export {
@@ -9,13 +10,23 @@ export {
   type PortalViewer,
 } from "./portalViewer";
 
-export async function getPortalViewer() {
+export interface PortalViewerContext {
+  viewer: Awaited<ReturnType<typeof portalViewerFromAccess>>;
+  access: AccessResult;
+}
+
+export async function getPortalViewerContext(correlationId?: string): Promise<PortalViewerContext> {
   try {
-    const access = await getAccess();
-    if (access.state !== "authorized") return portalViewerFromAccess(access);
+    const access = await getAccess(correlationId);
+    if (access.state !== "authorized") return { viewer: portalViewerFromAccess(access), access };
     const scopedUsers = await getAuthorizedScopeUsers(access);
-    return portalViewerFromAccess(access, scopedUsers);
+    return { viewer: portalViewerFromAccess(access, scopedUsers), access };
   } catch {
-    return portalViewerFromAccess({ state: "unavailable", breakGlass: false });
+    const access: AccessResult = { state: "unavailable", breakGlass: false };
+    return { viewer: portalViewerFromAccess(access), access };
   }
+}
+
+export async function getPortalViewer() {
+  return (await getPortalViewerContext()).viewer;
 }

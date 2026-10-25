@@ -8,7 +8,7 @@ import { getPortalDataSource } from "@/data/portalDataSource";
 
 export const dynamic = "force-dynamic";
 
-const FIXTURE_RANGE = { from: "2026-03-02", to: "2026-03-06" } as const;
+const REPORTING_PERIOD = { period: "last_7_days" } as const;
 
 function apiScope(scope: PortalScopeKind): Scope {
   if (scope === "all") return "company";
@@ -51,7 +51,7 @@ export default async function UserDetailsPage({
 
   const model = await dataSource.getUserDetails(
     {
-      request: FIXTURE_RANGE,
+      request: REPORTING_PERIOD,
       scope: apiScope(selection.kind),
       allowedUserIds: selection.userIds,
       perUserDetailEnabled: viewer.perUserDetailEnabled,

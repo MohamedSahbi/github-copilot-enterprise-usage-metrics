@@ -29,7 +29,9 @@ OAuth callbacks are `/api/auth/callback/microsoft-entra-id` and `/api/auth/callb
 
 JWT sessions last eight hours but contain identity, not grants. Every protected request reads `portal.v_active_grant` again; no cached permission can outlive the freshness setting. SQL failures produce Service unavailable, never a request-access suggestion or admin bootstrap. The No access page is only for a completed permission lookup with no usable grant. Unlinked GitHub sign-in has no grants. Existing one-to-one links are consumed; creating or changing links is not exposed by this issue.
 
-`validateServerGrant` resolves principal existence and directory values on the server before calling the shared validator. Future admin mutation routes must authorize the actor separately; it is not an authorization bypass. `canAccess` is the single surface gate, including restricted break-glass. Data APIs and admin pages are delivered in their own issues.
+`validateServerGrant` resolves principal existence and directory values on the server before calling the shared validator. Future admin mutation routes must authorize the actor separately; it is not an authorization bypass. `canAccess` is the single surface gate, including restricted break-glass. Admin pages are delivered separately.
+
+Core reporting pages read the existing scoped usage aggregates server-side and request fixed periods. Production never reads synthetic fixtures or NDJSON. The current API-backed views are Overview, Copilot Adoption, Languages, Model Usage, CLI Adoption, Copilot Impact, the Clients aggregate breakdown, and Users when names are visible. In guarded E2E test-auth runs, unsupported views can use synthetic fixtures; in production they show **Data unavailable** instead. This currently applies to the full Executive Summary and Clients views, Client Versions, AI Adoption Phases, User Details, and scope selections the API cannot safely narrow. Follow-up #115 tracks the missing core-view DTOs, authorized business-area/department/team narrowing, and gated per-user detail.
 
 ## Local browser verification
 

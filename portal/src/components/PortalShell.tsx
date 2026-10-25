@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { signOut } from "@/auth/config";
 import type { PortalScopeSelection, PortalViewer } from "@/access/portalAccess";
 import { visibleCorePages } from "@/navigation/corePages";
 
@@ -14,7 +15,7 @@ export default function PortalShell({
   viewer: PortalViewer;
   pageSlug: string;
   selection: PortalScopeSelection;
-  userCount: number;
+  userCount: number | null;
   suppressed: boolean;
   children: ReactNode;
 }) {
@@ -34,6 +35,12 @@ export default function PortalShell({
           </Link>
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-sm text-white/80">Signed in as {viewer.displayName}</span>
+            <form action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/sign-in" });
+            }}>
+              <button className="text-sm text-white underline" type="submit">Sign out</button>
+            </form>
             <form action={pageSlug === "overview" ? "/" : `/${pageSlug}`} className="flex items-center gap-2">
               <label htmlFor="scope-selection" className="text-sm">Scope</label>
               <select
@@ -80,7 +87,9 @@ export default function PortalShell({
           <p className="mb-5 text-sm text-muted">
             {suppressed
               ? "Metrics are hidden because this scope is smaller than the minimum group size."
-              : `${userCount} users in the selected scope.`}
+              : userCount === null
+                ? "Usage metrics for the selected scope."
+                : `${userCount} observed users in the selected scope.`}
           </p>
           {children}
         </main>
