@@ -1,7 +1,7 @@
-# Separate least-privilege runtime identities for the portal and the ingestion Functions (§12.4).
+# Separate least-privilege runtime identities for the portal and each Functions component (§12.4).
 # Role assignments are added next to the resources they grant access to.
 module "identity" {
-  for_each = toset(["portal", "ingestion"])
+  for_each = toset(["portal", "ingestion", "directory"])
   source   = "Azure/avm-res-managedidentity-userassignedidentity/azurerm"
   version  = "0.5.3"
 
