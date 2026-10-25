@@ -31,3 +31,14 @@ output "secret_names" {
   description = "Key Vault secret names to create before a full-stack plan/apply (az keyvault secret set)."
   value       = local.secret_names
 }
+
+output "directory_runtime" {
+  description = "Non-secret directory component references; the Function App remains disabled by Terraform."
+  value = {
+    function_app_resource_id         = module.directory.resource_id
+    host_storage_account_name        = module.directory_host_storage.name
+    host_storage_account_resource_id = module.directory_host_storage.resource_id
+    sql_server_name                  = local.create_sql ? local.sql_server_name : split("/", var.existing_sql.server_id)[8]
+    sql_database_name                = local.sql_database_name
+  }
+}
