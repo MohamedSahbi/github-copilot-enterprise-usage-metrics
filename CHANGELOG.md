@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.5...v0.2.6) (2026-10-25)
+
+
+### Features
+
+* D-47 data contracts (migrations, docs, shared types, contract tests) ([#39](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/39)) ([69e674d](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/69e674dcddd698b795fcd58d9ba0ccc0dad26cfe))
+
 ## [0.2.5](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.4...v0.2.5) (2026-10-24)
 
 
