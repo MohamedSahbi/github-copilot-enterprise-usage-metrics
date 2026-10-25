@@ -2,7 +2,7 @@
 
 Status: proposed with the contracts PR. Companion to [decision-record.md](decision-record.md) (§6, §6.5, §13.6). Types are in `shared/src/`, SQL in `db/migrations/`. A change to any contract lands in `shared/` first, in its own PR.
 
-**Architecture boundary (owner revision 2026-10-25, #66):** the new solution runs independently in a separate database; the old solution is untouched during parallel operation. This documentation update does not change executable `shared/` contracts or migrations. Historical v1/v2 budget descriptors below do not require compatibility shadow tables in the new database. #69 owns any executable contract clarification/delta before dependent implementation.
+**Architecture boundary (owner revision 2026-10-25, #66):** the new solution runs independently in a separate database; the old solution is untouched during parallel operation. Historical v1/v2 budget descriptors below do not require compatibility shadow tables in the new database. The live Budget Lookup request/response contract is defined in `shared/src/api.ts` under D-55/#94 and does not use the old database or a SQL fallback.
 
 Verification legend: **V** = verified against a recorded sample or the enterprise docs; **A** = assumption, not verified (listed again in the PR).
 
@@ -200,7 +200,7 @@ No other difference was found while reading the calculators (only the adoption a
 | Core usage pages | aggregates by org/day/dimension, suppressed | unchanged |
 | User list / detail | not available (`per_user_detail_disabled`) | rows only within the viewer's scope, paged |
 | AI Credits | aggregates by org/day/model/cost center | per-user rows within scope, paged |
-| Budget Lookup | optional read-only module; own and own-scope records. Read-source/access contract under database separation needs an owner decision before implementation (§6.5 of the decision record) | same |
+| Budget Lookup | optional read-only module; live GitHub budget APIs, keyed by numeric GitHub user ID or cost-center name; no SQL or old-database fallback (D-55) | same |
 | Admin | principals and grants (admin role) | same |
 | Feedback | items per visibility; author shown as display name only to admins | same |
 | Health | status only, no data | same |
@@ -229,7 +229,7 @@ No v1-compatible shadow tables, runtime old-database comparison access or old-sy
 | Hierarchy sync run | `portal.DirectorySyncState` in the new database | Old `HierarchySyncRun` stays with old consumers; never mark a partial new sync successful |
 | Audit log (two writers) | `portal.AuditLog` (portal only) | Old audit table unchanged; copy only portal-originated history during final approved migration |
 | Feedback item, vote, comment | `portal.FeedbackItem`, `FeedbackVote`, `FeedbackComment` | |
-| Budget entity, allocation, membership, failures | Old system unchanged | Automation out of scope; optional Budget Lookup source/access remains a decision, not assumed access (D-34) |
+| Budget entity, allocation, membership, failures | Old system unchanged | Budget Lookup reads GitHub live under D-55; no old-database access or new budget tables. Budget and cost-center writes remain out of scope |
 | Table-storage budget tables | out of scope | Legacy |
 
 Historical mapping concerns: old email/login keys and two-writer audit do not justify reproducing those structures in the separate new database. Stable-ID access/hierarchy and internal single-writer rules remain (D-5, D-34, D-36); legacy `enhanced` files remain ignored (D-28). The mapping is not authority to extract or migrate old data; final migration takes place at the end under a separately approved plan.

@@ -60,6 +60,45 @@ export interface ScopedRangeRequest extends DateRange {
   organizationIds?: number[];
 }
 
+export type UsagePeriodRequest =
+  | { period: "last_7_days"; organizationIds?: number[] }
+  | { period: "last_28_days"; organizationIds?: number[] }
+  | { period: "last_90_days"; organizationIds?: number[] }
+  | { period: "calendar_month"; month: string; organizationIds?: number[] };
+
+export type UsagePeriodValidation =
+  | { ok: true; range: DateRange }
+  | { ok: false; code: "invalid_request" };
+
+export function validateUsagePeriod(
+  request: UsagePeriodRequest,
+  latestCompleteDay: IsoDate,
+): UsagePeriodValidation {
+  if (!validateDateRange({ from: latestCompleteDay, to: latestCompleteDay }).ok) {
+    return { ok: false, code: "invalid_request" };
+  }
+
+  if (request.period === "calendar_month") {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(request.month)) {
+      return { ok: false, code: "invalid_request" };
+    }
+    const [year, month] = request.month.split("-").map(Number);
+    const from = `${request.month}-01`;
+    const to = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
+    if (to > latestCompleteDay) return { ok: false, code: "invalid_request" };
+    return { ok: true, range: { from, to } };
+  }
+
+  const days = {
+    last_7_days: 7,
+    last_28_days: 28,
+    last_90_days: 90,
+  }[request.period];
+  const to = new Date(`${latestCompleteDay}T00:00:00.000Z`);
+  const from = new Date(to.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  return { ok: true, range: { from, to: latestCompleteDay } };
+}
+
 export interface Suppressible<T> {
   suppressed: boolean;
   // null when suppressed, so a small exact count never reaches the browser
@@ -145,15 +184,15 @@ export interface UsageBreakdownRow {
   userCount: number;
 }
 
-export type UsageOverviewRequest = ScopedRangeRequest;
+export type UsageOverviewRequest = UsagePeriodRequest;
 export type UsageOverviewResponse = ApiResponse<{
   series: Suppressible<UsageSeriesPoint>[];
   adoption: Suppressible<AdoptionSummary>;
 }>;
 
-export interface UsageBreakdownRequest extends ScopedRangeRequest, PageRequest {
+export type UsageBreakdownRequest = UsagePeriodRequest & PageRequest & {
   kind: UsageBreakdownRow["kind"];
-}
+};
 export type UsageBreakdownResponse = PagedResponse<Suppressible<UsageBreakdownRow>>;
 
 // Per-user rows exist only when the deployment allows named users, only within the viewer's grants, and always paged.
@@ -164,7 +203,7 @@ export interface UserUsageRow {
   interactions: number;
   aiCreditsUsed: number;
 }
-export type UserUsageRequest = ScopedRangeRequest & PageRequest;
+export type UserUsageRequest = UsagePeriodRequest & PageRequest;
 export type UserUsageResponse = PagedResponse<UserUsageRow>;
 
 // ---- AI Credits module ------------------------------------------------------------------------------------------
@@ -186,17 +225,168 @@ export type AiCreditsResponse = PagedResponse<Suppressible<AiCreditsDailyRow>>;
 
 // ---- Budget Lookup (read-only) ----------------------------------------------------------------------------------
 
-export interface BudgetLookupRequest {
-  // Identifies a person by numeric GitHub user ID; email and login are never accepted as lookup keys.
-  userId: number;
+/**
+ * Callers provide an immutable numeric GitHub user ID, never a login or email. For user lookups,
+ * resolve that ID to the current login from the portal's identity data, then call
+ * `GET /enterprises/{enterprise}/settings/billing/budgets?scope=user&user=<current login>&per_page=100`.
+ * Then query `scope=multi_user_customer` and `scope=multi_user_cost_center` with the same user and
+ * page size. The list's `user` parameter filters consumed-amount details, not necessarily budget
+ * records or cost-center membership. There is no cost-center query parameter: page each scope
+ * once, then select applicable budgets from returned scope/entity, the resolved user identity,
+ * and known cost-center membership. Exclude unmatched records; ambiguous mappings fail visibly.
+ * Never treat repeated identical requests as selecting different centers.
+ * Page until `has_next_page` is false and verify `total_count`.
+ * `GET .../budgets/{budget_id}` (a budget GUID) and
+ * `GET .../budgets/{budget_id}/user-states?user=<current login>&per_page=100` are follow-ups;
+ * match returned state logins against the resolved current login, and map response logins back to
+ * numeric IDs through portal identity data. Never infer an ID for an unmapped login; return
+ * `userId: null`. Any failed or truncated page sequence must fail visibly rather than return
+ * partial data.
+ */
+export type BudgetLookupRequest =
+  | { userId: number; costCenterName?: never }
+  | { userId?: never; costCenterName: string };
+
+export type BudgetLookupRequestValidation =
+  | { ok: true; request: BudgetLookupRequest }
+  | { ok: false; code: "invalid_request" };
+
+export function validateBudgetLookupRequest(request: unknown): BudgetLookupRequestValidation {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+    return { ok: false, code: "invalid_request" };
+  }
+
+  const input = request as Record<string, unknown>;
+  const keys = Object.keys(input);
+  if (keys.length !== 1) return { ok: false, code: "invalid_request" };
+
+  if (keys[0] === "userId") {
+    const userId = input.userId;
+    if (typeof userId !== "number" || !Number.isSafeInteger(userId) || userId <= 0) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { userId } };
+  }
+
+  if (keys[0] === "costCenterName") {
+    const costCenterName = input.costCenterName;
+    if (typeof costCenterName !== "string" || costCenterName.trim().length === 0) {
+      return { ok: false, code: "invalid_request" };
+    }
+    const normalizedName = costCenterName.trim();
+    if (Array.from(normalizedName).length > 255) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { costCenterName: normalizedName } };
+  }
+
+  return { ok: false, code: "invalid_request" };
 }
-export type BudgetLookupResponse = ApiResponse<{
-  entityType: string;
+
+// Raw values preserve documented GitHub scopes without expanding which scopes callers may request.
+export type BudgetLookupScope =
+  | { type: "universal"; githubScope: "multi_user_customer" | "multi_user_cost_center" }
+  | { type: "individual"; githubScope: "user" }
+  | { type: "cost_center"; githubScope: "cost_center" }
+  | { type: "raw"; githubScope: string };
+
+export interface BudgetLookupAlerting {
+  willAlert: boolean;
+  alertRecipients: string[];
+}
+
+export interface BudgetLookupBudget {
+  id: string;
+  scope: BudgetLookupScope;
   entityName: string | null;
-  amount: string | null;
-  currency: string | null;
-  effectiveFrom: IsoDate | null;
-}[]>;
+  budgetType: "SkuPricing" | "ProductPricing" | "BundlePricing";
+  // Wrap singular budget_product_sku in an array; preserve every plural budget_product_skus entry.
+  budgetProductSkus: string[];
+  // Preserve JSON number tokens as text, then canonicalize with exactDecimal18_9; never parse through Number.
+  amount: string;
+  preventFurtherUsage: boolean;
+  budgetAlerting: BudgetLookupAlerting;
+  consumedAmount: string | null;
+  // Listed as `expires_at` by the enterprise budgets list endpoint; not every budget has one.
+  expiresAt: IsoDate | null;
+}
+
+export interface BudgetLookupEffectiveBudget {
+  id: string;
+  amount: string;
+  consumedAmount: string;
+}
+
+export interface BudgetLookupCostCenterMembership {
+  id: string;
+  name: string;
+  state: "active" | "deleted";
+}
+
+/**
+ * Normalized `user-states` row. GitHub's login is used transiently for exact identity matching and
+ * omitted from this portal response; numeric identity comes only from the portal's identity data.
+ */
+export interface BudgetLookupUserState {
+  budgetId: string;
+  /** Resolved by exact current-login match in portal identity data; null when no mapping exists. */
+  userId: number | null;
+  // Numeric tokens use the same lossless text conversion and exactDecimal18_9 validation as budgets.
+  consumedAmount: string;
+  targetAmount: string;
+  /** GitHub omits this field when there is no override. */
+  overrideBudgetId: string | null;
+}
+
+/**
+ * Internal adapter input for GitHub's login-keyed user-states response. The login is transient
+ * matching data only and must not be returned to callers or used as a permission key. The adapter
+ * losslessly decodes the numeric JSON tokens into decimal strings before constructing this shape.
+ */
+export interface GitHubBudgetUserStatesPage {
+  user_states: GitHubBudgetUserState[];
+  has_next_page: boolean;
+  total_count: number;
+}
+
+export interface GitHubBudgetUserState {
+  user: string;
+  consumed_amount: string;
+  target_amount: string;
+  override_budget_id?: string;
+}
+
+export interface BudgetLookupCostCenterMember {
+  // Member data is scope-sensitive; consumers must authorize server-side under D-17 before returning it.
+  resourceType: string;
+  // GitHub resource name/login, descriptive only; never a lookup or permission key.
+  resourceName: string;
+  // Resolved from the current login in portal identity data; null when no exact mapping exists.
+  userId: number | null;
+  consumedAmount: string | null;
+  targetAmount: string | null;
+  overrideBudgetId: string | null;
+}
+
+/** Per-user budget data is scope-sensitive and must be authorized server-side under D-17. */
+export interface BudgetLookupUserData {
+  /** Portal identity for the requested numeric user; null if GitHub response identity cannot be mapped. */
+  userId: number | null;
+  budgets: BudgetLookupBudget[];
+  effectiveBudget: BudgetLookupEffectiveBudget | null;
+  userStates: BudgetLookupUserState[];
+  costCenterMemberships: BudgetLookupCostCenterMembership[];
+}
+
+/** Member-level detail must be authorized server-side under D-17 before it is returned. */
+export interface BudgetLookupCostCenterData {
+  costCenterName: string;
+  state: "active" | "deleted";
+  budget: BudgetLookupBudget | null;
+  members: BudgetLookupCostCenterMember[];
+}
+
+export type BudgetLookupResponse = ApiResponse<BudgetLookupUserData | BudgetLookupCostCenterData>;
 
 // ---- Admin ------------------------------------------------------------------------------------------------------
 
