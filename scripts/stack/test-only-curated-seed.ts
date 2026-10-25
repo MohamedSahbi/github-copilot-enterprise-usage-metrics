@@ -322,11 +322,11 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
           .input("source", sql.VarChar(16), source)
           .query(`
             UPDATE portal.DirectorySyncState
-            SET last_success_at = SYSUTCDATETIME(), last_attempt_at = SYSUTCDATETIME(), last_error_code = NULL
+            SET last_success_at = DATEADD(second, -1, SYSUTCDATETIME()), last_attempt_at = SYSUTCDATETIME(), last_error_code = NULL
             WHERE source = @source;
             IF @@ROWCOUNT = 0
               INSERT INTO portal.DirectorySyncState (source, last_success_at, last_attempt_at, last_error_code)
-              VALUES (@source, SYSUTCDATETIME(), SYSUTCDATETIME(), NULL);`);
+              VALUES (@source, DATEADD(second, -1, SYSUTCDATETIME()), SYSUTCDATETIME(), NULL);`);
       }
 
       const userFactRows = usageRows.map((row) => ({

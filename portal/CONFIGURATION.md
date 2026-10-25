@@ -20,7 +20,7 @@ The portal reads only the new portal database. Configure the following app setti
 | `ACCESS_CONTACT` | Optional plain-text contact; empty hides it |
 | `DIRECTORY_PROVIDER` | `entra` (default: requires fresh scim, graph and seats state) or `csv` (requires csv state) |
 | `DIRECTORY_DEPARTMENT_ATTRIBUTE`, `DIRECTORY_BUSINESS_AREA_ATTRIBUTE` | Attribute paths; empty disables the corresponding grant scope |
-| `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing or future success timestamps deny elevated grants |
+| `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing success timestamps, or timestamps more than 1 s in the future (allowance for `DATETIME2(0)` rounding, not general clock skew), deny elevated grants |
 | `PER_USER_DETAIL_ENABLED` | `false` by default; server-derived `namesVisible`, never a request parameter |
 
 OAuth callbacks are `/api/auth/callback/microsoft-entra-id` and `/api/auth/callback/github`. Configure Entra to emit group object IDs in its signed ID token for break-glass. Group overage/missing claims do **not** trigger Graph calls and do not grant break-glass. Only matching-tenant Entra sign-in can use it, for admin and health surfaces only. Group evidence expires at the configured permission-freshness interval; sign in again to renew it. It never grants data or feedback access.
