@@ -1,0 +1,39 @@
+// Settings for the local stack (docker/compose.local.yml). Throwaway credentials, loopback only.
+import { createHash } from "node:crypto";
+
+export const LOCAL_DATABASE = "portal_local";
+const DEFAULT_PASSWORD = "Local-Dev-Only-1!";
+const DEFAULT_PORT = "14330";
+
+export function localConnectionString(env: Record<string, string | undefined>, database = LOCAL_DATABASE): string {
+  const port = env.LOCAL_SQL_PORT ?? DEFAULT_PORT;
+  const password = env.LOCAL_SQL_SA_PASSWORD ?? DEFAULT_PASSWORD;
+  return `Server=127.0.0.1,${port};Database=${database};User Id=sa;Password=${password};Encrypt=true;TrustServerCertificate=true`;
+}
+
+// Fixture loading writes staging tables, which only ingestion may do against a real database (D-34).
+export function assertLocalHost(connectionString: string): void {
+  const server = /(?:^|;)\s*(?:Server|Data Source)\s*=\s*([^;]*)/i.exec(connectionString)?.[1]?.trim() ?? "";
+  const host = server.replace(/^tcp:/i, "").split(",")[0]?.trim().toLowerCase() ?? "";
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    throw new Error("Refusing to run: the target is not a local SQL Server (127.0.0.1 or localhost).");
+  }
+}
+
+export interface FixtureRun {
+  runId: string;
+  file: string;
+  blobPath: string;
+}
+
+export const FIXTURE_SCOPE_KEY = "example-enterprise";
+export const FIXTURE_BLOB_CONTAINER = "raw";
+
+export function planFixtureRuns(): FixtureRun[] {
+  return [
+    { runId: "00000000-0000-4000-8000-0000000000f1", file: "users-1-day.ndjson", blobPath: "fixtures/users-1-day.ndjson" },
+    { runId: "00000000-0000-4000-8000-0000000000f2", file: "users-1-day.invalid.ndjson", blobPath: "fixtures/users-1-day.invalid.ndjson" },
+  ];
+}
+
+export const sha256Hex = (data: string): string => createHash("sha256").update(data).digest("hex");

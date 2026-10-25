@@ -18,6 +18,9 @@
     "build": "npm run build --workspaces --if-present",
     "test:e2e": "playwright test",
     "db:migrate": "tsx scripts/db/migrate-cli.ts",
+    "db:fixtures": "tsx scripts/stack/stack.ts fixtures",
+    "stack:up": "tsx scripts/stack/stack.ts up",
+    "stack:down": "tsx scripts/stack/stack.ts down",
     "test:sql": "RUN_SQL_TESTS=1 vitest run scripts/contracts/sql-container.test.ts",
     "test:smoke": "playwright test e2e/smoke",
     "ci": "bash scripts/ci.sh"
