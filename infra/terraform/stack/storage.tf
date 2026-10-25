@@ -46,3 +46,23 @@ module "storage" {
 
   enable_telemetry = false
 }
+
+resource "azurerm_storage_management_policy" "raw_archive" {
+  storage_account_id = module.storage.resource_id
+
+  rule {
+    name    = "raw-archive-cool"
+    enabled = true
+
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["raw/"]
+    }
+
+    actions {
+      base_blob {
+        tier_to_cool_after_days_since_modification_greater_than = ceil(var.raw_archive_cool_after_months * 365.25 / 12)
+      }
+    }
+  }
+}

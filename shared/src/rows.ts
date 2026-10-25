@@ -167,6 +167,8 @@ export interface StgAiCreditLineRow extends AiCreditLineValues {
   organization: string;
 }
 
+// Sole writer: ingestion. Directory sync owns attributes, hierarchy and lifecycle through that component.
+// Metrics may observe IDs/logins, but never overwrite directory-owned attributes or link/revocation state.
 export interface DimUserRow {
   user_id: number;
   login: string | null;
@@ -183,6 +185,22 @@ export interface DimUserRow {
   manager_email: string | null;
   department: string | null;
   business_area: string | null;
+}
+
+export interface DimUserLoginHistoryRow {
+  user_id: number;
+  login: string;
+  first_seen_day: IsoDate;
+  last_seen_day: IsoDate;
+  is_hashed_login: boolean;
+}
+
+// Existing SQL table, not a new status model. Partial/failed runs must not advance last_success_at.
+export interface DirectorySyncStateRow {
+  source: "scim" | "graph" | "csv" | "seats";
+  last_success_at: IsoDateTime | null;
+  last_attempt_at: IsoDateTime | null;
+  last_error_code: string | null;
 }
 
 export interface FactUserDailyUsageRow extends Omit<StgUserDailyRow, "run_id" | "line_number" | "enterprise_id" | "user_login"> {
@@ -313,6 +331,12 @@ export const TABLE_COLUMNS = {
     "user_id", "login", "email", "display_name", "entra_object_id", "state", "first_seen_day", "last_seen_day",
     "deleted_at", "pii_purged_at", "updated_at", "manager_entra_object_id", "manager_email", "department", "business_area",
   ] as const satisfies readonly (keyof DimUserRow)[],
+  "portal.dim_user_login_history": [
+    "user_id", "login", "first_seen_day", "last_seen_day", "is_hashed_login",
+  ] as const satisfies readonly (keyof DimUserLoginHistoryRow)[],
+  "portal.DirectorySyncState": [
+    "source", "last_success_at", "last_attempt_at", "last_error_code",
+  ] as const satisfies readonly (keyof DirectorySyncStateRow)[],
   "portal.AuditLog": [
     "audit_id", "occurred_at", "actor_principal_id", "actor_entra_oid", "action", "target_type", "target_id", "outcome",
     "correlation_id", "detail_json",

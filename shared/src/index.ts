@@ -6,5 +6,7 @@ export * from "./metrics";
 export * from "./languages";
 export * from "./access";
 export * from "./settings";
+export * from "./ingestion-settings";
+export * from "./directory-input";
 export * from "./audit";
 export * from "./issues";
