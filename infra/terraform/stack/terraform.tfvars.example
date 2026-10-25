@@ -15,6 +15,21 @@ organization = {
   entra_tenant_id    = "00000000-0000-0000-0000-000000000000"
 }
 
+# Sign-in identifiers are placeholders. OAuth secrets are created in Key Vault using the secret_names output.
+auth_trust_host                    = false
+trusted_forwarding_ingress         = false
+auth_microsoft_entra_id_id         = "00000000-0000-0000-0000-000000000000"
+auth_github_id                     = "REPLACE_WITH_CLIENT_ID"
+access_break_glass_group_id        = ""
+access_permission_freshness_minutes = 5
+access_no_access_message           = "You do not currently have permission to use this portal."
+access_request_url                 = ""
+access_contact                     = ""
+directory_department_attribute     = ""
+directory_business_area_attribute  = ""
+stale_data_threshold_hours         = 36
+per_user_detail_enabled            = false
+
 modules = {
   ai_credits    = false
   budget_lookup = false
