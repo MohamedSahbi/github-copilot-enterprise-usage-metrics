@@ -22,8 +22,7 @@ export type AccessResult =
   | { state: "authorized"; breakGlass: boolean; principal: Principal; grants: Grant[]; namesVisible: boolean };
 
 // DATETIME2(0) rounds SYSUTCDATETIME() to the nearest second, so a fresh sync can read back up to 0.5 s in the future.
-// Allow one second of that source precision only; this is not general clock-skew handling.
-const FUTURE_SYNC_TOLERANCE_MS = 1000;
+const FUTURE_SYNC_TOLERANCE_MS = 500;
 
 export async function resolveAccess(
   identity: Identity | null,

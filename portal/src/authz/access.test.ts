@@ -36,7 +36,7 @@ describe("fail-closed access resolution", () => {
     expect(canAccess(result, "data")).toBe(false);
   });
   it("denies elevated grants for missing, future, or stale directory sync but retains user scope", async () => {
-    for (const sync of [[], [{ source: "scim", last_success_at: new Date(now.getTime() + 1000 + 1) }],
+    for (const sync of [[], [{ source: "scim", last_success_at: new Date(now.getTime() + 500 + 1) }],
       ["scim", "graph", "seats"].map((source) => ({ source, last_success_at: new Date(now.getTime() - 36 * 3600000 - 1) }))]) {
       const base = await repo(["admin", "user"]).read(identity);
       const result = await resolveAccess(identity, { read: async () => ({ ...base, sync }) }, settings, now);
@@ -45,10 +45,10 @@ describe("fail-closed access resolution", () => {
       expect(canAccess(result, "admin")).toBe(false);
     }
   });
-  it("tolerates up to 1 s of future (DATETIME2(0) rounding) sync timestamps and keeps the stale boundary", async () => {
+  it("tolerates up to 500 ms of future (DATETIME2(0) rounding) sync timestamps and keeps the stale boundary", async () => {
     const hour = 3600000;
     const cases: [number, boolean][] = [
-      [1, true], [1000, true], [1000 + 1, false],
+      [1, true], [500, true], [500 + 1, false],
       [-36 * hour, true], [-36 * hour - 1, false],
     ];
     for (const [offset, fresh] of cases) {
