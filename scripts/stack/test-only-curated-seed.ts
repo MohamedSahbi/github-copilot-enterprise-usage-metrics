@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import sql from "mssql";
+import { AUTH_OBJECTS_BY_PERSONA, AUTH_PRINCIPALS_BY_PERSONA, seedAuth } from "../integration/auth-seed";
 import type {
   StgAiCreditLineRow,
   StgUserBreakdownRow,
@@ -16,7 +17,6 @@ const FIXTURE_DIR = join(__dirname, "..", "..", "fixtures", "synthetic");
 const USAGE_FIXTURE = "users-1-day.ndjson";
 const AI_CREDIT_FIXTURE = "ai-credit.csv";
 const TRANSFORM_VERSION = "1";
-const TEST_TENANT_ID = "40000000-0000-4000-8000-000000000001";
 
 export const TEST_CURATED_RUN_IDS = {
   usage: "00000000-0000-4000-8000-0000000000c2",
@@ -50,7 +50,7 @@ export const TEST_CURATED_SCOPE_ASSIGNMENTS: Readonly<Record<number, {
   1000012: { managerUserId: null, department: "department-b", businessArea: "business-area-b" },
 };
 
-const personaPrincipalId = {
+const legacyPersonaPrincipalIds = {
   admin: "30000000-0000-4000-8000-000000000001",
   manager: "30000000-0000-4000-8000-000000000002",
   member: "30000000-0000-4000-8000-000000000003",
@@ -58,11 +58,15 @@ const personaPrincipalId = {
 } as const;
 
 export const TEST_CURATED_PERSONAS = {
-  admin: { principalId: personaPrincipalId.admin, userId: 1000004, role: "admin", scope: "company" },
-  manager: { principalId: personaPrincipalId.manager, userId: 1000001, role: "manager", scope: "team" },
-  member: { principalId: personaPrincipalId.member, userId: 1000006, role: "user", scope: "self" },
-  "no-access": { principalId: personaPrincipalId["no-access"], userId: 1000012, scope: "none" },
+  admin: { principalId: AUTH_PRINCIPALS_BY_PERSONA.admin, entraObjectId: AUTH_OBJECTS_BY_PERSONA.admin, userId: 1000004, role: "admin", scope: "company" },
+  manager: { principalId: AUTH_PRINCIPALS_BY_PERSONA.manager, entraObjectId: AUTH_OBJECTS_BY_PERSONA.manager, userId: 1000001, role: "manager", scope: "team" },
+  member: { principalId: AUTH_PRINCIPALS_BY_PERSONA.member, entraObjectId: AUTH_OBJECTS_BY_PERSONA.member, userId: 1000006, role: "user", scope: "self" },
+  "no-access": { principalId: AUTH_PRINCIPALS_BY_PERSONA["no-access"], entraObjectId: AUTH_OBJECTS_BY_PERSONA["no-access"], userId: 1000012, scope: "none" },
 } as const;
+
+const personaObjectIdsByUserId = new Map<number, string>(
+  Object.values(TEST_CURATED_PERSONAS).map((persona) => [persona.userId, persona.entraObjectId]),
+);
 
 export interface TestCuratedSeedResult {
   usageFacts: number;
@@ -89,7 +93,7 @@ interface SeedArtifact {
 }
 
 function entraObjectId(userId: number): string {
-  return `10000000-0000-4000-8000-${String(userId).padStart(12, "0")}`;
+  return personaObjectIdsByUserId.get(userId) ?? `10000000-0000-4000-8000-${String(userId).padStart(12, "0")}`;
 }
 
 function readFixture(file: string): string {
@@ -166,7 +170,7 @@ async function clearPreviousSeed(tx: sql.Transaction): Promise<void> {
       .query(`DELETE FROM portal.${table} WHERE run_id IN (@usage, @credits)`);
   }
 
-  const principalIds = Object.values(personaPrincipalId);
+  const principalIds = Object.values(legacyPersonaPrincipalIds);
   const principalRequest = new sql.Request(tx);
   principalIds.forEach((id, index) => principalRequest.input(`p${index}`, sql.UniqueIdentifier, id));
   const principals = insertPlaceholders(principalIds.length, "p");
@@ -196,37 +200,6 @@ async function clearPreviousSeed(tx: sql.Transaction): Promise<void> {
     .input("usage", sql.UniqueIdentifier, usage)
     .input("credits", sql.UniqueIdentifier, credits)
     .query("DELETE FROM portal.IngestionRun WHERE run_id IN (@usage, @credits)");
-}
-
-async function seedPersonaGrants(tx: sql.Transaction): Promise<void> {
-  for (const persona of Object.values(TEST_CURATED_PERSONAS)) {
-    const entraId = entraObjectId(persona.userId);
-    await new sql.Request(tx)
-      .input("principal", sql.UniqueIdentifier, persona.principalId)
-      .input("tenant", sql.UniqueIdentifier, TEST_TENANT_ID)
-      .input("entra", sql.UniqueIdentifier, entraId)
-      .query(`
-        INSERT INTO portal.Principal (principal_id, entra_tenant_id, entra_object_id, status, permissions_verified_at)
-        VALUES (@principal, @tenant, @entra, 'active', SYSUTCDATETIME())`);
-  }
-
-  const grants = [
-    { persona: TEST_CURATED_PERSONAS.admin, role: "admin", scope: "company", value: "" },
-    { persona: TEST_CURATED_PERSONAS.manager, role: "manager", scope: "self", value: "" },
-    { persona: TEST_CURATED_PERSONAS.manager, role: "manager", scope: "team", value: "" },
-    { persona: TEST_CURATED_PERSONAS.member, role: "user", scope: "self", value: "" },
-  ] as const;
-  for (const grant of grants) {
-    await new sql.Request(tx)
-      .input("principal", sql.UniqueIdentifier, grant.persona.principalId)
-      .input("entra", sql.UniqueIdentifier, entraObjectId(grant.persona.userId))
-      .input("role", sql.VarChar(12), grant.role)
-      .input("scope", sql.VarChar(16), grant.scope)
-      .input("value", sql.NVarChar(128), grant.value)
-      .query(`
-        INSERT INTO portal.AccessGrant (principal_id, principal_entra_oid, role, scope, scope_value)
-        VALUES (@principal, @entra, @role, @scope, @value)`);
-  }
 }
 
 export async function seedTestOnlyCuratedData(connectionString: string): Promise<TestCuratedSeedResult> {
@@ -343,7 +316,7 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
             VALUES (@id, @login, @first, @last)`);
       }
 
-      await seedPersonaGrants(tx);
+      await seedAuth(tx);
       for (const source of TEST_CURATED_DIRECTORY_SYNC_SOURCES) {
         await new sql.Request(tx)
           .input("source", sql.VarChar(16), source)

@@ -8,6 +8,10 @@ import {
 } from "../stack/test-only-curated-seed";
 import { loadLocalCuratedData } from "../stack/local-curated-data";
 import { connectionString, openPool } from "./db";
+import { AUTH_TENANT } from "./auth-seed";
+import { SqlAccessRepository } from "../../portal/src/authz/sql-access";
+import { resolveAccess } from "../../portal/src/authz/access";
+import { readAccessSettings } from "../../portal/src/auth/settings";
 
 let pool: sql.ConnectionPool;
 let seedResult: TestCuratedSeedResult;
@@ -100,7 +104,7 @@ describe("test-only curated seed (synthetic fixtures → curated)", () => {
       scopes[persona] = grants.recordset;
     }
     expect(scopes.admin).toEqual([{ role: "admin", scope: "company" }]);
-    expect(scopes.manager).toEqual([{ role: "manager", scope: "self" }, { role: "manager", scope: "team" }]);
+    expect(scopes.manager).toEqual([{ role: "manager", scope: "team" }]);
     expect(scopes.member).toEqual([{ role: "user", scope: "self" }]);
     expect(scopes["no-access"]).toEqual([]);
 
@@ -146,5 +150,60 @@ describe("test-only curated seed (synthetic fixtures → curated)", () => {
     );
     expect(adminData).toBe(TEST_CURATED_EXPECTED_COUNTS.users);
     expect(memberData).toBe(1);
+  });
+
+  it("resolves each seeded E2E persona through the SQL-backed access model", async () => {
+    const repository = new SqlAccessRepository(pool);
+    const expectedState = {
+      admin: "authorized",
+      manager: "authorized",
+      member: "authorized",
+      "no-access": "no-access",
+    } as const;
+    const expectedGrants = {
+      admin: [{ role: "admin", scope: "company" }],
+      manager: [{ role: "manager", scope: "team" }],
+      member: [{ role: "user", scope: "self" }],
+      "no-access": [],
+    } as const;
+
+    const personaIds = Object.keys(TEST_CURATED_PERSONAS) as (keyof typeof TEST_CURATED_PERSONAS)[];
+    for (const personaId of personaIds) {
+      const persona = TEST_CURATED_PERSONAS[personaId];
+      const mappedUser = await pool.request()
+        .input("userId", persona.userId)
+        .input("entraObjectId", persona.entraObjectId)
+        .query<{ user_id: number }>(`
+          SELECT user_id FROM portal.dim_user
+          WHERE user_id = @userId AND entra_object_id = @entraObjectId`);
+      expect(mappedUser.recordset).toHaveLength(1);
+
+      const principal = await pool.request()
+        .input("principalId", persona.principalId)
+        .input("tenantId", AUTH_TENANT)
+        .input("entraObjectId", persona.entraObjectId)
+        .query<{ principal_id: string }>(`
+          SELECT principal_id FROM portal.Principal
+          WHERE principal_id = @principalId AND entra_tenant_id = @tenantId AND entra_object_id = @entraObjectId`);
+      expect(principal.recordset).toHaveLength(1);
+
+      const access = await resolveAccess({
+        provider: "entra",
+        tenantId: AUTH_TENANT,
+        objectId: persona.entraObjectId,
+        groups: [],
+      }, repository, readAccessSettings({}));
+
+      expect(access.state, personaId).toBe(expectedState[personaId]);
+      if (access.state === "authorized") {
+        expect(access.principal).toMatchObject({
+          principal_id: persona.principalId,
+          entra_tenant_id: AUTH_TENANT,
+          entra_object_id: persona.entraObjectId,
+        });
+        expect(access.grants.map(({ role, scope }) => ({ role, scope })))
+          .toEqual(expectedGrants[personaId]);
+      }
+    }
   });
 });
