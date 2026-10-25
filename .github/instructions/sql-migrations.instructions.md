@@ -5,7 +5,7 @@ applyTo: "db/**"
 
 # SQL migrations (D-34)
 
-- Migrations are forward-only, named `yyyyMMddHHmmss_description.sql` (UTC timestamp) so parallel PRs never collide, and idempotent where possible. Never edit a migration that has been merged; add a new one.
+- Migrations are forward-only, named `yyyyMMddHHmmss.do.description.sql` (UTC timestamp; the `.do.` form is the postgrator runner's forward-only naming) so parallel PRs never collide, and idempotent where possible. Never edit a migration that has been merged; add a new one.
 - The app never runs DDL at startup. Migrations run from `scripts/` in the deployment pipeline.
 - Portal-owned tables go in the `portal` schema. Do not create or alter `dbo` budget or cost-center tables; they belong to the PowerShell Function App.
 - `CopilotUserDirectory` and `ManagerHierarchy` keep their documented column contract. Any change to those columns needs a contract-test update and a note in the PR for the budget Functions' owner.

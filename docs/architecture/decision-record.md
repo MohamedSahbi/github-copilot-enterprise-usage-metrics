@@ -609,7 +609,7 @@ No plugin or override framework exists (D-13); changing module behaviour means f
 - **Coordination (D-48).**
   - Work items are GitHub issues created from an agent-task form: goal, decisions (`D-<n>`), area, acceptance criteria, tests, `depends-on`.
   - Only issues labelled `ready-for-agent` are assigned to agents; at most one active agent task per `area:*` label.
-  - Migrations use timestamped file names (`yyyyMMddHHmmss_description.sql`) so parallel PRs never collide.
+  - Migrations use timestamped file names (`yyyyMMddHHmmss.do.description.sql`, the forward-only naming of the postgrator migration runner) so parallel PRs never collide.
   - Every PR uses the template's definition of done: tests, browser evidence for UI changes, decisions touched, bugs recorded, docs updated, and a security-reviewer pass for changes to auth, API, `db/`, `infra/`, or `functions/`.
 - **Logging (D-51).** Structured JSON logs; a correlation ID flows from the HTTP request or timer run through SQL calls and ingestion runs; no tokens, secrets, or personal data in logs (log GitHub user IDs, not names or emails).
 - **Verification and spec review (D-52).** No completion claim without fresh command output in the PR evidence; test-first for logic and bug fixes; a read-only spec-reviewer checks every acceptance criterion against the diff before human review; systematic debugging (stop after three failed fixes) and evidence-based responses to review comments. Adapted from obra/superpowers (MIT); the plugin itself is not installed.
