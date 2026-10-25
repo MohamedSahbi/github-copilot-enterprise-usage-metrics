@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DefaultAzureCredential } from "@azure/identity";
+import { ManagedIdentityCredential } from "@azure/identity";
 import { ContainerClient } from "@azure/storage-blob";
 import sql from "mssql";
 import { computeAdoption, type AdoptionRow } from "../../../shared/src/metrics.js";
@@ -42,20 +42,21 @@ export interface MetricsDayLoaderDependencies {
   logger?: StructuredLogger;
 }
 
-export function createMetricsSqlConfig(server: string, database: string): sql.config {
+// Hosted access is pinned to the managed identity (clientId = user-assigned identity); no wider credential chain.
+export function createMetricsSqlConfig(server: string, database: string, managedIdentityClientId: string): sql.config {
   return {
     server,
     database,
-    authentication: { type: "azure-active-directory-default", options: {} },
+    authentication: { type: "token-credential", options: { credential: new ManagedIdentityCredential({ clientId: managedIdentityClientId }) } },
     options: { encrypt: true, trustServerCertificate: false },
     pool: { min: 1, max: 1 },
   };
 }
 
-export function createMetricsBlobContainerClient(accountUrl: string, containerName: string): ContainerClient {
+export function createMetricsBlobContainerClient(accountUrl: string, containerName: string, managedIdentityClientId: string): ContainerClient {
   const endpoint = new URL(accountUrl);
   if (endpoint.protocol !== "https:") throw new Error("Metrics blob storage endpoint must use HTTPS");
-  return new ContainerClient(`${endpoint.origin}/${containerName}`, new DefaultAzureCredential());
+  return new ContainerClient(`${endpoint.origin}/${containerName}`, new ManagedIdentityCredential({ clientId: managedIdentityClientId }));
 }
 
 const defaultLogger: StructuredLogger = {
