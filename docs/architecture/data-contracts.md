@@ -8,11 +8,17 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `retention.per_user_months` | 13 | Per-user rows and PII are purged after this window (D-12) |
+| `retention.per_user_months` | 13 (1 to 36) | Per-user rows and PII are purged after this window (D-12) |
 | `retention.aggregate_months` | unlimited | Aggregates kept indefinitely (D-12) |
-| `privacy.min_group_size` | 5 | Groups below this size are suppressed (§6.3) |
+| `retention.login_history_months` | 24 (1 to 60) | `dim_user_login_history` is purged only after this maximum age; explicit exception to the per-user rule (§11) |
+| `privacy.min_group_size` | 5 (floor 5) | Groups below this size are suppressed for every scope, including business area (§6.3) |
 | `privacy.per_user_detail` | off | Named users in responses (see §6) |
-| `staging.retention_days` | 14 | Staged rows of published or failed runs are deleted after this |
+| `staging.retention_days` | 14 | Staged rows of published or failed runs are deleted after this; quarantined runs are kept until an admin acts |
+| `access.break_glass_group_id` | empty | Entra group whose members reach admin and health pages when permissions cannot be read (D-17). Empty or a GUID. A setting, not a table |
+| `access.permission_freshness_minutes` | 5 (1 to 60) | Maximum age of the permission data before the portal fails closed (D-17) |
+| `directory.department_attribute` | empty | Entra attribute (Graph path) that holds the department. Empty = department scope disabled |
+| `directory.business_area_attribute` | empty | Entra attribute (Graph path) that holds the business area. Empty = business_area scope disabled |
+| `directory.empty_attribute_threshold_percent` | 20 | An enabled attribute that is empty for more than this share of users records the `attribute_empty_share` ValidationIssue |
 
 ## 2. users-1-day NDJSON → staging/curated (V against a recorded sample)
 
@@ -55,18 +61,22 @@ Language names are normalized with the upstream language normalizer before loadi
 | reject | `invalid_day` | `day` unparseable or outside the report window |
 | reject | `missing_organization_id` | `organization_id` absent or non-numeric |
 | reject | `negative_count` | any count or LOC value that is not a non-negative integer or exceeds its column (INT counts ≤ 2147483647; BIGINT LOC and token sums ≤ 2^53−1); also an invalid supplied client counter |
-| reject | `duplicate_key` | second row with the same `(organization_id, user_id, day)` in a file (first wins; the second is reported) |
+| reject | `duplicate_key` | superseded for day files by fatal `duplicate_file` (issue #44); kept only until ingestion adopts the new rule |
 | reject | `malformed_json` | line is not a JSON object |
 | warn | `unknown_field` | top-level field not listed above |
 | warn | `unknown_enum_value` | unrecognised feature/IDE/model/client key (added to the dimension with `is_known = 0`) |
 | warn | `unresolved_billing_login` | billing username does not resolve to a user ID |
 | warn | `extra_nested_item` | nested item with unknown shape |
+| warn | `attribute_empty_share` | an enabled directory attribute (department or business area) is empty for more than the threshold share of users |
 | fatal | `unsupported_schema` | deprecated root fields (`generated_loc_sum`, `accepted_loc_sum`) or file schema unrecognised |
 | fatal | `hash_mismatch` | SHA-256 of the downloaded file differs from the recorded one |
+| fatal | `duplicate_file` | the same user key `(organization_id, user_id, day)` appears twice in a day file; the whole file is quarantined |
+| fatal | `duplicate_nested_name` | duplicate names inside a nested list of one row; the whole file is quarantined |
+| fatal | `smaller_day_blocked` | the incoming day has fewer rows than the stored day and no admin force flag is set; incoming data is quarantined |
 
 A run with fatal issues publishes nothing. A run with rejects publishes the valid rows and reports the counts in `IngestionRun`.
 
-Staging row identity is `(run_id, artifact_id, line_number)`: a report can arrive as several parts under one run, every part restarts at line 1, and `artifact_id` (the `SourceArtifact` of the part) keeps the rows apart. Duplicate-key detection stays per run, so a row repeated in another part is still rejected (`duplicate_key`).
+Staging row identity is `(run_id, artifact_id, line_number)`: a report can arrive as several parts under one run, every part restarts at line 1, and `artifact_id` (the `SourceArtifact` of the part) keeps the rows apart. Duplicate detection stays per run, so a user key repeated in another part of the same day is also a `duplicate_file` (see §12).
 
 ## 3. ai_credit enterprise billing report → staging/curated
 
@@ -138,6 +148,7 @@ No other difference was found while reading the calculators (only the adoption a
 
 ## 6. Suppression and aggregate-only behaviour
 
+- The minimum group size applies to every scope, including department and business area; there is no per-scope exemption. `suppressForScope` in `shared/src/api.ts` is the single rule.
 - A group is any dimension slice that returns user counts or per-user-derived values. Groups with fewer than `privacy.min_group_size` users are replaced by `suppressed: true` with null values; the response also reports `minGroupSize`.
 - Suppression applies only when names are not visible to the viewer. With `privacy.per_user_detail = on`, a viewer sees named users only inside their own grant scope; a manager sees their own small team.
 - No response ships company-wide per-user records to the browser by default (§6.2 step 10).
@@ -179,3 +190,71 @@ Conflicts flagged as open questions: email-keyed access and hierarchy tables (D-
 Token types (owner-confirmed): every GitHub endpoint used (users-1-day report, billing export, seats, `orgs/{org}`, SCIM) is called with a personal access token held in Key Vault.
 
 Schema confirmation (owner): the old database is changed only through its migration script, so the code-derived column sets are authoritative. Cross-check against the live Table Storage export of the old directory (2217 entities): every `CopilotUserDirectory` v1 column exists with the expected types and widths (`GitHubUserId` is a numeric string of up to 9 digits, filled on every row). One property exists only in that export: `DeletionRequestedAt` (string, 19 characters, about 0.5% of rows; `DeletionTemporaryGuid` about 56%). In v2 both are replaced by `DeletedAt` (state, not sentinel).
+
+## 9. Access model (issue #44; D-5, D-17, D-34, D-36)
+
+Types and validator: `shared/src/access.ts`. SQL: `AccessGrant` (`CK_AccessGrant_role_scope`), migrations `20261026000800` to `20261026001100`.
+
+| Role | Allowed scopes |
+| --- | --- |
+| `user` | `self` |
+| `manager` | `self`, `team` |
+| `executive` | `department`, `business_area`, `company` |
+| `admin` | `company` |
+
+- A grant requires a linked Entra object ID. `AccessGrant.principal_entra_oid` is NOT NULL and a composite foreign key to `Principal (principal_id, entra_object_id)` makes a GitHub-only principal unable to hold a grant.
+- One Entra identity maps to one GitHub account and the reverse: unique indexes on `Principal` (both columns) and filtered unique indexes on active `PrincipalLinkState` rows.
+- Self, team and company grants have an empty scope value; department and business_area need one that exists in the directory.
+- Team scope is resolved from the manager's Entra object ID (`dim_user.manager_entra_object_id`). The manager's email is always stored alongside (`manager_email`) for recognition. The directory contract v2 `Manager` email column stays for the budget Functions.
+- Entra disable (D-34 one writer): the directory sync (ingestion) cannot write portal-owned tables, so it appends `PrincipalLinkState.unlinked_at` and a `GrantRevocation` row, and audits to `IngestionAuditEvent`. Soft only, never deletes. The portal reads grants through `portal.v_active_grant`, which hides grants granted at or before a revocation or unlink. A re-enabled user needs new, audited grants.
+- Settings `access.break_glass_group_id` and `access.permission_freshness_minutes` are deployment settings (§1); `BreakGlassConfig` is dropped.
+
+### Grant API
+
+`POST /api/admin/grants` (admin only): request `AdminGrantCreateRequest`, response `AdminGrantCreateResponse`, errors `AdminGrantErrorResponse` with codes `scope_disabled`, `invalid_role_scope`, `unknown_scope_value`, `principal_not_linked`. Check order: pair, scope enabled, principal linked, scope value. The admin form loads `AdminGrantFormData` (role/scope matrix, enabled scopes, distinct directory values). All in `shared/src/api.ts`.
+
+## 10. Directory attributes (issue #44 item 6)
+
+The directory sync reads `directory.department_attribute` and `directory.business_area_attribute` through Graph, trims, collapses whitespace and lower-cases the values (`normalizeDirectoryValue`), and writes them to `dim_user.department` and `dim_user.business_area`. An empty attribute setting disables that scope: nothing is read, the grant API answers `scope_disabled`. When an enabled attribute is empty for more than `directory.empty_attribute_threshold_percent` of users, the sync records a `attribute_empty_share` ValidationIssue (`attributeEmptyShareExceeded`). Values longer than the column (100 characters for department, 50 for business area, matching directory contract v2) are a data issue for the sync to report. No company-specific attribute names or values belong in this repository.
+
+## 11. Login history retention (exception to D-12)
+
+`dim_user_login_history` is kept for audit and purged only after `retention.login_history_months` (default 24), measured from `last_seen_day`. This is an explicit exception to the 13-month per-user rule: it holds logins, which are personal data, so only the admin role can read it, and it is never returned in non-admin responses. Writer: ingestion, through `portal.usp_purge_login_history`, which accepts 1 to 60 months (the same range as the setting) and audits each purge to `IngestionAuditEvent` (`login_history.purged`).
+
+## 12. Day replacement guard and Admin issues inbox (issue #44 items 9, 10; §6.2 step 9)
+
+- A day replaced by less data is blocked by default (`evaluateDayReplacement`): the run is quarantined with `smaller_day_blocked`. Only an admin force flag lets it through; that is audited as `day.replace_forced` (detail: `reportDay`, `storedRows`, `incomingRows`, `emptyDayConfirmed`). Forcing an empty (0-row) day also needs a typed confirmation: the admin types the day's date (`confirmDate` must equal the report day), otherwise the day stays quarantined (`empty_day_confirmation_required`). The incoming data stays in staging and the raw blob meanwhile; the run status is `quarantined`.
+- A duplicate user key in a day file, or duplicate nested names, quarantines the whole file (`duplicate_file`, `duplicate_nested_name`).
+- Inbox, backed by `ValidationIssue` (`issue_type`, `report_day`, `handled_at`) and `IssueAction`. Admin only; every action is audited as `issue.action_applied`.
+
+| Issue type | Actions |
+| --- | --- |
+| `duplicate_file` | `retry`, `accept_last`, `accept_first`, `reject` |
+| `smaller_day` | `force`, `discard` |
+
+Status: `open`, `resolved`, `dismissed` (`reject` and `discard` dismiss). Types: `IssueListRequest/Response`, `OpenIssueCountResponse` (banner), `IssueActionRequest/Response` in `shared/src/issues.ts`. `force` on an empty day needs the day context and the typed date; without context it is rejected. A chosen action only marks the day for reprocessing (an `IssueAction` row); the ingestion Function does the work and sets `handled_at`. Out of scope: comments, assignments, custom rules, arbitrary action types, email or Azure Monitor alerts (issue #37).
+
+## 13. Template configuration keys
+
+The deployment template and the private environment repository supply these as tfvars and app settings; Terraform wiring is a follow-up. Examples are generic; real attribute names stay in the private repository.
+
+```yaml
+# retention:
+#   per_user_months: 13               # 1 to 36
+#   login_history_months: 24          # 1 to 60; audit history, purged only after this age
+# privacy:
+#   min_group_size: 5                 # floor 5, applies to every scope
+# access:
+#   break_glass_group_id: ""          # Entra group object ID, or empty
+#   permission_freshness_minutes: 5   # 1 to 60
+# directory:
+#   department_attribute: ""          # example: department. Empty disables the department scope
+#   business_area_attribute: ""       # example: onPremisesExtensionAttributes.extensionAttribute1. Empty disables the business_area scope
+#   empty_attribute_threshold_percent: 20
+```
+
+## 14. Access-model review notes
+
+- Order between grants, directory revocations and unlinks comes from `event_seq` (`AccessGrant`, `GrantRevocation`) and `unlink_seq` (`PrincipalLinkState`), all drawn from the database-wide sequence `portal.seq_access_event`, never from timestamps (which can tie, so they stay `DATETIME2(7)` for display only). `portal.v_active_grant` hides a grant when a revocation or unlink has a higher position; a later re-grant has a higher position again and is visible. An unlink without a sequence is rejected by `CK_PrincipalLinkState_pair`, and the view hides the grant if one ever appears. Writers need UPDATE on the sequence to draw a value.
+- Entra columns of `Principal` are not directly updatable. `portal.usp_link_principal_entra` (EXECUTE for the portal writer) fills a missing Entra ID once (dual-provider linking, decision record §13.1); it never reassigns or clears one.
+- `validateSettings` rejects a non-object root or a supplied non-object section; omitted sections keep defaults.

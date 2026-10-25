@@ -4,3 +4,7 @@ export * from "./directory-contract";
 export * from "./features";
 export * from "./metrics";
 export * from "./languages";
+export * from "./access";
+export * from "./settings";
+export * from "./audit";
+export * from "./issues";

@@ -1,6 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ROLES, ROLE_SCOPES } from "../../shared/src/access";
+import { AUDIT_ACTIONS } from "../../shared/src/audit";
+import { ISSUE_ACTIONS, ISSUE_TYPES } from "../../shared/src/issues";
 
 const dir = join(__dirname, "..", "..", "db", "migrations");
 const files = readdirSync(dir).filter((f) => f.endsWith(".sql"));
@@ -72,5 +75,53 @@ describe("migrations lint (D-34, §6.5)", () => {
         expect(guard.test(sql), `${f}: ${m[1]} is not guarded by IF OBJECT_ID ... IS NULL`).toBe(true);
       }
     }
+  });
+});
+
+describe("access-model migrations agree with the shared contracts (issue #44)", () => {
+  const all = files.map((f) => stripComments(readFileSync(join(dir, f), "utf8"))).join("\n");
+  const quoted = (list: string): string[] => [...list.matchAll(/'([a-z_.]+)'/g)].map((m) => m[1]!).sort();
+
+  it("CK_AccessGrant_role_scope allows exactly the role/scope pairs of ROLE_SCOPES", () => {
+    const body = /CK_AccessGrant_role_scope CHECK \(([\s\S]*?)\);\s*GO/i.exec(all)?.[1] ?? "";
+    const pairs = [...body.matchAll(/role = '(\w+)' AND scope (?:= '(\w+)'|IN \(([^)]*)\))/g)]
+      .flatMap((m) => (m[2] ? [`${m[1]}:${m[2]}`] : quoted(m[3]!).map((s) => `${m[1]}:${s}`)))
+      .sort();
+    const expected = ROLES.flatMap((r) => ROLE_SCOPES[r].map((s) => `${r}:${s}`)).sort();
+    expect(pairs).toEqual(expected);
+  });
+
+  it("IngestionAuditEvent allows exactly the ingestion-written audit actions", () => {
+    const list = /CK_IngestionAuditEvent_action CHECK \(action IN \(([^)]*)\)/i.exec(all)?.[1] ?? "";
+    const expected = Object.entries(AUDIT_ACTIONS).filter(([, w]) => w === "ingestion").map(([a]) => a).sort();
+    expect(quoted(list)).toEqual(expected);
+  });
+
+  it("IssueAction allows exactly the fixed action set of every issue type", () => {
+    const list = /CK_IssueAction_action CHECK \(action IN \(([^)]*)\)/i.exec(all)?.[1] ?? "";
+    expect(quoted(list)).toEqual([...new Set(Object.values(ISSUE_ACTIONS).flat())].sort());
+  });
+
+  it("ValidationIssue types and the quarantined run status match the shared types", () => {
+    const types = /CK_ValidationIssue_type CHECK \(issue_type IS NULL OR issue_type IN \(([^)]*)\)/i.exec(all)?.[1] ?? "";
+    expect(quoted(types)).toEqual([...ISSUE_TYPES].sort());
+    expect(/CK_IngestionRun_status[\s\S]*?'quarantined'/i.test(all)).toBe(true);
+  });
+
+  it("makes grants impossible for a GitHub-only principal", () => {
+    expect(/principal_entra_oid UNIQUEIDENTIFIER NOT NULL/i.test(all)).toBe(true);
+    expect(/FOREIGN KEY \(principal_id, principal_entra_oid\) REFERENCES portal\.Principal \(principal_id, entra_object_id\)/i.test(all)).toBe(true);
+  });
+
+  it("keeps D-34: ingestion never writes portal-owned access tables and the new audit tables are append-only", () => {
+    expect(/GRANT[^;]*\bON portal\.(Principal|PrincipalIdentity|AccessGrant|AuditLog|IssueAction)\b[^;]*TO portal_ingest/i.test(all.replace(/GRANT SELECT[^;]*;/gi, ""))).toBe(false);
+    for (const t of ["GrantRevocation", "IssueAction", "IngestionAuditEvent"]) {
+      expect(new RegExp(`DENY UPDATE, DELETE ON portal\\.${t}\\b`, "i").test(all), `${t} must be append-only`).toBe(true);
+    }
+  });
+
+  it("unique indexes on the active Entra and GitHub link exist both ways", () => {
+    expect(/UX_PrincipalLinkState_entra[\s\S]*?WHERE unlinked_at IS NULL/i.test(all)).toBe(true);
+    expect(/UX_PrincipalLinkState_github[\s\S]*?WHERE unlinked_at IS NULL/i.test(all)).toBe(true);
   });
 });
