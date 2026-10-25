@@ -229,6 +229,24 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
     expect(checkpoint?.last_run_id?.toLowerCase()).toBe(published.runId);
   });
 
+  it.each([true, false])("quarantines duplicate identities with invalid-count row first: %s", async (invalidFirst) => {
+    const original = newInput(ndjson([userIds[0]!]));
+    await loadMetricsDay(original, { sqlConfig, blobContainer });
+    const valid = ndjson([userIds[1]!]);
+    const invalid = ndjson([userIds[1]!], { user_initiated_interaction_count: -1 });
+    const duplicate = newInput(Buffer.concat(invalidFirst ? [invalid, valid] : [valid, invalid]));
+    const result = await loadMetricsDay(duplicate, { sqlConfig, blobContainer });
+
+    expect(result.status).toBe("quarantined");
+    expect(await count("SELECT COUNT(*) AS count FROM portal.stg_user_daily WHERE run_id = @value", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(0);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE run_id = @value", "value", sql.UniqueIdentifier, original.runId)).toBe(1);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE run_id = @value", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(0);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.ValidationIssue WHERE run_id = @value AND error_code = 'duplicate_file'", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(1);
+    const checkpoint = (await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
+      .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey")).recordset[0];
+    expect(checkpoint?.last_run_id?.toLowerCase()).toBe(original.runId);
+  });
+
   it("blocks a smaller replacement and preserves the current complete day", async () => {
     const first = newInput(ndjson(userIds));
     await loadMetricsDay(first, { sqlConfig, blobContainer });

@@ -180,10 +180,11 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
   duplicateKey: string | null;
 } {
   const issues: MetricsValidationIssue[] = [];
+  let duplicateKey: string | null = null;
   const addIssue = (code: ValidationErrorCode, field: string | null, message: string, hash = sha256(line)): void => {
     issues.push({ line_number: lineNumber, raw_row_sha256: hash, severity: severityOf(code), error_code: code, field_path: field, message });
   };
-  const reject = (): ReturnType<typeof parseLine> => ({ row: null, issues, fatal: issues.some((issue) => issue.severity === "fatal"), duplicateKey: null });
+  const reject = (): ReturnType<typeof parseLine> => ({ row: null, issues, fatal: issues.some((issue) => issue.severity === "fatal"), duplicateKey });
 
   const creditTokens = new WeakMap<JsonObject, string>();
   let decoded: unknown;
@@ -233,6 +234,7 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
     addIssue("invalid_day", "day", "day is invalid or does not match the requested report day");
     return reject();
   }
+  duplicateKey = JSON.stringify([organizationId, userId, source.day]);
 
   let invalidCount = false;
   const readCounts = (object: JsonObject, path: string, required = false) => {
@@ -454,7 +456,7 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
     row,
     issues,
     fatal: duplicateNested,
-    duplicateKey: JSON.stringify([organizationId, userId, source.day]),
+    duplicateKey,
   };
 }
 

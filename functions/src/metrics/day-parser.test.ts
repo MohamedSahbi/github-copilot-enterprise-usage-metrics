@@ -120,6 +120,18 @@ describe("parseMetricsDay", () => {
     expect(result.issues[0]?.raw_row_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it.each([true, false])("detects duplicate identity when the invalid-count row comes first: %s", (invalidFirst) => {
+    const valid = line();
+    const invalid = line({ user_initiated_interaction_count: -1 });
+    const result = parseMetricsDay(`${(invalidFirst ? [invalid, valid] : [valid, invalid]).join("\n")}\n`, {
+      runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
+    });
+
+    expect(result.fatal).toBe(true);
+    expect(result.issues.map((issue) => issue.error_code)).toContain("negative_count");
+    expect(result.issues.map((issue) => issue.error_code)).toContain("duplicate_file");
+  });
+
   it("records rejected lines and warns on unknown fields without exposing row data", () => {
     const result = parseMetricsDay(`${line({ user_id: -1, private_marker: "private@example.com" })}\n${line({ ["private@example.com"]: "secret" })}\n`, {
       runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
