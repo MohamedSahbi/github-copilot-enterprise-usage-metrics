@@ -238,7 +238,7 @@ Principles:
 6. **Retry safely.** Retry transient HTTP/SQL failures with bounded exponential backoff and jitter. Persist failed-run state and retry count; quarantine poison records; do not advance the checkpoint when a batch is incomplete. A timeout is not equivalent to an empty report.
 7. **Reconcile completeness.** Compare requested dates, source row counts, staged/curated counts, and any source-provided totals. Mark periods complete only after checks pass; alert on gaps, duplicate surges, schema drift, or repeated retries.
 8. **Record lineage.** Link each curated row or load batch to `IngestionRun`, `SourceArtifact`, transform version, code/release SHA, and source schema/API version. Scope uses the current hierarchy only (D-16).
-9. **Guard day replacement.** A re-run replaces a day only if the new data passes validation and does not have fewer rows than the stored day, unless an operator forces it. Timer runs, backfill, and the importer take a per-day SQL application lock (`sp_getapplock`) so they never overlap on the same day.
+9. **Guard day replacement.** A re-run replaces a day only if the new data passes validation and does not have fewer rows than the stored day. A day replaced by less data is blocked and quarantined; only an admin force flag, recorded in the audit log, lets it through, and forcing an empty (0-row) day needs an additional typed confirmation of the date. Duplicate user keys or duplicate nested names quarantine the whole file with a machine-readable code (`duplicate_file`, `duplicate_nested_name`) and surface in the Admin issues inbox (backed by `ValidationIssue`, a fixed action set per issue type, every action audited, banner count only; email or Azure Monitor alerts later, issue #37). Timer runs, backfill, and the importer take a per-day SQL application lock (`sp_getapplock`) so they never overlap on the same day.
 10. **Serve** purpose-built, authorized queries through the portal API; do not require the browser to download company-wide per-user records to calculate common aggregates.
 
 ### 6.3 Performance, monitoring, and retention
@@ -255,10 +255,11 @@ Principles:
 | Parameter | Decision | Configurable |
 | --- | --- | --- |
 | Raw archive | Keep raw NDJSON in Blob, immutable, lifecycle policy (default 13 months, then delete or cool tier) (D-11) | Yes |
-| Per-user daily rows in SQL | 13 months (D-12) | Yes |
+| Per-user daily rows in SQL | 13 months default, maximum 36 (D-12) | Yes |
+| `dim_user_login_history` | Kept for audit and purged after a maximum age: default 24 months, maximum 60; admin read only. Explicit exception to the per-user rule above (D-12) | Yes |
 | Aggregates in SQL | Kept indefinitely (D-12) | Yes |
 | Team scope | Direct and indirect reports from the **current** hierarchy; no effective-dated history (D-16). Dated history is a possible later module | No |
-| Directory source | Pluggable provider: Entra Graph (default, bulk user and manager reads) or CSV import (D-4). In EMU, SCIM supplies identity and business-area groups (D-36) | Yes |
+| Directory source | Pluggable provider: Entra Graph (default, bulk user and manager reads) or CSV import (D-4). In EMU, SCIM supplies identity (D-36); department and business area come from configurable Entra attributes (D-5) | Yes |
 | Backfill | `backfill_from` date; ingestion pulls older days from the API, limited to the last 365 days (API starts 2025-10-10) (D-23, D-28) | Yes |
 | Existing files | One-off importer copies existing **raw** NDJSON into the archive layout; normal replay loads it. Enhanced files are ignored (D-28) | — |
 
@@ -590,8 +591,8 @@ The GitHub Actions wrapper is functional, not identical: no published plan artif
 - Default the API to aggregate-only responses; per-user detail must be an explicit, deployment-scoped opt-in (§5), reducing blast radius of any future authz defect.
 - Enforce authorization in the API/service query path. SQL row-level security is an alternative enforcement layer, not a replacement for application authorization; if used with pooled managed-identity connections, define a trusted per-request session-context lifecycle and test that context is cleared between requests.
 - Secrets management via Key Vault + managed identity (§12.2), not connection strings in app settings.
-- **One principal per person (D-5).** Permissions attach to an internal principal, never to a provider or email. Entra login matches tenant ID + object ID; GitHub login matches the numeric GitHub user ID. A GitHub identity gains permissions only after it is linked to an Entra principal. In EMU the link comes from the directory sync (D-36): SCIM gives the login (from `profileUrl`, or from the documented EMU username normalization of `userName` as fallback) and `externalId` (the Entra object ID); the sync joins that login to the numeric GitHub user ID from the seats API and metrics report, and stores the pair `github_user_id` ↔ `entra_object_id`. Login string rules are the last resort. Permissions are granted only from a stored Entra object ID match. Outside EMU the link is made by signing in once with both providers. An unlinked GitHub login sees at most its own data.
-- **Fail closed (D-17).** If permissions cannot be read, data access is denied. A break-glass Entra group still reaches admin and health pages. Permission changes apply within 5 minutes (per-request lookup, 5-minute cache).
+- **One principal per person (D-5).** Permissions attach to an internal principal, never to a provider or email. Entra login matches tenant ID + object ID; GitHub login matches the numeric GitHub user ID. A GitHub identity gains permissions only after it is linked to an Entra principal. In EMU the link comes from the directory sync (D-36): SCIM gives the login (from `profileUrl`, or from the documented EMU username normalization of `userName` as fallback) and `externalId` (the Entra object ID); the sync joins that login to the numeric GitHub user ID from the seats API and metrics report, and stores the pair `github_user_id` ↔ `entra_object_id`. Login string rules are the last resort. Permissions are granted only from a stored Entra object ID match; a GitHub-only principal cannot hold grants. One Entra identity maps to at most one GitHub account and the reverse. Roles are `user`, `manager`, `executive`, `admin`; scopes are `self`, `team`, `department`, `business_area`, `company`. Valid role/scope pairs: `user`→`self`; `manager`→`self`, `team`; `executive`→`department`, `business_area`, `company`; `admin`→`company`. Department and business area come from configurable Entra attributes (deployment settings `directory.department_attribute` and `directory.business_area_attribute`; an empty value disables that scope); the directory sync copies them into the directory columns `department` and `business_area`. No company-specific attribute names appear in the repository. Team scope resolves from the manager's Entra object ID; the manager's email is stored alongside for recognition. The directory sync owns the link lifecycle: when Entra disables an account it records the unlink (`PrincipalLinkState`) and revokes grants softly (`GrantRevocation`) in its own append-only tables, never deletes, and writes an audit row (`IngestionAuditEvent`); sign-in is keyed on the Entra object ID only. Outside EMU the link is made by signing in once with both providers. An unlinked GitHub login sees at most its own data.
+- **Fail closed (D-17).** If permissions cannot be read, data access is denied. A break-glass Entra group still reaches admin and health pages; its group object ID is the deployment setting `access.break_glass_group_id` (not a database table). Permission freshness is the deployment setting `access.permission_freshness_minutes` (default 5, minimum 1, maximum 60): permission changes apply within that time (per-request lookup, cache bounded by it). Elevated scopes (`executive`, `admin`) are denied when the directory sync is stale (fail closed); implemented in the portal authz PR (issue #49).
 - **Three distinct states:** not signed in → sign-in; signed in without permissions → **No access** page with a per-deployment message, request link, and contact (tfvars → app settings); SQL unavailable → **Service unavailable** page that does not tell users to request access.
 
 ### 13.2 Scalability
@@ -662,19 +663,19 @@ Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questi
 | D-2 | Single tenant per deployment | §1 |
 | D-3 | GitHub Copilot usage metrics API is the only usage source; NDJSON upload only for local demo | §5 |
 | D-4 | Pluggable directory provider: Entra Graph default, CSV fallback | §6.4 |
-| D-5 | Entra and GitHub login both kept; one principal keyed on immutable IDs | §13.1 |
+| D-5 | Entra and GitHub login both kept; one principal keyed on immutable IDs. Grants need a stored Entra object ID; roles user, manager, executive, admin; scopes self, team, department, business_area, company; valid pairs user→self, manager→self/team, executive→department/business_area/company, admin→company. One Entra identity maps to at most one GitHub account and the reverse; a GitHub-only principal cannot hold grants | §13.1 |
 | D-6 | TypeScript for portal, API, and ingestion (C# fallback) | §7.1 |
 | D-7 | Upstream pinned, reviewed, no parity promise; chain Anton → our repo → EMU | §10, §11 |
 | D-8 | AI Credits module includes read-only usage ingestion into SQL; budget and cost-center automation excluded | §1 |
 | D-9 | GitHub App for AI Credits reports (documented); usage metrics via App if the org-metrics permission works for installations, else classic PAT `read:org`; SCIM and consumed-licenses require a classic PAT (§2.3) | §12.4 |
 | D-10 | TypeScript timer Functions replace metrics runbooks after a matching parallel run | §7.1 |
 | D-11 | Raw NDJSON archived in Blob with lifecycle policy; SQL the only runtime store | §6.4 |
-| D-12 | Per-user rows 13 months, aggregates indefinitely; both configurable | §6.4 |
+| D-12 | Per-user rows 13 months (max 36), aggregates indefinitely; both configurable. Exception: `dim_user_login_history` is kept for audit and purged after a maximum age (deployment setting, default 24 months, max 60), admin read only | §6.4 |
 | D-13 | EMU repositories are configuration-only; no override framework | §11 |
 | D-14 | Upstream as git submodule, never edited; Dependabot bumps; agent fixes adapters; subtree fallback | §10.1 |
 | D-15 | Reuse upstream presentational charts and types; upstream aggregation is the test oracle | §9 |
 | D-16 | Team = direct and indirect reports, current hierarchy only | §6.4 |
-| D-17 | Fail closed; break-glass group; 5-minute permission freshness; configurable no-access page | §13.1 |
+| D-17 | Fail closed; break-glass group; permission freshness is a deployment setting (default 5 minutes, min 1, max 60); the break-glass group is a deployment setting (Entra group object ID), not a database table; elevated scopes (executive, admin) denied when the directory sync is stale; configurable no-access page | §13.1 |
 | D-18 | Portal on App Service Linux, Node 22 minimum, Node 24 when supported | §8 |
 | D-19 | Private endpoints default; enterprise supplies subnets and DNS zones; demo creates them | §12.2 |
 | D-20 | GitHub Actions primary; Azure Pipelines templates also provided (partly superseded by D-54: Azure Pipelines is primary for EMU) | §12.6 |
@@ -690,7 +691,7 @@ Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questi
 | D-30 | This document is the final decision record; cross-reviewed before sign-off | §18 |
 | D-34 | Shared SQL database: Terraform accepts an existing server and database; portal tables in a `portal` schema; one writer per table; portal stops creating budget DDL | §6.5 |
 | D-35 | Network dependencies support `create`, `existing` (enterprise default), and `import` modes | §12.2 |
-| D-36 | GitHub-to-Entra mapping: SCIM login (`profileUrl`, else normalized `userName`) + `externalId` joined to the numeric GitHub user ID from seats/metrics; login string rules last; permissions only from a stored Entra object ID match | §13.1 |
+| D-36 | GitHub-to-Entra mapping: SCIM login (`profileUrl`, else normalized `userName`) + `externalId` joined to the numeric GitHub user ID from seats/metrics; login string rules last; permissions only from a stored Entra object ID match. The directory sync owns the link lifecycle: on Entra disable it records the unlink and revokes grants softly through its own append-only tables (never deletes), with an audit row; sign-in is keyed on the Entra object ID only | §13.1 |
 | D-37 | Two GitHub credentials: GitHub App for ingestion; classic PAT (`read:org`, `admin:enterprise`) held only by the directory sync | §12.4 |
 | D-38 | `consumed-licenses` is not used; identity and groups come from SCIM, seat holders from the seats API | §2.3 |
 | D-39 | Test layers: unit, contract, integration (SQL Server 2022 container + Azurite + recorded API responses), E2E, infrastructure, smoke, availability | §13.4 |
@@ -815,7 +816,7 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | --- | --- | --- |
 | Whether a GitHub App installation token works for `orgs/{org}/copilot/metrics/reports/users-1-day` (docs name the fine-grained permission but not App installations explicitly) | Fact check | Phase 0 |
 | `profileUrl` is returned by SCIM in practice but is not in the documented schema; confirm the normalized-`userName` fallback produces the same login for a sample, including hex-hash logins | Fact check | Phase 0 |
-| Submodule proof of concept outcome (§10.1) | Fact check | Done. Checks 1 to 3 pass; check 4 passes for the portal clone from EMU, and the submodule fetch will be confirmed by the first EMU app build. `github.com` access is a documented prerequisite; #33 is closed (`docs/architecture/poc-submodule.md`) |
+| Submodule proof of concept outcome (§10.1) | Fact check | Done. Checks 1 to 4 pass. `github.com` access is a documented prerequisite; #33 is closed (`docs/architecture/poc-submodule.md`) |
 | Whether the Copilot coding agent on github.com can create issues directly, or needs the PR-section workflow (§13.5) | Fact check | **Resolved:** it cannot; it has read-only issue tools, so the PR-section workflow is required (`poc-submodule.md`) |
 | RPO/RTO, SQL tier and budget, data volumes | Decision | Before prod promotion |
 | Product-owner review of which portal-only charts (§4.1) to keep as owned pages | Decision | Phase 3 |
@@ -825,7 +826,12 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | Add D-54 (the deployment template is Azure DevOps first, GitHub Actions optional; the wrapper pins a portal tag and runs its scripts) to §14 | Decision | **Resolved:** added as D-54 (§12.8, issue #36) |
 | Review the guarded test sign-in provider (§13.4) with the security and spec reviewers | Review | Before Phase 2 (issue #35) |
 | Move `bug-backlog.yml` off `pull_request_target` (deprecated from 2 December 2026) | Fix | Before 2 December 2026 (issue #34) |
-| Build the VNet for `network.mode = create` and the alert rules | Build | Before test and prod promotion (issue #37) |
+| Build the VNet for `network.mode = create` and the alert rules, including email or Azure Monitor alerts for Admin issues inbox entries | Build | Before test and prod promotion (issue #37) |
+| Migration runner | Decision | **Resolved:** postgrator with forward-only `yyyyMMddHHmmss.do.description.sql` names (D-48, §13.6) |
+| Portal authz PR implements the access-model rules from PR #48 (grant API, stale-sync denial of elevated scopes, link lifecycle reads) | Build | Follow-up (issue #49) |
+| Security review leftovers from PR #48 (M3-M9, L2-L6) | Fix | Follow-up (issue #50) |
+| Budget Functions migrate to directory contract v2 (numeric GitHub ID) | Build | Follow-up (issue #43) |
+| Record a real `ai_credit` sample and verify CSV fields and breakdown shapes | Fact check | Follow-up (issue #42) |
 
 These items are not checked by CI. Update this table when one is resolved.
 
