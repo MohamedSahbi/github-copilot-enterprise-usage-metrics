@@ -1,6 +1,7 @@
 // API request/response contracts for the portal (§6.2 step 10, §6.3). Aggregates by default.
 // Every response carries a correlation ID; every list is paged; every group can be suppressed.
 
+import type { GrantErrorCode } from "./access";
 import type { IsoDate, Role, Scope } from "./rows";
 
 export const MAX_DATE_RANGE_DAYS = 400;
@@ -100,6 +101,11 @@ export function suppress<T>(userCount: number, minGroupSize: number, value: T, n
   const small = !Number.isFinite(userCount) || userCount < 0 || userCount < floor;
   if (!namesVisible && small) return { suppressed: true, userCount: null, value: null };
   return { suppressed: false, userCount, value };
+}
+
+// Minimum group size applies to every scope, including business_area; there is no per-scope exemption (issue #44 item 11).
+export function suppressForScope<T>(_scope: Scope, userCount: number, minGroupSize: number, value: T, namesVisible: boolean): Suppressible<T> {
+  return suppress(userCount, minGroupSize, value, namesVisible);
 }
 
 // ---- Core usage pages -------------------------------------------------------------------------------------------
@@ -217,6 +223,27 @@ export interface AdminGrantChangeRequest {
   action: "grant" | "revoke";
 }
 export type AdminGrantChangeResponse = ApiResponse<AdminGrant>;
+
+// POST /api/admin/grants (admin only, audited). 201 on success; 422 with a typed error code otherwise.
+export interface AdminGrantCreateRequest {
+  principalEntraObjectId: string;
+  role: Role;
+  scope: Scope;
+  scopeValue?: string;
+}
+export type AdminGrantCreateResponse = ApiResponse<AdminGrant>; // HTTP 201
+export type AdminGrantErrorCode = GrantErrorCode;
+export interface AdminGrantErrorResponse {
+  error: Omit<ApiError, "code"> & { code: AdminGrantErrorCode | "invalid_request" | "forbidden" | "unauthenticated" };
+} // HTTP 422 for the four typed codes
+
+// Data for the Admin grant form: only enabled scopes and the distinct values present in the directory.
+export interface AdminGrantFormData {
+  roleScopes: Record<Role, Scope[]>;
+  enabledScopes: Scope[];
+  scopeValues: { department: string[]; business_area: string[] };
+}
+export type AdminGrantFormResponse = ApiResponse<AdminGrantFormData>;
 
 // ---- Feedback ---------------------------------------------------------------------------------------------------
 

@@ -64,8 +64,8 @@ export interface ValidationIssueRow {
 
 export const VALIDATION_ERROR_CODES = {
   reject: ["missing_user_id", "invalid_day", "missing_organization_id", "negative_count", "duplicate_key", "malformed_json"],
-  warn: ["unknown_field", "unknown_enum_value", "unresolved_billing_login", "extra_nested_item"],
-  fatal: ["unsupported_schema", "hash_mismatch"],
+  warn: ["unknown_field", "unknown_enum_value", "unresolved_billing_login", "extra_nested_item", "attribute_empty_share"],
+  fatal: ["unsupported_schema", "hash_mismatch", "duplicate_file", "duplicate_nested_name", "smaller_day_blocked"],
 } as const;
 
 export type ValidationErrorCode = (typeof VALIDATION_ERROR_CODES)[IssueSeverity][number];
