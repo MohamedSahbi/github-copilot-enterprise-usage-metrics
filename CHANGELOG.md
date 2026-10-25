@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.7...v0.2.8) (2026-10-25)
+
+
+### Bug Fixes
+
+* harden shared contract validation and billing keys ([#62](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/62)) ([bd0bae1](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/bd0bae1d03e5a7e65b4ce59cd591c9165b712a07))
+* refuse test sign-in in production ([#58](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/58)) ([0e24326](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/0e243262a8ef0dfe3f818c95f13f4e91f4e8fb23))
+
 ## [0.2.7](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.6...v0.2.7) (2026-10-25)
 
 
