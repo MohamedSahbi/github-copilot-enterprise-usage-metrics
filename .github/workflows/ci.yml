@@ -85,3 +85,28 @@ jobs:
         run: npm run test:sql
       - if: steps.changed.outputs.run != 'true'
         run: echo "No SQL changes in this change set; container test skipped."
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: echo "run=$(bash scripts/integration-changed.sh "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.event.pull_request.head.sha || github.sha }}")" >> "$GITHUB_OUTPUT"
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - if: steps.changed.outputs.run == 'true'
+        run: npm ci
+      # Local stack (SQL Server 2022 + Azurite, throwaway credentials), migrations through the runner, synthetic fixtures.
+      - if: steps.changed.outputs.run == 'true'
+        run: npm run stack:up
+      - if: steps.changed.outputs.run == 'true'
+        run: npm run test:integration
+      - if: always() && steps.changed.outputs.run == 'true'
+        run: npm run stack:down
+      - if: steps.changed.outputs.run != 'true'
+        run: echo "No SQL, fixture or integration-test changes in this change set; integration tests skipped."

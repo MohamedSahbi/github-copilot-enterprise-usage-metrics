@@ -26,6 +26,7 @@ npm run stack:up      # first start pulls images; SQL Server takes 1-2 minutes o
 npm run stack:down    # stops the containers and deletes their data
 npm run db:fixtures   # reload the fixtures into a running stack
 npm run db:migrate    # run the migration runner against SQL_CONNECTION_STRING
+npm run test:integration   # integration tests against the running stack (not part of `npm test`)
 ```
 
 SQL Server has no arm64 image, so the stack runs it as `linux/amd64`; Docker Desktop emulates it on Apple Silicon (enable "Use Rosetta" for speed). Defaults: SQL on `127.0.0.1:14330`, database `portal_local`, Azurite on `10000-10002`. Override with `LOCAL_SQL_PORT` and `LOCAL_SQL_SA_PASSWORD`. The fixture loader refuses any non-local host. See [docs/runbooks](docs/runbooks/README.md) for migrations.
