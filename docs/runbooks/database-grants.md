@@ -11,12 +11,12 @@ Migration `runtime-grants` creates the roles `portal_reader`, `portal_writer` an
 
 ## Step
 
-Run after `npm run db:migrate` as the deploy identity. Values come from the environment's deployment outputs, never from this repository: the identity names and their application (client) IDs. Azure SQL derives the SID of a service principal or managed identity from its application (client) ID, not its object ID; validate this on Azure SQL before the first deployment.
+Run after `npm run db:migrate` as the deploy identity. Values come from the environment's deployment outputs, never from this repository: the identity names and their Entra object (principal) IDs. For `CREATE USER ... WITH SID ..., TYPE = E`, Microsoft's Azure SQL managed identity guidance says to supply the Object ID of the principal and use it as the SID; do not use the client (application) ID. Source: https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-azure-ad-user-assigned-managed-identity. The database does not validate the ID, so a wrong value only fails at sign-in. Validate on Azure SQL in a non-production environment before the first deployment.
 
 ```sql
--- SID: the application (client) ID as binary(16), e.g. CONVERT(varbinary(16), CAST('<client-id-guid>' AS uniqueidentifier))
-DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-client-id>' AS uniqueidentifier));
-DECLARE @ingest_sid varbinary(16) = CONVERT(varbinary(16), CAST('<ingest-identity-client-id>' AS uniqueidentifier));
+-- SID: the object (principal) ID as binary(16), e.g. CONVERT(varbinary(16), CAST('<object-id-guid>' AS uniqueidentifier))
+DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-object-id>' AS uniqueidentifier));
+DECLARE @ingest_sid varbinary(16) = CONVERT(varbinary(16), CAST('<ingest-identity-object-id>' AS uniqueidentifier));
 
 DECLARE @sql nvarchar(max);
 IF DATABASE_PRINCIPAL_ID(N'<portal-identity-name>') IS NULL
