@@ -1,5 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "allowImportingTsExtensions": true, "types": ["node"] },
-  "include": ["scripts", "e2e", "playwright.config.ts", "vitest.config.mts"]
+  "include": ["scripts", "e2e", "playwright.config.ts", "vitest.config.mts"],
+  "exclude": ["scripts/contracts/oracle"]
 }
