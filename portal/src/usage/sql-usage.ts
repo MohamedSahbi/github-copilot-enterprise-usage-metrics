@@ -300,15 +300,37 @@ export async function getUsageBreakdown(
   scoped.request.input("breakdownKind", sql.VarChar(24), breakdownTableKind[input.kind])
     .input("offset", sql.BigInt, offset)
     .input("pageSize", sql.Int, input.pageSize);
-  const groupedCte = `Grouped AS (
-    SELECT b.key_1 AS [key], SUM(b.interaction_count) AS interactions,
-      COUNT(DISTINCT b.user_id) AS userCount
+  const groupedCte = `ScopedBreakdowns AS (
+    SELECT b.organization_id, b.usage_day, b.user_id, b.breakdown_kind, b.key_1, b.interaction_count
     FROM portal.fact_usage_breakdown AS b
     INNER JOIN AuthorizedUsers AS au ON au.user_id = b.user_id
     WHERE b.usage_day BETWEEN @fromDay AND @toDay
-      AND b.breakdown_kind = @breakdownKind
+      AND ${input.kind === "ide" ? "b.breakdown_kind IN ('ide', 'feature')" : "b.breakdown_kind = @breakdownKind"}
       AND ${organizationFilter("b")}
-    GROUP BY b.key_1
+  ),
+  ${input.kind === "ide" ? `AppFeatures AS (
+    SELECT organization_id, usage_day, user_id, SUM(interaction_count) AS interaction_count
+    FROM ScopedBreakdowns
+    WHERE breakdown_kind = 'feature' AND key_1 = N'copilot_app'
+    GROUP BY organization_id, usage_day, user_id
+  ),
+  IdeRows AS (
+    SELECT b.key_1, b.user_id, b.interaction_count
+    FROM ScopedBreakdowns AS b
+    WHERE b.breakdown_kind = 'ide'
+      AND (b.key_1 <> N'copilot_app' OR NOT EXISTS (
+        SELECT 1 FROM AppFeatures AS a
+        WHERE a.organization_id = b.organization_id AND a.usage_day = b.usage_day
+          AND a.user_id = b.user_id
+      ))
+    UNION ALL
+    SELECT N'copilot_app', user_id, interaction_count FROM AppFeatures
+  ),
+  ` : ""}Grouped AS (
+    SELECT key_1 AS [key], SUM(interaction_count) AS interactions,
+      COUNT(DISTINCT user_id) AS userCount
+    FROM ${input.kind === "ide" ? "IdeRows" : "ScopedBreakdowns"}
+    GROUP BY key_1
   )`;
   const result = await scoped.request.query<{ key: string; interactions: number; userCount: number; totalItems: number }>(`${scoped.cte},
     ${groupedCte}

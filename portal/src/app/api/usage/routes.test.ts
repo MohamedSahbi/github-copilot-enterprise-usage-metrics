@@ -118,6 +118,36 @@ describe("scoped usage API route gates", () => {
     expect((await response.json()).error.code).toBe("invalid_request");
   });
 
+  it("keeps IDE requests scoped to server grants and fixed periods without overriding suppression or returning names", async () => {
+    const access = {
+      state: "authorized",
+      breakGlass: false,
+      principal: { principal_id: "p", entra_tenant_id: "t", entra_object_id: "o", github_user_id: null, status: "active" },
+      grants: [{ role: "executive", scope: "department", scope_value: "app-test" }],
+      namesVisible: false,
+    };
+    getAccess.mockResolvedValue(access);
+    const pool = {};
+    getPortalSqlPool.mockResolvedValue(pool);
+    getUsageBreakdown.mockResolvedValue({
+      rows: [{ suppressed: true, userCount: null, value: null }], totalItems: 1,
+    });
+
+    const response = await breakdown(new NextRequest(
+      "http://localhost/api/usage/breakdown?period=last_7_days&kind=ide&organizationIds=119",
+    ));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(resolveUsageRange).toHaveBeenCalledWith(pool, {
+      ok: true, period: "last_7_days", organizationIds: [119], kind: "ide", page: 1, pageSize: 50,
+    });
+    expect(getUsageBreakdown).toHaveBeenCalledWith(pool, access, {
+      from: "2026-02-24", to: "2026-03-02", kind: "ide", page: 1, pageSize: 50,
+    }, expect.any(String));
+    expect(body.data).toEqual([{ suppressed: true, userCount: null, value: null }]);
+    expect(body.meta.minGroupSize).toBe(5);
+  });
+
   it.each([
     ["overview", overview, "/api/usage/overview?period=last_7_days", getUsageOverview, {
       series: [],
