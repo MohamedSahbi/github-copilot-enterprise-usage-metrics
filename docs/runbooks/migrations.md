@@ -10,7 +10,7 @@ Forward-only SQL for the `portal` schema (D-34, D-48). One runner, `scripts/db/m
 4. Applies pending files in version order, splitting each on `GO`. A pending file older than the newest applied one (two PRs merged out of timestamp order) is refused with `OUT_OF_ORDER` before anything is applied; give it a newer timestamp in a follow-up PR.
 5. Records each file in `portal.schema_version` after it succeeds, then releases the lock.
 
-A second run with nothing pending is a no-op. A failing file is not recorded; fix it by adding a new migration only if the file already merged, otherwise correct it in the PR.
+A second run with nothing pending is a no-op. A failing file is not recorded, and the next run retries it first and stops there, so a newer migration cannot repair it. Fix the cause (missing prerequisite or bad data) and re-run. If the SQL itself is faulty and already merged, stop and get an owner-approved recovery plan before anything is edited or added; an unmerged file is corrected in its PR.
 
 ## Rules for authors
 

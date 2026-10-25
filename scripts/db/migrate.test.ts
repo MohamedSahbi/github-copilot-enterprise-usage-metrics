@@ -66,6 +66,12 @@ describe("planMigrations", () => {
   const file = (version: number, md5: string) => ({ version, name: `m${version}`, md5, filename: `${version}.do.m${version}.sql` });
   const row = (version: number, md5: string | null) => ({ version, name: `m${version}`, md5 });
 
+  it("rejects two files with the same version, on a fresh database and with existing history", () => {
+    const dup = [file(1, "a"), { ...file(1, "b"), name: "other", filename: "1.do.other.sql" }];
+    expect(() => planMigrations(dup, [])).toThrowError(expect.objectContaining({ code: "DUPLICATE_VERSION" }));
+    expect(() => planMigrations(dup, [row(1, "a")])).toThrowError(expect.objectContaining({ code: "DUPLICATE_VERSION" }));
+  });
+
   it("returns every migration, ascending, when nothing is applied", () => {
     const plan = planMigrations([file(3, "c"), file(1, "a"), file(2, "b")], []);
     expect(plan.pending.map((m) => m.version)).toEqual([1, 2, 3]);

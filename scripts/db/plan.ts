@@ -6,6 +6,7 @@ export type MigrationErrorCode =
   | "CHECKSUM_MISSING"
   | "FILE_MISSING"
   | "OUT_OF_ORDER"
+  | "DUPLICATE_VERSION"
   | "LOCK_TIMEOUT";
 
 export class MigrationError extends Error {
@@ -52,7 +53,14 @@ export function parseMigrationName(filename: string): { version: number; name: s
 // Validates every applied migration first, so a changed or missing file applies nothing.
 // A pending file older than the newest applied version is refused: rename it with a newer timestamp (rebase) and re-run.
 export function planMigrations(files: MigrationFile[], applied: AppliedMigration[]): MigrationPlan {
-  const byVersion = new Map(files.map((f) => [f.version, f]));
+  const byVersion = new Map<number, MigrationFile>();
+  for (const f of files) {
+    const other = byVersion.get(f.version);
+    if (other) {
+      throw new MigrationError("DUPLICATE_VERSION", `Migrations ${other.filename} and ${f.filename} share version ${f.version}; each timestamp must be unique`);
+    }
+    byVersion.set(f.version, f);
+  }
   const appliedVersions = new Set(applied.map((a) => a.version));
 
   for (const row of [...applied].sort((a, b) => a.version - b.version)) {

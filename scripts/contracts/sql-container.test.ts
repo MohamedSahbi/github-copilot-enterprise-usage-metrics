@@ -84,6 +84,16 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(count?.n).toBe(realFiles.length);
   }, 240_000);
 
+  it("re-executes every script safely when history is lost after the scripts succeeded", async () => {
+    const db = await freshDb();
+    await migrate({ connectionString: cs(db) });
+    await query(db, "DELETE FROM portal.schema_version");
+    const again = await migrate({ connectionString: cs(db) });
+    expect(again.applied).toHaveLength(realFiles.length);
+    const [count] = await query<{ n: number }>(db, "SELECT COUNT(*) AS n FROM portal.schema_version");
+    expect(count?.n).toBe(realFiles.length);
+  }, 240_000);
+
   it("creates only portal objects: nothing in dbo and no dbo.schemaversion", async () => {
     const db = await freshDb();
     await migrate({ connectionString: cs(db) });

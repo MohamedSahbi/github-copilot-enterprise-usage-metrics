@@ -11,12 +11,12 @@ Migration `runtime-grants` creates the roles `portal_reader`, `portal_writer` an
 
 ## Step
 
-Run after `npm run db:migrate` as the deploy identity. Values come from the environment's deployment outputs, never from this repository: the identity names and their Entra object IDs (the client ID for a managed identity).
+Run after `npm run db:migrate` as the deploy identity. Values come from the environment's deployment outputs, never from this repository: the identity names and their application (client) IDs. Azure SQL derives the SID of a service principal or managed identity from its application (client) ID, not its object ID; validate this on Azure SQL before the first deployment.
 
 ```sql
--- SID: the object ID as binary(16), e.g. CONVERT(varbinary(16), CAST('<object-id-guid>' AS uniqueidentifier))
-DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-object-id>' AS uniqueidentifier));
-DECLARE @ingest_sid varbinary(16) = CONVERT(varbinary(16), CAST('<ingest-identity-object-id>' AS uniqueidentifier));
+-- SID: the application (client) ID as binary(16), e.g. CONVERT(varbinary(16), CAST('<client-id-guid>' AS uniqueidentifier))
+DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-client-id>' AS uniqueidentifier));
+DECLARE @ingest_sid varbinary(16) = CONVERT(varbinary(16), CAST('<ingest-identity-client-id>' AS uniqueidentifier));
 
 DECLARE @sql nvarchar(max);
 IF DATABASE_PRINCIPAL_ID(N'<portal-identity-name>') IS NULL
