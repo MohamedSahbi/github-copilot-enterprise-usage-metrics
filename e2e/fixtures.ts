@@ -17,8 +17,10 @@ export const test = base.extend<{
   },
   signInAs: async ({ page }, use) => {
     await use(async (persona) => {
-      const response = await page.request.post("/api/test-auth", { data: { persona } });
-      expect(response.ok()).toBe(true);
+      await page.goto("/sign-in");
+      const labels = { admin: "Test Admin", manager: "Test Manager", member: "Test Member", "no-access": "Test No Access" };
+      await page.getByRole("button", { name: `Sign in as ${labels[persona]}`, exact: true }).click();
+      await page.waitForURL(persona === "no-access" ? "/no-access" : "/");
     });
   },
 });

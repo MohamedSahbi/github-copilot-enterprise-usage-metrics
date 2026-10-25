@@ -1,5 +1,6 @@
-import { assertTestAuthAllowed } from "@/auth/test-auth";
-
-export function register(): void {
-  assertTestAuthAllowed();
+export async function register(): Promise<void> {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { validateStartup } = await import("./auth/startup");
+    validateStartup();
+  }
 }
