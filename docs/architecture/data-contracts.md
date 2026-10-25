@@ -21,6 +21,13 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 | `directory.department_attribute` | empty | Entra attribute (Graph path) that holds the department. Empty = department scope disabled |
 | `directory.business_area_attribute` | empty | Entra attribute (Graph path) that holds the business area. Empty = business_area scope disabled |
 | `directory.empty_attribute_threshold_percent` | 20 | An enabled attribute that is empty for more than this share of users records the `attribute_empty_share` ValidationIssue |
+| `backfillFrom` | omitted | Optional inclusive metrics backfill start; validated at startup/run against `max(2025-10-10, UTC today - 365 days)` through UTC today. Invalid, future, or expired values fail validation, never clamp. Omission does not request historical fetching. Raw imports are not subject to API availability (D-23). |
+| `organization.directory_provider` | `entra` | Existing Terraform input, emitted as `DIRECTORY_PROVIDER`; `entra` selects Graph, `csv` selects operator-supplied CSV. No separate provider setting and no automatic switch on Graph failure (D-4). |
+
+`validateSettings(input, today?)` accepts an injectable UTC calendar date for deterministic validation;
+production callers omit it. `backfillFromSchema` and `DirectoryProviderSchema` are the canonical Zod
+schemas for these additions. Terraform/app-setting wiring of backfill is a dependent implementation,
+not a second configuration source in this contract PR.
 
 ## 2. users-1-day NDJSON → staging/curated (V against a recorded sample)
 
@@ -256,6 +263,71 @@ Types and validator: `shared/src/access.ts`. SQL: `AccessGrant` (`CK_AccessGrant
 ## 10. Directory attributes (issue #44 item 6)
 
 The directory sync reads `directory.department_attribute` and `directory.business_area_attribute` through Graph, trims, collapses whitespace and lower-cases the values (`normalizeDirectoryValue`), and writes them to `dim_user.department` and `dim_user.business_area`. An empty attribute setting disables that scope: nothing is read, the grant API answers `scope_disabled`. When an enabled attribute is empty for more than `directory.empty_attribute_threshold_percent` of users, the sync records a `attribute_empty_share` ValidationIssue (`attributeEmptyShareExceeded`). Values longer than the runtime columns (100 characters for department, 50 for business area) are a data issue for the sync to report; the historical external directory descriptors are not the runtime width authority. No company-specific attribute names or values belong in this repository.
+
+### 10.1 Runtime directory inventory and input delta (#69)
+
+The inventory below is against the existing new-database migrations and `shared/src/rows.ts`,
+not the historical budget descriptors. No new SQL columns, tables, statuses, tenant foreign keys,
+principal identity updates or old-consumer compatibility are required by this PR.
+
+| Required field / capability | Existing contract or explicit delta |
+| --- | --- |
+| Numeric GitHub ID, mutable login | `DimUserRow.user_id`, `login`; directory input requires a positive safe integer ID, never an email/login identity key |
+| Entra identity | `DimUserRow.entra_object_id`; canonical directory input requires a GUID. Unmapped metrics users remain supported by the existing nullable SQL field; they are not fabricated directory matches |
+| Email, display name | Existing nullable `email` (320 UTF-16 units), `display_name` (255); optional input |
+| Manager identity and recognition | Existing nullable `manager_entra_object_id`, `manager_email` (320); no email-based manager identity matching |
+| Department, business area | Existing nullable columns (100/50); canonical input normalizes values using `normalizeDirectoryValue` |
+| GitHub account state | Existing `active`, `deleted`, `suspended`; no new `AccountStatus` taxonomy. Sync sets `deleted_at` when transitioning to deleted, and owns reactivation/PII retention |
+| Explicit Entra disable evidence | New transient `entra_account_enabled` boolean in canonical input, not a SQL column. Kept separate from GitHub `state`; false supplies disable evidence to the existing unlink/revocation workflow, never permission to grant |
+| Observation/deletion/purge timestamps | Existing `first_seen_day`, `last_seen_day`, `deleted_at`, `pii_purged_at`, `updated_at`; supplied by the ingestion lifecycle, not CSV overrides |
+| Login history | Existing SQL table; missing shared `DimUserLoginHistoryRow` and column registry added, no DDL |
+| Link, unlink and revocation ordering | Existing `PrincipalLinkStateRow`, `GrantRevocationRow`, `UnlinkReason`, sequence-based ordering and `IngestionAuditEventRow`; no replacement lifecycle model |
+| Source freshness | Existing SQL `DirectorySyncState`; missing shared `DirectorySyncStateRow` and registry added with exact existing `scim`, `graph`, `csv`, `seats` values and nullable timestamps/error code |
+| Old job title, manager name, seat-plan/activity/cancellation fields | Historical descriptors only; no target runtime consumer requires a duplicate column in this issue |
+| `github_license_type` | Remains nullable/unsourced in historical descriptors; absent from `dim_user`. No consumed-licenses calls or inferred license values |
+
+One logical **ingestion** component is the sole SQL writer of `dim_user` and login history.
+Directory sync owns directory attributes, hierarchy and link/revocation lifecycle through it;
+metrics observations cannot overwrite these fields. Principal Entra columns remain immutable with
+the existing one-time linking procedure and tenant FK unchanged. Permissions never come from CSV
+emails, logins, provider choice or account state alone.
+
+`DirectoryUserSchema` (Zod, inferred `DirectoryUser`) is the normalized adapter output.
+Graph/SCIM/seats wire schemas belong beside future Functions adapters unless reused by another
+package; no speculative response schemas are introduced here. The inline synthetic fixture in
+`ingestion-contracts.test.ts` validates this shared output. Verified AI Credits fields, exact-decimal
+strings, mapping and numeric display DTOs are unchanged.
+
+### 10.2 CSV directory contract
+
+`parseDirectoryCsv(Uint8Array)` validates the complete file and returns `DirectoryUser[]`, or throws
+`DirectoryInputError` without returning partial rows. This is input validation, not a sync/publisher
+or authorization implementation.
+
+- Encoding: strict UTF-8, optional initial UTF-8 BOM; malformed bytes, UTF-16/32 and NUL characters
+  are rejected. No lossy replacement or guessed encoding.
+- Exact, case-sensitive headers, in any order: required `user_id`, `entra_object_id`, `state`,
+  `entra_account_enabled`; optional `login`, `email`, `display_name`, `manager_entra_object_id`,
+  `manager_email`, `department`, `business_area`. Empty, duplicate, unknown or missing headers fail.
+- Cells are trimmed. Optional omitted/empty cells become null; nonempty strings must fit the
+  existing SQL widths. IDs use decimal digits (positive safe integer) and GUIDs. `state` uses the
+  existing three lowercase values. `entra_account_enabled` accepts only literal `true`/`false`;
+  missing evidence is not inferred from GitHub suspension, missing rows or failed provider reads.
+- Commas, doubled quotes, quoted multiline cells, LF/CRLF and no final newline are supported.
+  Empty physical records are ignored, preserving physical line numbers; wrong-width records and
+  malformed quoting fail. A header-only file parses as an empty snapshot, not evidence of success,
+  deletion or revocation. Completeness and lifecycle actions remain the sync's responsibility.
+- Duplicate numeric IDs or Entra GUIDs (case-insensitive) reject the entire current-identity
+  snapshot. Historical/recreated-account rows belong in SQL/history, not duplicate current mappings.
+- Typed errors expose only `code` and nullable 1-based physical `lineNumber`:
+  `invalid_encoding`, `invalid_csv`, `invalid_header`, `invalid_row`, `duplicate_identity`.
+  Messages retain no row, field value or Zod error payload. Future ingestion must record these as
+  failed input, never advance `DirectorySyncState.last_success_at`, and use privacy-safe audit
+  metadata (#50 L5); they are not new `ValidationIssue` SQL enum values.
+
+Hierarchy completeness/cycle checks, source disappearance, pagination failures and link/revocation
+transactions remain dependent sync behavior. No implicit fallback on Graph error or missing-row
+disable is authorized. Source-specific evidence gates (#65/#67) remain in place.
 
 ## 11. Login history retention (exception to D-12)
 
