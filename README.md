@@ -2,6 +2,8 @@
 
 Single-tenant-per-deployment portal for GitHub Copilot usage analytics on Azure (MIT). The design is in [docs/architecture/decision-record.md](docs/architecture/decision-record.md); agent rules are in [.github/copilot-instructions.md](.github/copilot-instructions.md).
 
+See the [portal FAQ](docs/portal-faq.md) for usage-period and privacy behavior.
+
 Status: Phase 1 skeleton. No business features yet.
 
 ## Getting started

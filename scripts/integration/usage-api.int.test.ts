@@ -1,7 +1,7 @@
 import sql from "mssql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Scope } from "../../shared/src/rows";
-import { getUsageBreakdown, getUsageOverview, getUserUsage } from "../../portal/src/usage/sql-usage";
+import { getUsageBreakdown, getUsageOverview, getUserUsage, resolveUsageRange } from "../../portal/src/usage/sql-usage";
 import type { AuthorizedUsageAccess } from "../../portal/src/usage/api";
 import { openPool } from "./db";
 
@@ -142,6 +142,22 @@ describe("scoped usage API SQL (curated integration)", () => {
     ]), { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
 
     expect(result.rows.map((row) => row.userId)).toEqual(expectedUserIds);
+  });
+
+  it.each([
+    ["last_7_days", "2026-02-24"],
+    ["last_28_days", "2026-02-03"],
+    ["last_90_days", "2025-12-03"],
+  ] as const)("resolves %s against the latest curated usage day", async (period, from) => {
+    const resolved = await resolveUsageRange(pool, { period });
+    expect(resolved).toEqual({ ok: true, range: { from, to: DAY } });
+  });
+
+  it("resolves only complete calendar months against the latest curated usage day", async () => {
+    expect(await resolveUsageRange(pool, { period: "calendar_month", month: "2026-02" }))
+      .toEqual({ ok: true, range: { from: "2026-02-01", to: "2026-02-28" } });
+    expect(await resolveUsageRange(pool, { period: "calendar_month", month: "2026-03" }))
+      .toEqual({ ok: false });
   });
 
   it.each([false, true])("suppresses groups below five with per-user detail enabled=%s", async (namesVisible) => {

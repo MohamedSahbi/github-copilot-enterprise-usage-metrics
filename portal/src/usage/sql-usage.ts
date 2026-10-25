@@ -5,11 +5,12 @@ import {
   type AdoptionSummary,
   type DateRange,
   type Suppressible,
+  validateUsagePeriod,
+  type UsagePeriodRequest,
   type UsageBreakdownRequest,
   type UsageBreakdownRow,
   type UsageOverviewResponse,
   type UsageSeriesPoint,
-  type UserUsageRequest,
   type UserUsageRow,
 } from "../../../shared/src/api";
 import { FEATURE_TAXONOMY } from "../../../shared/src/features";
@@ -19,6 +20,29 @@ import type { AuthorizedUsageAccess } from "./api";
 interface ScopedRequest {
   request: sql.Request;
   cte: string;
+}
+
+export async function resolveUsageRange(
+  pool: sql.ConnectionPool,
+  period: UsagePeriodRequest,
+): Promise<{ ok: true; range: DateRange & { organizationIds?: number[] } } | { ok: false }> {
+  const result = await pool.request().query<{ latestUsageDay: Date | null }>(`
+    SELECT MAX(usage_day) AS latestUsageDay
+    FROM portal.fact_user_daily_usage
+  `);
+  const latestUsageDay = result.recordset[0]?.latestUsageDay;
+  if (!latestUsageDay) throw new Error("No curated usage data is available");
+
+  const latestCompleteDay = latestUsageDay.toISOString().slice(0, 10);
+  const validation = validateUsagePeriod(period, latestCompleteDay);
+  if (!validation.ok) return { ok: false };
+  return {
+    ok: true,
+    range: {
+      ...validation.range,
+      ...(period.organizationIds ? { organizationIds: period.organizationIds } : {}),
+    },
+  };
 }
 
 function scopedRequest(
@@ -266,7 +290,7 @@ const breakdownTableKind: Record<UsageBreakdownRequest["kind"], string> = {
 export async function getUsageBreakdown(
   pool: sql.ConnectionPool,
   access: AuthorizedUsageAccess,
-  input: UsageBreakdownRequest & Required<Pick<UsageBreakdownRequest, "page" | "pageSize">>,
+  input: DateRange & { organizationIds?: number[]; kind: UsageBreakdownRequest["kind"]; page: number; pageSize: number },
   correlationId: string,
   minGroupSize = DEFAULT_MIN_GROUP_SIZE,
 ): Promise<{ rows: Suppressible<UsageBreakdownRow>[]; totalItems: number }> {
@@ -329,7 +353,7 @@ export async function getUsageBreakdown(
 export async function getUserUsage(
   pool: sql.ConnectionPool,
   access: AuthorizedUsageAccess,
-  input: UserUsageRequest & Required<Pick<UserUsageRequest, "page" | "pageSize">>,
+  input: DateRange & { organizationIds?: number[]; page: number; pageSize: number },
   correlationId: string,
 ): Promise<{ rows: UserUsageRow[]; totalItems: number }> {
   const scoped = scopedRequest(pool, access, correlationId, input.organizationIds);

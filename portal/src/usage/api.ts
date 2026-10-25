@@ -6,9 +6,8 @@ import {
   type ApiResponse,
   type Meta,
   normalizePage,
-  validateDateRange,
   type PageRequest,
-  type ScopedRangeRequest,
+  type UsagePeriodRequest,
   type UsageBreakdownRequest,
 } from "../../../shared/src/api";
 import { METRIC_DEFINITION_VERSION } from "../../../shared/src/metrics";
@@ -23,9 +22,9 @@ export type ApiFailure = {
   details?: { field: string; issue: string }[];
 };
 
-export type ParsedRange = ScopedRangeRequest;
+export type ParsedPeriod = UsagePeriodRequest;
 export type ParsedPage = { page: number; pageSize: number };
-export type ParsedBreakdown = Omit<UsageBreakdownRequest, "page" | "pageSize"> & ParsedPage;
+export type ParsedBreakdown = UsagePeriodRequest & ParsedPage & { kind: UsageBreakdownRequest["kind"] };
 
 export function errorResponse(failure: ApiFailure, correlationId: string): NextResponse<ApiErrorResponse> {
   return NextResponse.json(
@@ -58,20 +57,7 @@ function invalid(field: string, issue: string): ApiFailure {
   return { code: "invalid_request", message: "The request is invalid.", status: 400, details: [{ field, issue }] };
 }
 
-export function parseRange(params: URLSearchParams): { ok: true; range: ParsedRange } | { ok: false; failure: ApiFailure } {
-  const from = params.get("from");
-  const to = params.get("to");
-  if (!from || !to) {
-    return { ok: false, failure: invalid(!from ? "from" : "to", "is required") };
-  }
-  const validation = validateDateRange({ from, to });
-  if (!validation.ok) {
-    if (validation.code === "date_range_too_large") {
-      return { ok: false, failure: { code: validation.code, message: "The date range exceeds the maximum allowed length.", status: 400 } };
-    }
-    return { ok: false, failure: invalid("dateRange", "must contain valid ISO dates with from on or before to") };
-  }
-
+function parseOrganizationIds(params: URLSearchParams): { ok: true; organizationIds?: number[] } | { ok: false; failure: ApiFailure } {
   const rawOrganizationIds = params.getAll("organizationIds").flatMap((value) => value.split(","));
   const organizationIds: number[] = [];
   for (const value of rawOrganizationIds) {
@@ -84,7 +70,28 @@ export function parseRange(params: URLSearchParams): { ok: true; range: ParsedRa
     }
     if (!organizationIds.includes(id)) organizationIds.push(id);
   }
-  return { ok: true, range: { from, to, ...(organizationIds.length ? { organizationIds } : {}) } };
+  return { ok: true, ...(organizationIds.length ? { organizationIds } : {}) };
+}
+
+export function parseUsagePeriod(params: URLSearchParams): { ok: true; period: ParsedPeriod } | { ok: false; failure: ApiFailure } {
+  if (params.has("from") || params.has("to")) {
+    return { ok: false, failure: invalid("period", "raw date ranges are not supported") };
+  }
+  const period = params.get("period");
+  const month = params.get("month");
+  let request: UsagePeriodRequest;
+  if (period === "last_7_days" || period === "last_28_days" || period === "last_90_days") {
+    if (month !== null) return { ok: false, failure: invalid("month", "is only valid for calendar_month") };
+    request = { period };
+  } else if (period === "calendar_month") {
+    if (month === null) return { ok: false, failure: invalid("month", "is required for calendar_month") };
+    request = { period, month };
+  } else {
+    return { ok: false, failure: invalid("period", "must be last_7_days, last_28_days, last_90_days, or calendar_month") };
+  }
+  const organizations = parseOrganizationIds(params);
+  if (!organizations.ok) return organizations;
+  return { ok: true, period: { ...request, ...organizations } };
 }
 
 export function parsePage(params: URLSearchParams): { ok: true; page: ParsedPage } | { ok: false; failure: ApiFailure } {
@@ -112,15 +119,15 @@ export function parsePage(params: URLSearchParams): { ok: true; page: ParsedPage
 
 const breakdownKinds = ["feature", "model", "client", "language", "ide"] as const;
 export function parseBreakdown(params: URLSearchParams): { ok: true; breakdown: ParsedBreakdown } | { ok: false; failure: ApiFailure } {
-  const range = parseRange(params);
-  if (!range.ok) return range;
+  const period = parseUsagePeriod(params);
+  if (!period.ok) return period;
   const page = parsePage(params);
   if (!page.ok) return page;
   const kind = params.get("kind");
   if (!kind || !(breakdownKinds as readonly string[]).includes(kind)) {
     return { ok: false, failure: invalid("kind", `must be one of ${breakdownKinds.join(", ")}`) };
   }
-  return { ok: true, breakdown: { ...range.range, ...page.page, kind: kind as ParsedBreakdown["kind"] } };
+  return { ok: true, breakdown: { ...period.period, ...page.page, kind: kind as ParsedBreakdown["kind"] } };
 }
 
 export function parsePageRequest(params: URLSearchParams): { ok: true; page: ParsedPage } | { ok: false; failure: ApiFailure } {

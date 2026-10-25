@@ -1,27 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { parseBreakdown, parsePage, parseRange } from "./api";
+import { parseBreakdown, parsePage, parseUsagePeriod } from "./api";
 
 describe("usage API request validation", () => {
-  it("requires valid ISO dates and enforces the shared maximum range", () => {
-    expect(parseRange(new URLSearchParams("from=2026-02-30&to=2026-03-02"))).toMatchObject({
+  it("accepts only the supported fixed periods and rejects raw or arbitrary date ranges", () => {
+    for (const period of ["last_7_days", "last_28_days", "last_90_days"]) {
+      expect(parseUsagePeriod(new URLSearchParams(`period=${period}`))).toMatchObject({ ok: true, period: { period } });
+    }
+    expect(parseUsagePeriod(new URLSearchParams("period=calendar_month&month=2026-02"))).toMatchObject({
+      ok: true,
+      period: { period: "calendar_month", month: "2026-02" },
+    });
+    expect(parseUsagePeriod(new URLSearchParams("from=2026-03-01&to=2026-03-02"))).toMatchObject({
       ok: false,
       failure: { code: "invalid_request" },
     });
-    expect(parseRange(new URLSearchParams("from=2025-01-01&to=2026-03-02"))).toMatchObject({
+    expect(parseUsagePeriod(new URLSearchParams("period=custom&from=2026-03-01&to=2026-03-02"))).toMatchObject({
       ok: false,
-      failure: { code: "date_range_too_large" },
+      failure: { code: "invalid_request" },
     });
-    expect(parseRange(new URLSearchParams("from=2026-03-01&to=2026-03-02")).ok).toBe(true);
+    expect(parseUsagePeriod(new URLSearchParams("period=calendar_month"))).toMatchObject({
+      ok: false,
+      failure: { code: "invalid_request" },
+    });
+    expect(parseUsagePeriod(new URLSearchParams("period=last_7_days&month=2026-02"))).toMatchObject({
+      ok: false,
+      failure: { code: "invalid_request" },
+    });
   });
 
   it("accepts positive safe organization IDs and rejects malformed identifiers", () => {
-    expect(parseRange(new URLSearchParams("from=2026-03-01&to=2026-03-02&organizationIds=12,15&organizationIds=12")))
-      .toMatchObject({ ok: true, range: { organizationIds: [12, 15] } });
-    expect(parseRange(new URLSearchParams("from=2026-03-01&to=2026-03-02&organizationIds=1abc"))).toMatchObject({
+    expect(parseUsagePeriod(new URLSearchParams("period=last_7_days&organizationIds=12,15&organizationIds=12")))
+      .toMatchObject({ ok: true, period: { organizationIds: [12, 15] } });
+    expect(parseUsagePeriod(new URLSearchParams("period=last_7_days&organizationIds=1abc"))).toMatchObject({
       ok: false,
       failure: { code: "invalid_request" },
     });
-    expect(parseRange(new URLSearchParams(`from=2026-03-01&to=2026-03-02&organizationIds=${Number.MAX_SAFE_INTEGER + 1}`))).toMatchObject({
+    expect(parseUsagePeriod(new URLSearchParams(`period=last_7_days&organizationIds=${Number.MAX_SAFE_INTEGER + 1}`))).toMatchObject({
       ok: false,
       failure: { code: "invalid_request" },
     });
@@ -39,8 +53,8 @@ describe("usage API request validation", () => {
   });
 
   it("requires a supported breakdown kind", () => {
-    expect(parseBreakdown(new URLSearchParams("from=2026-03-01&to=2026-03-02&kind=feature")).ok).toBe(true);
-    expect(parseBreakdown(new URLSearchParams("from=2026-03-01&to=2026-03-02&kind=account"))).toMatchObject({
+    expect(parseBreakdown(new URLSearchParams("period=last_7_days&kind=feature")).ok).toBe(true);
+    expect(parseBreakdown(new URLSearchParams("period=last_7_days&kind=account"))).toMatchObject({
       ok: false,
       failure: { code: "invalid_request" },
     });

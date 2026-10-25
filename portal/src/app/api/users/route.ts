@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type { UserUsageResponse } from "../../../../../shared/src/api";
 import { getPortalSqlPool } from "../../../db/pool";
-import { errorResponse, logUsageFailure, parsePageRequest, parseRange, responseHeaders, responseMeta } from "../../../usage/api";
+import { errorResponse, logUsageFailure, parsePageRequest, parseUsagePeriod, responseHeaders, responseMeta } from "../../../usage/api";
 import { requireUsageAccess } from "../../../usage/route-auth";
-import { getUserUsage } from "../../../usage/sql-usage";
+import { getUserUsage, resolveUsageRange } from "../../../usage/sql-usage";
 
 export async function GET(request: NextRequest): Promise<NextResponse<UserUsageResponse | { error: unknown }>> {
   const correlationId = randomUUID();
@@ -18,11 +18,16 @@ export async function GET(request: NextRequest): Promise<NextResponse<UserUsageR
         status: 403,
       }, correlationId);
     }
-    const parsedRange = parseRange(request.nextUrl.searchParams);
-    if (!parsedRange.ok) return errorResponse(parsedRange.failure, correlationId);
+    const parsedPeriod = parseUsagePeriod(request.nextUrl.searchParams);
+    if (!parsedPeriod.ok) return errorResponse(parsedPeriod.failure, correlationId);
     const parsedPage = parsePageRequest(request.nextUrl.searchParams);
     if (!parsedPage.ok) return errorResponse(parsedPage.failure, correlationId);
-    const result = await getUserUsage(await getPortalSqlPool(), gate.access, { ...parsedRange.range, ...parsedPage.page }, correlationId);
+    const pool = await getPortalSqlPool();
+    const resolved = await resolveUsageRange(pool, parsedPeriod.period);
+    if (!resolved.ok) {
+      return errorResponse({ code: "invalid_request", message: "The requested usage period is not available.", status: 400 }, correlationId);
+    }
+    const result = await getUserUsage(pool, gate.access, { ...resolved.range, ...parsedPage.page }, correlationId);
     return NextResponse.json({
       meta: responseMeta(correlationId),
       data: result.rows,

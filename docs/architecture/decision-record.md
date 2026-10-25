@@ -253,6 +253,7 @@ Principles:
 - Make raw, staging, curated, and audit retention explicit per deployment. Use storage lifecycle/immutability only where the chosen retention and replay requirements support it. Define deletion handling for user identity mappings and derived facts before production rollout.
 - Use stable GitHub user IDs as fact keys where available; treat login/email as mutable attributes. Department, business area, and manager are current values only (D-16).
 - **Minimum group size:** aggregate responses for any group smaller than a configurable threshold (default 5) are suppressed, so aggregate-only mode cannot reveal an individual through a tiny team.
+- Usage API periods are fixed (7, 28, or 90 days, or a complete calendar month) to limit subtraction attacks on arbitrary overlapping ranges. Nested rolling periods still overlap; the accepted trade-off and rationale are documented in the [portal FAQ](../portal-faq.md). Per-user detail remains separately controlled by `PER_USER_DETAIL_ENABLED`.
 
 ### 6.4 Decided parameters
 

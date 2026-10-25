@@ -60,6 +60,45 @@ export interface ScopedRangeRequest extends DateRange {
   organizationIds?: number[];
 }
 
+export type UsagePeriodRequest =
+  | { period: "last_7_days"; organizationIds?: number[] }
+  | { period: "last_28_days"; organizationIds?: number[] }
+  | { period: "last_90_days"; organizationIds?: number[] }
+  | { period: "calendar_month"; month: string; organizationIds?: number[] };
+
+export type UsagePeriodValidation =
+  | { ok: true; range: DateRange }
+  | { ok: false; code: "invalid_request" };
+
+export function validateUsagePeriod(
+  request: UsagePeriodRequest,
+  latestCompleteDay: IsoDate,
+): UsagePeriodValidation {
+  if (!validateDateRange({ from: latestCompleteDay, to: latestCompleteDay }).ok) {
+    return { ok: false, code: "invalid_request" };
+  }
+
+  if (request.period === "calendar_month") {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(request.month)) {
+      return { ok: false, code: "invalid_request" };
+    }
+    const [year, month] = request.month.split("-").map(Number);
+    const from = `${request.month}-01`;
+    const to = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
+    if (to > latestCompleteDay) return { ok: false, code: "invalid_request" };
+    return { ok: true, range: { from, to } };
+  }
+
+  const days = {
+    last_7_days: 7,
+    last_28_days: 28,
+    last_90_days: 90,
+  }[request.period];
+  const to = new Date(`${latestCompleteDay}T00:00:00.000Z`);
+  const from = new Date(to.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  return { ok: true, range: { from, to: latestCompleteDay } };
+}
+
 export interface Suppressible<T> {
   suppressed: boolean;
   // null when suppressed, so a small exact count never reaches the browser
@@ -145,15 +184,15 @@ export interface UsageBreakdownRow {
   userCount: number;
 }
 
-export type UsageOverviewRequest = ScopedRangeRequest;
+export type UsageOverviewRequest = UsagePeriodRequest;
 export type UsageOverviewResponse = ApiResponse<{
   series: Suppressible<UsageSeriesPoint>[];
   adoption: Suppressible<AdoptionSummary>;
 }>;
 
-export interface UsageBreakdownRequest extends ScopedRangeRequest, PageRequest {
+export type UsageBreakdownRequest = UsagePeriodRequest & PageRequest & {
   kind: UsageBreakdownRow["kind"];
-}
+};
 export type UsageBreakdownResponse = PagedResponse<Suppressible<UsageBreakdownRow>>;
 
 // Per-user rows exist only when the deployment allows named users, only within the viewer's grants, and always paged.
@@ -164,7 +203,7 @@ export interface UserUsageRow {
   interactions: number;
   aiCreditsUsed: number;
 }
-export type UserUsageRequest = ScopedRangeRequest & PageRequest;
+export type UserUsageRequest = UsagePeriodRequest & PageRequest;
 export type UserUsageResponse = PagedResponse<UserUsageRow>;
 
 // ---- AI Credits module ------------------------------------------------------------------------------------------
