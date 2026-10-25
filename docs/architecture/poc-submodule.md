@@ -15,7 +15,9 @@ Chart proven: upstream `FeatureAdoptionChart`, rendered at `/poc/feature-adoptio
 
 - Our stricter `noUncheckedIndexedAccess` fails on upstream code; the portal tsconfig turns it off (the root base keeps it for `shared/`, `functions/`, scripts).
 - Upstream charts need Tailwind and Primer CSS. `globals.css` mirrors upstream's imports and adds `@source "../../upstream/src"` so Tailwind sees upstream class names.
-- Axe finds one violation inside the upstream chart (canvas without accessible name, `role-img-alt`). It cannot be fixed without editing upstream; tracked in issue #1 and excluded by rule in the E2E check.
+- The portal-owned `AccessibleUpstreamCharts` wrapper names rendered canvases and makes upstream horizontal-scroll regions keyboard accessible without modifying upstream. E2E axe checks run with no rule exclusions.
+- The Executive Summary uses the upstream read model with an owned view adapter because the pinned upstream chart composes multiple children inside an SVG `<title>`, causing React hydration errors. Upstream remains untouched.
+- Clients and Client Versions receive empty synthetic plugin-version snapshots from `portal/public/data`; the demo does not depend on live release metadata or make failed requests.
 
 ## Coding agent environment
 
