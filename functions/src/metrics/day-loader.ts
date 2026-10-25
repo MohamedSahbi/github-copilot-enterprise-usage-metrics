@@ -497,20 +497,22 @@ async function publish(
         SET status = 'published', is_current = 1, rows_read = @rowsRead, rows_loaded = @rowsLoaded,
             rows_quarantined = @rowsQuarantined, error_code = NULL, completed_at = SYSUTCDATETIME()
         WHERE run_id = @runId`);
-    await request()
-      .input("sourceKind", sql.VarChar(40), "users_1_day")
-      .input("scopeKey", sql.NVarChar(100), scopeKeyForOrganization(input.organizationId))
-      .input("reportDay", sql.Date, input.reportDay)
-      .input("runId", sql.UniqueIdentifier, runId)
-      .query(`
-        UPDATE portal.SourceCheckpoint WITH (UPDLOCK, HOLDLOCK)
-        SET last_complete_day = CASE WHEN last_complete_day IS NULL OR last_complete_day < @reportDay THEN @reportDay ELSE last_complete_day END,
-            last_run_id = CASE WHEN last_complete_day IS NULL OR last_complete_day <= @reportDay THEN @runId ELSE last_run_id END,
-            updated_at = SYSUTCDATETIME()
-        WHERE source_kind = @sourceKind AND scope_key = @scopeKey;
-        IF @@ROWCOUNT = 0
-          INSERT INTO portal.SourceCheckpoint (source_kind, scope_key, last_complete_day, last_run_id)
-          VALUES (@sourceKind, @scopeKey, @reportDay, @runId)`);
+    if (rowsRead === rowsLoaded) {
+      await request()
+        .input("sourceKind", sql.VarChar(40), "users_1_day")
+        .input("scopeKey", sql.NVarChar(100), scopeKeyForOrganization(input.organizationId))
+        .input("reportDay", sql.Date, input.reportDay)
+        .input("runId", sql.UniqueIdentifier, runId)
+        .query(`
+          UPDATE portal.SourceCheckpoint WITH (UPDLOCK, HOLDLOCK)
+          SET last_complete_day = CASE WHEN last_complete_day IS NULL OR last_complete_day < @reportDay THEN @reportDay ELSE last_complete_day END,
+              last_run_id = CASE WHEN last_complete_day IS NULL OR last_complete_day <= @reportDay THEN @runId ELSE last_run_id END,
+              updated_at = SYSUTCDATETIME()
+          WHERE source_kind = @sourceKind AND scope_key = @scopeKey;
+          IF @@ROWCOUNT = 0
+            INSERT INTO portal.SourceCheckpoint (source_kind, scope_key, last_complete_day, last_run_id)
+            VALUES (@sourceKind, @scopeKey, @reportDay, @runId)`);
+    }
     await transaction.commit();
     return "published";
   } catch (error) {

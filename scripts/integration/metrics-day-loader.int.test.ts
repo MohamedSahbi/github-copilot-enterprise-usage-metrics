@@ -122,12 +122,19 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
     expect(secondResult.status).toBe("published");
     expect(secondResult.blobPath).toMatch(new RegExp(`^raw/users_1_day/${orgLogin}/${reportDay.replaceAll("-", "/")}/`));
     const artifact = (await pool.request().input("runId", sql.UniqueIdentifier, second.runId).query<{
-      sha256: string; blob_path: string; row_count: number;
-    }>("SELECT sha256, blob_path, row_count FROM portal.SourceArtifact WHERE run_id = @runId")).recordset[0]!;
+      artifact_id: number; sha256: string; blob_path: string; row_count: number;
+    }>("SELECT artifact_id, sha256, blob_path, row_count FROM portal.SourceArtifact WHERE run_id = @runId")).recordset[0]!;
     expect(artifact.sha256).toBe(createHash("sha256").update(payload).digest("hex"));
     expect(Number(artifact.row_count)).toBe(userIds.length);
     expect(await blobContainer.getBlobClient(artifact.blob_path).downloadToBuffer()).toEqual(Buffer.from(payload));
     expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE organization_id = @value", "value", sql.BigInt, orgId)).toBe(userIds.length);
+    const lineage = await pool.request()
+      .input("runId", sql.UniqueIdentifier, second.runId)
+      .input("artifactId", sql.BigInt, artifact.artifact_id)
+      .query<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE run_id = @runId AND source_artifact_id = @artifactId",
+      );
+    expect(Number(lineage.recordset[0]?.count)).toBe(userIds.length);
     const currentRuns = await pool.request()
       .input("scopeKey", sql.NVarChar(100), scopeKey)
       .input("reportDay", sql.Date, reportDay)
@@ -224,6 +231,35 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
     const checkpoint = (await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
       .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey")).recordset[0];
     expect(checkpoint?.last_run_id?.toLowerCase()).toBe(original.runId);
+  });
+
+  it("publishes valid rows from a partial report without advancing the complete-day checkpoint", async () => {
+    const validRow = Buffer.from(ndjson([userIds[0]!])).toString("utf8");
+    const invalidRow = Buffer.from(validRow.replace(/"user_id":\d+/, '"user_id":null'));
+    const partialInput = newInput(Buffer.concat([ndjson([userIds[0]!]), invalidRow]));
+    const partialResult = await loadMetricsDay(partialInput, { sqlConfig, blobContainer });
+
+    expect(partialResult.status).toBe("published");
+    expect(partialResult.rowsLoaded).toBe(1);
+    expect(partialResult.rowsQuarantined).toBe(1);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE organization_id = @value", "value", sql.BigInt, orgId)).toBe(1);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.SourceCheckpoint WHERE scope_key = @value", "value", sql.NVarChar(100), scopeKey)).toBe(0);
+
+    const completeInput = newInput(ndjson(userIds));
+    await loadMetricsDay(completeInput, { sqlConfig, blobContainer });
+    const replacementInput = newInput(Buffer.concat([
+      ndjson(userIds),
+      invalidRow,
+    ]));
+    const replacementResult = await loadMetricsDay(replacementInput, { sqlConfig, blobContainer });
+
+    expect(replacementResult.status).toBe("published");
+    expect(replacementResult.rowsLoaded).toBe(userIds.length);
+    expect(replacementResult.rowsQuarantined).toBe(1);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE organization_id = @value", "value", sql.BigInt, orgId)).toBe(userIds.length);
+    const checkpoint = (await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
+      .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey")).recordset[0];
+    expect(checkpoint?.last_run_id?.toLowerCase()).toBe(completeInput.runId);
   });
 
   it("quarantines a non-empty report with no accepted rows without publishing or advancing the checkpoint", async () => {
