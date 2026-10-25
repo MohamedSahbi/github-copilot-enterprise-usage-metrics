@@ -98,11 +98,11 @@ Source: `POST /enterprises/{ent}/settings/billing/reports` then poll and downloa
 | `quantity` | `quantity` | DECIMAL(18,9) | yes | V |
 | `unit_type` | `unit_type` | NVARCHAR(32) | yes | V |
 | `applied_cost_per_quantity`, `gross_amount`, `discount_amount`, `net_amount` | same | DECIMAL(18,9) | yes | V |
-| `total_monthly_quota` | same | DECIMAL(18,9) | yes | V (always 0 in the sample: **A** meaning) |
+| `total_monthly_quota` | same | DECIMAL(18,9) | yes | V |
 | `organization` | `organization_login` (+ resolved `organization_id`) | NVARCHAR | no, '' allowed | V (a name, not an ID) |
-| `app_client_id`, `repository` | same | NVARCHAR | '' allowed | **V** (documented by GitHub; empty in the sample because the owner's deployment does not use repositories) |
+| `app_client_id`, `repository` | same | NVARCHAR | '' allowed | **V** (documented by GitHub; empty values are allowed) |
 | `cost_center_name` | same | NVARCHAR | '' allowed | V |
-| `aic_quantity`, `aic_gross_amount` | same | DECIMAL(18,9) | yes | V (`aic_gross_amount = aic_quantity × 0.01` observed) |
+| `aic_quantity`, `aic_gross_amount` | same | DECIMAL(18,9) | yes | V |
 | `input`, `output`, `cache_read`, `cache_write` | `*_tokens` | BIGINT | yes | V |
 
 Natural key: `(date, organization, username, model, sku, cost_center_name, repository, app_client_id)`; the tables key on a persisted SHA-256 `natural_key` of these text columns because they exceed SQL Server's index key size limits (1700 bytes nonclustered, 900 clustered). Duplicates in one export → reject `duplicate_key`. Unknown columns → warn `unknown_field` (ignored, since CSV has no JSON overflow column). Decimals are never rounded.
