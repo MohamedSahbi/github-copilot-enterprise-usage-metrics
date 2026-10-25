@@ -1,0 +1,92 @@
+// Pure migration rules: file naming (D-48) and the plan of what to apply, given the files and the history table.
+
+export type MigrationErrorCode =
+  | "INVALID_NAME"
+  | "CHECKSUM_MISMATCH"
+  | "CHECKSUM_MISSING"
+  | "FILE_MISSING"
+  | "OUT_OF_ORDER"
+  | "DUPLICATE_VERSION"
+  | "LOCK_TIMEOUT";
+
+export class MigrationError extends Error {
+  constructor(
+    readonly code: MigrationErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "MigrationError";
+  }
+}
+
+export interface MigrationFile {
+  version: number;
+  name: string;
+  md5: string;
+  filename: string;
+}
+
+export interface AppliedMigration {
+  version: number;
+  name: string | null;
+  md5: string | null;
+}
+
+export interface MigrationPlan {
+  pending: MigrationFile[];
+}
+
+// Forward-only `.do.` names only. The restricted description keeps names safe to embed in the history insert.
+const NAME = /^(\d{14})\.do\.([a-z0-9][a-z0-9_-]*)\.sql$/;
+
+export function parseMigrationName(filename: string): { version: number; name: string } {
+  const m = NAME.exec(filename);
+  if (!m) {
+    throw new MigrationError(
+      "INVALID_NAME",
+      `Invalid migration file name "${filename}"; expected yyyyMMddHHmmss.do.description.sql (lowercase, forward-only)`,
+    );
+  }
+  return { version: Number(m[1]), name: m[2] as string };
+}
+
+// Validates every applied migration first, so a changed or missing file applies nothing.
+// A pending file older than the newest applied version is refused: rename it with a newer timestamp (rebase) and re-run.
+export function planMigrations(files: MigrationFile[], applied: AppliedMigration[]): MigrationPlan {
+  const byVersion = new Map<number, MigrationFile>();
+  for (const f of files) {
+    const other = byVersion.get(f.version);
+    if (other) {
+      throw new MigrationError("DUPLICATE_VERSION", `Migrations ${other.filename} and ${f.filename} share version ${f.version}; each timestamp must be unique`);
+    }
+    byVersion.set(f.version, f);
+  }
+  const appliedVersions = new Set(applied.map((a) => a.version));
+
+  for (const row of [...applied].sort((a, b) => a.version - b.version)) {
+    const file = byVersion.get(row.version);
+    if (!file) {
+      throw new MigrationError("FILE_MISSING", `Applied migration ${row.version} (${row.name ?? "unnamed"}) has no file on disk`);
+    }
+    if (!row.md5) {
+      throw new MigrationError("CHECKSUM_MISSING", `Applied migration ${row.version} has no recorded checksum; refusing to continue`);
+    }
+    if (row.md5 !== file.md5) {
+      throw new MigrationError(
+        "CHECKSUM_MISMATCH",
+        `Checksum of applied migration ${row.version} (${file.name}) changed since it was applied; add a new migration instead of editing a merged one`,
+      );
+    }
+  }
+
+  const newest = Math.max(0, ...appliedVersions);
+  const pending = files.filter((f) => !appliedVersions.has(f.version)).sort((a, b) => a.version - b.version);
+  const late = pending.filter((f) => f.version < newest);
+  if (late.length > 0) {
+    throw new MigrationError(
+      "OUT_OF_ORDER",
+      `Pending migration(s) ${late.map((f) => `${f.version} (${f.name})`).join(", ")} are older than the newest applied version ${newest}; give them a newer timestamp and re-run`,
+    );
+  }
+  return { pending };
+}
