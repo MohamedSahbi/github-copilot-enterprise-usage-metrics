@@ -6,7 +6,7 @@ export type IsoDateTime = string;
 export type Guid = string;
 
 export type SourceKind = "users_1_day" | "ai_credit" | "directory" | "organization";
-export type RunStatus = "started" | "staged" | "validated" | "published" | "failed" | "cancelled";
+export type RunStatus = "started" | "staged" | "validated" | "published" | "failed" | "cancelled" | "quarantined";
 export type IssueSeverity = "reject" | "warn" | "fatal";
 
 export type BreakdownKind =
@@ -60,6 +60,9 @@ export interface ValidationIssueRow {
   field_path: string | null;
   message: string | null;
   created_at: IsoDateTime;
+  issue_type: "duplicate_file" | "smaller_day" | null;
+  report_day: IsoDate | null;
+  handled_at: IsoDateTime | null;
 }
 
 export const VALIDATION_ERROR_CODES = {
@@ -176,6 +179,10 @@ export interface DimUserRow {
   deleted_at: IsoDateTime | null;
   pii_purged_at: IsoDateTime | null;
   updated_at: IsoDateTime;
+  manager_entra_object_id: Guid | null;
+  manager_email: string | null;
+  department: string | null;
+  business_area: string | null;
 }
 
 export interface FactUserDailyUsageRow extends Omit<StgUserDailyRow, "run_id" | "line_number" | "enterprise_id" | "user_login"> {
@@ -231,6 +238,50 @@ export interface AccessGrantRow {
   granted_by: Guid | null;
   granted_at: IsoDateTime;
   revoked_at: IsoDateTime | null;
+  principal_entra_oid: Guid;
+}
+
+export type UnlinkReason = "entra_disabled" | "entra_deleted" | "github_removed";
+
+export interface PrincipalLinkStateRow {
+  link_id: number;
+  entra_tenant_id: Guid;
+  entra_object_id: Guid;
+  github_user_id: number;
+  linked_at: IsoDateTime;
+  unlinked_at: IsoDateTime | null;
+  unlink_reason: UnlinkReason | null;
+  run_id: Guid | null;
+}
+
+export interface GrantRevocationRow {
+  revocation_id: number;
+  entra_tenant_id: Guid;
+  entra_object_id: Guid;
+  revoked_at: IsoDateTime;
+  reason: UnlinkReason;
+  run_id: Guid | null;
+}
+
+export interface IssueActionRow {
+  action_id: number;
+  issue_id: number;
+  action: "retry" | "accept_last" | "accept_first" | "reject" | "force" | "discard";
+  actor_entra_oid: Guid;
+  requested_at: IsoDateTime;
+  correlation_id: string | null;
+}
+
+export interface IngestionAuditEventRow {
+  event_id: number;
+  occurred_at: IsoDateTime;
+  action: "grant.revoked_by_directory_sync" | "principal.unlinked_by_directory_sync" | "login_history.purged";
+  run_id: Guid | null;
+  target_type: string | null;
+  target_id: string | null;
+  outcome: "success" | "failure";
+  correlation_id: string | null;
+  detail_json: string | null;
 }
 
 // Column registries: the contract test compares these with the CREATE TABLE statements in db/migrations.
@@ -245,7 +296,7 @@ export const TABLE_COLUMNS = {
   ] as const satisfies readonly (keyof SourceArtifactRow)[],
   "portal.ValidationIssue": [
     "issue_id", "run_id", "artifact_id", "line_number", "raw_row_sha256", "severity", "error_code", "field_path",
-    "message", "created_at",
+    "message", "created_at", "issue_type", "report_day", "handled_at",
   ] as const satisfies readonly (keyof ValidationIssueRow)[],
   "portal.stg_user_daily": [
     "run_id", "artifact_id", "line_number", "organization_id", "enterprise_id", "user_id", "user_login", "usage_day",
@@ -256,7 +307,7 @@ export const TABLE_COLUMNS = {
   ] as const satisfies readonly (keyof StgUserDailyRow)[],
   "portal.dim_user": [
     "user_id", "login", "email", "display_name", "entra_object_id", "state", "first_seen_day", "last_seen_day",
-    "deleted_at", "pii_purged_at", "updated_at",
+    "deleted_at", "pii_purged_at", "updated_at", "manager_entra_object_id", "manager_email", "department", "business_area",
   ] as const satisfies readonly (keyof DimUserRow)[],
   "portal.AuditLog": [
     "audit_id", "occurred_at", "actor_principal_id", "actor_entra_oid", "action", "target_type", "target_id", "outcome",
@@ -268,5 +319,18 @@ export const TABLE_COLUMNS = {
   ] as const satisfies readonly (keyof PrincipalRow)[],
   "portal.AccessGrant": [
     "grant_id", "principal_id", "role", "scope", "scope_value", "granted_by", "granted_at", "revoked_at",
+    "principal_entra_oid",
   ] as const satisfies readonly (keyof AccessGrantRow)[],
+  "portal.PrincipalLinkState": [
+    "link_id", "entra_tenant_id", "entra_object_id", "github_user_id", "linked_at", "unlinked_at", "unlink_reason", "run_id",
+  ] as const satisfies readonly (keyof PrincipalLinkStateRow)[],
+  "portal.GrantRevocation": [
+    "revocation_id", "entra_tenant_id", "entra_object_id", "revoked_at", "reason", "run_id",
+  ] as const satisfies readonly (keyof GrantRevocationRow)[],
+  "portal.IssueAction": [
+    "action_id", "issue_id", "action", "actor_entra_oid", "requested_at", "correlation_id",
+  ] as const satisfies readonly (keyof IssueActionRow)[],
+  "portal.IngestionAuditEvent": [
+    "event_id", "occurred_at", "action", "run_id", "target_type", "target_id", "outcome", "correlation_id", "detail_json",
+  ] as const satisfies readonly (keyof IngestionAuditEventRow)[],
 };

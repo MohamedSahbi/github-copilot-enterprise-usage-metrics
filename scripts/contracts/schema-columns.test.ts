@@ -26,7 +26,9 @@ function columnsOf(table: string): string[] {
     if (ch === "," && d === 0) { parts.push(cur); cur = ""; } else cur += ch;
   }
   parts.push(cur);
-  return parts.map((p) => p.trim()).filter((p) => p && !/^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b/i.test(p) && !/^\w+\s+AS\b/i.test(p)).map((p) => p.split(/\s+/)[0]!);
+  const created = parts.map((p) => p.trim()).filter((p) => p && !/^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b/i.test(p) && !/^\w+\s+AS\b/i.test(p)).map((p) => p.split(/\s+/)[0]!);
+  const added = [...sql.matchAll(new RegExp(`ALTER TABLE ${table.replace(".", "\\.")}\\s+ADD\\s+(?!CONSTRAINT\\b)(\\w+)`, "gi"))].map((m) => m[1]!);
+  return [...created, ...added];
 }
 
 describe("shared row types match the migrations", () => {
