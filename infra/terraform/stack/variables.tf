@@ -183,3 +183,14 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "raw_archive_cool_after_months" {
+  description = "Age in whole months before raw archive blobs move to Cool. Azure lifecycle policies use age in days."
+  type        = number
+  default     = 13
+
+  validation {
+    condition     = var.raw_archive_cool_after_months >= 1 && floor(var.raw_archive_cool_after_months) == var.raw_archive_cool_after_months
+    error_message = "raw_archive_cool_after_months must be a positive whole number."
+  }
+}
