@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.6...v0.2.7) (2026-10-25)
+
+
+### Features
+
+* access-model contracts (issue [#44](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/44)) ([#48](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/48)) ([011ddc2](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/011ddc2c4eea581a90bcab505ceafd01c4a961cd))
+* Phase 1 foundations (migration runner, local stack, integration harness, runbooks) ([#52](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/52)) ([44791ff](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/44791ff4279ad98af8aec3913c0819f0670a47c9))
+
 ## [0.2.6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.5...v0.2.6) (2026-10-25)
 
 
