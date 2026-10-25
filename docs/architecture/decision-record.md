@@ -127,6 +127,8 @@ This is a **file-tree snapshot comparison only**, taken from the current local w
 
 ### 4.1 Portal-only chart components (17)
 
+> **Update (2026-10-25, issue #84):** upstream at `00608a2` now ships 11 of these 17; only `AgentModeHeatmapChart` and the five `Billing*` charts remain portal-only. Owner decisions are in `feature-parity.md`.
+
 `AdoptionTrendChart`, `AgentModeHeatmapChart`, `BillingBusinessAreaChart`, `BillingCostTrendChart`, `BillingModelCostChart`, `BillingTopUsersChart`, `BillingUserCostChart`, `ClientActivityChart`, `CloudAgentAdoptionChart`, `CloudAgentsUsageChart`, `CodeReviewAdoptionChart`, `DayClientDistributionChart`, `FeatureAdoptionRadarChart`, `LanguageDailyChart`, `UserActivityByLanguageAndFeatureChart`, `UserActivityByModelAndFeatureChart`, `UserSummaryChart`
 
 Note: the presence of billing-prefixed charts here is consistent with the portal's enterprise billing-reporting scope described in §3, but this section records file presence only — it does not assert that every portal-only chart is an intentional enterprise addition versus, e.g., a local rename of something upstream later changed too.
@@ -825,8 +827,8 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | Submodule proof of concept outcome (§10.1) | Fact check | Done. Checks 1 to 4 pass. `github.com` access is a documented prerequisite; #33 is closed (`docs/architecture/poc-submodule.md`) |
 | Whether the Copilot coding agent on github.com can create issues directly, or needs the PR-section workflow (§13.5) | Fact check | **Resolved:** it cannot; it has read-only issue tools, so the PR-section workflow is required (`poc-submodule.md`) |
 | RPO/RTO, SQL tier and budget, data volumes | Decision | Before prod promotion |
-| Product-owner review of which portal-only charts (§4.1) to keep as owned pages | Decision | Phase 3 |
-| Feature-parity checklist reviewed by the owner (build kit `docs/architecture/feature-parity.md`) | Decision | Before Phase 3 |
+| Product-owner review of which portal-only charts (§4.1) to keep as owned pages | Decision | **Resolved** (issue #84): upstream now ships 11 of the 17; keep 4 billing charts in the AI Credits module and `AgentModeHeatmapChart` as owned; drop `BillingUserCostChart` (`feature-parity.md`) |
+| Feature-parity checklist reviewed by the owner (build kit `docs/architecture/feature-parity.md`) | Decision | **Resolved** 2026-10-25 (issue #84); feedback work-item adapters deferred to post-beta |
 | Whether Docker (SQL Server container) runs in the Copilot coding agent environment, and the network allowlist it needs | Fact check | **Resolved:** Docker works and the SQL Server image pulls (`poc-submodule.md`); the full allowlist is not recorded |
 | Add D-53 (config placement: Terraform inputs in tfvars, pipeline-only settings in a YAML deployment config, human-only facts in Markdown) to §14 | Decision | **Resolved:** added as D-53 (§12.8, issue #36); proposed in PR #14 and the `config-placement` skill |
 | Add D-54 (the deployment template is Azure DevOps first, GitHub Actions optional; the wrapper pins a portal tag and runs its scripts) to §14 | Decision | **Resolved:** added as D-54 (§12.8, issue #36) |
