@@ -28,6 +28,6 @@ output "identities" {
 }
 
 output "secret_names" {
-  description = "Key Vault secrets the operator must create after the first deployment (az keyvault secret set)."
+  description = "Key Vault secret names to create before a full-stack plan/apply (az keyvault secret set)."
   value       = local.secret_names
 }
