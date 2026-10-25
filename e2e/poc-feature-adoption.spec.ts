@@ -18,7 +18,13 @@ test("signed-in test persona sees the upstream Feature Adoption chart without co
   expect(consoleErrors).toEqual([]);
 });
 
-test("without sign-in the page shows the signed-out state", async ({ page }) => {
+test("without sign-in the PoC redirects to sign-in", async ({ page }) => {
   await page.goto("/poc/feature-adoption");
-  await expect(page.getByText(/Signed out/)).toBeVisible();
+  await expect(page).toHaveURL(/\/sign-in$/);
+});
+
+test("no-access persona cannot bypass access routing through the PoC", async ({ page, signInAs }) => {
+  await signInAs("no-access");
+  await page.goto("/poc/feature-adoption");
+  await expect(page).toHaveURL(/\/no-access$/);
 });
