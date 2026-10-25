@@ -2,6 +2,8 @@
 
 Status: proposed with the contracts PR. Companion to [decision-record.md](decision-record.md) (§6, §6.5, §13.6). Types are in `shared/src/`, SQL in `db/migrations/`. A change to any contract lands in `shared/` first, in its own PR.
 
+**Architecture boundary (owner revision 2026-10-25, #66):** the new solution runs independently in a separate database; the old solution is untouched during parallel operation. This documentation update does not change executable `shared/` contracts or migrations. Historical v1/v2 budget descriptors below do not require compatibility shadow tables in the new database. #69 owns any executable contract clarification/delta before dependent implementation.
+
 Verification legend: **V** = verified against a recorded sample or the enterprise docs; **A** = assumption, not verified (listed again in the PR).
 
 ## 1. Settings (deployment settings, not SQL rows)
@@ -191,7 +193,7 @@ No other difference was found while reading the calculators (only the adoption a
 | Core usage pages | aggregates by org/day/dimension, suppressed | unchanged |
 | User list / detail | not available (`per_user_detail_disabled`) | rows only within the viewer's scope, paged |
 | AI Credits | aggregates by org/day/model/cost center | per-user rows within scope, paged |
-| Budget Lookup | reads `dbo` budget tables read-only; own and own-scope records | same |
+| Budget Lookup | optional read-only module; own and own-scope records. Read-source/access contract under database separation needs an owner decision before implementation (§6.5 of the decision record) | same |
 | Admin | principals and grants (admin role) | same |
 | Feedback | items per visibility; author shown as display name only to admins | same |
 | Health | status only, no data | same |
@@ -199,29 +201,33 @@ No other difference was found while reading the calculators (only the adoption a
 Date ranges are bounded (max 400 days) and page sizes are bounded (max 100, default 50).
 Both date boundaries must be real ISO calendar dates; rollover dates such as `2025-02-31` are invalid.
 
-## 7. Directory column contract (D-29), versions
+## 7. Directory contracts and historical budget descriptors (D-29, D-34)
 
-The budget Functions (outside this repo) read `dbo.CopilotUserDirectory`, `dbo.ManagerHierarchy` and `dbo.HierarchySyncRun`. The code-derived column sets are v1 (shared/src/directory-contract.ts, `DIRECTORY_CONTRACT_V1`), verified by contract tests. v2 re-keys the directory on the numeric GitHub user ID with login and email mutable and a deletion state; this PR defines v2 and the mapping only. Adopting v2 requires changes in the budget Functions (follow-up issue; D-29 note in the PR).
+**New runtime:** `portal.dim_user` is keyed on the numeric GitHub ID; login/email are mutable attributes. Its manager Entra ID, recognition email, department and business area support the current hierarchy/scopes. Reuse `portal.DirectorySyncState` and the existing link/revocation model. One logical `ingestion` component is the sole writer of `dim_user` and login history; directory sync owns directory attributes and hierarchy/link/revocation state through it. Metrics and directory must not become independent writers of shared rows. #69 inventories missing row/input contracts and #70 adds only justified persistence deltas; neither must recreate the old directory shape. A partial run must not advance successful directory state.
+
+**Historical/external reference:** the old budget Functions (outside this repo) read `dbo.CopilotUserDirectory`, `dbo.ManagerHierarchy` and `dbo.HierarchySyncRun` in their own database. The code-derived v1 descriptors (`shared/src/directory-contract.ts`, `DIRECTORY_CONTRACT_V1`) and tests document that old contract. v2 describes a proposed numeric-GitHub-ID re-keying of that external directory, not the `portal.dim_user` SQL row shape. These executable descriptors/tests remain unchanged here. Old budget consumers do not adopt v2 as part of independent Phase 2 operation; #43 is a deferred integration decision, not a new-directory dependency.
+
+No v1-compatible shadow tables, runtime old-database comparison access or old-system changes are required. `github_license_type` remains nullable/unsourced wherever retained; do not add `consumed-licenses` (D-38). Reconciliation still needs explicitly authorized evidence with provenance, coverage and differences (#79/#80), not an assumed live comparison identity. Final migration/source access remains a separately approved end-stage operation.
 
 ## 8. Old structure → new portal schema (generic names)
 
 | Old (SQL DDL derived from the code; owner-confirmed correct, since the database is only ever changed by the migration script) | New | Note |
 | --- | --- | --- |
-| Directory table, PK login, id nullable text | `portal.dim_user` (PK numeric ID) + login history | Conflicts with D-36 key rule; v2 above |
-| Directory: email, display name, department, business area, manager | Directory contract v2 columns (unchanged names in v1) | Owned by directory sync |
+| Directory table, PK login, id nullable text | `portal.dim_user` (PK numeric ID) + login history | New database's stable-ID runtime; not an adoption of the external v2 table descriptor |
+| Directory: email, display name, department, business area, manager | `portal.dim_user` attributes and manager Entra ID/recognition email | Owned by directory sync through ingestion |
 | Directory: account status, deletion GUID | `dim_user.state`, `deleted_at` | |
-| Directory: license/plan, pending cancellation, last activity | not in portal schema; remain in the directory contract | Read by budget Functions |
+| Directory: license/plan, pending cancellation, last activity | Historical/external budget descriptors; not implicitly required in new portal rows | #69 must justify any new runtime field; license type stays unsourced/nullable wherever retained |
 | Access control (email PK, role, scope, comma lists) | `portal.Principal`, `PrincipalIdentity`, `AccessGrant` | Conflicts with D-5 (email key); one row per grant |
-| Manager hierarchy (two emails + login + name) | directory contract v1 / v2 | Email-keyed; kept for budget Functions |
-| Hierarchy sync run | `portal.DirectorySyncState` (portal view) + contract v1 | |
-| Audit log (two writers) | `portal.AuditLog` (portal only) | The Function app keeps its own |
+| Manager hierarchy (two emails + login + name) | Current manager-ID relationships on `portal.dim_user` | Old email-keyed hierarchy remains untouched; no compatibility copy required |
+| Hierarchy sync run | `portal.DirectorySyncState` in the new database | Old `HierarchySyncRun` stays with old consumers; never mark a partial new sync successful |
+| Audit log (two writers) | `portal.AuditLog` (portal only) | Old audit table unchanged; copy only portal-originated history during final approved migration |
 | Feedback item, vote, comment | `portal.FeedbackItem`, `FeedbackVote`, `FeedbackComment` | |
-| Budget entity, allocation, membership, failures | unchanged, read-only | Out of scope (D-34) |
+| Budget entity, allocation, membership, failures | Old system unchanged | Automation out of scope; optional Budget Lookup source/access remains a decision, not assumed access (D-34) |
 | Table-storage budget tables | out of scope | Legacy |
 
-Conflicts flagged as open questions: email-keyed access and hierarchy tables (D-5, D-36); two writers on the old audit table (D-34); the old directory has a text user ID, nullable; legacy `enhanced` files ignored (D-28).
+Historical mapping concerns: old email/login keys and two-writer audit do not justify reproducing those structures in the separate new database. Stable-ID access/hierarchy and internal single-writer rules remain (D-5, D-34, D-36); legacy `enhanced` files remain ignored (D-28). The mapping is not authority to extract or migrate old data; final migration takes place at the end under a separately approved plan.
 
-Token types (owner-confirmed): every GitHub endpoint used (users-1-day report, billing export, seats, `orgs/{org}`, SCIM) is called with a personal access token held in Key Vault.
+Historical source token types (owner-confirmed): every GitHub endpoint used by the old solution (users-1-day report, billing export, seats, `orgs/{org}`, SCIM) is called with a personal access token held in Key Vault. This does not supersede the new solution's D-9/D-37 credential boundary or #64/#67 gates.
 
 Schema confirmation (owner): the old database is changed only through its migration script, so the code-derived column sets are authoritative. Cross-check against the live Table Storage export of the old directory (2217 entities): every `CopilotUserDirectory` v1 column exists with the expected types and widths (`GitHubUserId` is a numeric string of up to 9 digits, filled on every row). One property exists only in that export: `DeletionRequestedAt` (string, 19 characters, about 0.5% of rows; `DeletionTemporaryGuid` about 56%). In v2 both are replaced by `DeletedAt` (state, not sentinel).
 
@@ -239,7 +245,7 @@ Types and validator: `shared/src/access.ts`. SQL: `AccessGrant` (`CK_AccessGrant
 - A grant requires a linked Entra object ID. `AccessGrant.principal_entra_oid` is NOT NULL and a composite foreign key to `Principal (principal_id, entra_object_id)` makes a GitHub-only principal unable to hold a grant.
 - One Entra identity maps to one GitHub account and the reverse: unique indexes on `Principal` (both columns) and filtered unique indexes on active `PrincipalLinkState` rows.
 - Self, team and company grants have an empty scope value; department and business_area need one that exists in the directory.
-- Team scope is resolved from the manager's Entra object ID (`dim_user.manager_entra_object_id`). The manager's email is always stored alongside (`manager_email`) for recognition. The directory contract v2 `Manager` email column stays for the budget Functions.
+- Team scope is resolved from the manager's Entra object ID (`dim_user.manager_entra_object_id`). The manager's email is always stored alongside (`manager_email`) for recognition, never as an authorization key. The historical v2 `Manager` email descriptor is not a new runtime dependency.
 - Entra disable (D-34 one writer): the directory sync (ingestion) cannot write portal-owned tables, so it appends `PrincipalLinkState.unlinked_at` and a `GrantRevocation` row, and audits to `IngestionAuditEvent`. Soft only, never deletes. The portal reads grants through `portal.v_active_grant`, which hides grants granted at or before a revocation or unlink. A re-enabled user needs new, audited grants.
 - Settings `access.break_glass_group_id` and `access.permission_freshness_minutes` are deployment settings (§1); `BreakGlassConfig` is dropped.
 
@@ -249,7 +255,7 @@ Types and validator: `shared/src/access.ts`. SQL: `AccessGrant` (`CK_AccessGrant
 
 ## 10. Directory attributes (issue #44 item 6)
 
-The directory sync reads `directory.department_attribute` and `directory.business_area_attribute` through Graph, trims, collapses whitespace and lower-cases the values (`normalizeDirectoryValue`), and writes them to `dim_user.department` and `dim_user.business_area`. An empty attribute setting disables that scope: nothing is read, the grant API answers `scope_disabled`. When an enabled attribute is empty for more than `directory.empty_attribute_threshold_percent` of users, the sync records a `attribute_empty_share` ValidationIssue (`attributeEmptyShareExceeded`). Values longer than the column (100 characters for department, 50 for business area, matching directory contract v2) are a data issue for the sync to report. No company-specific attribute names or values belong in this repository.
+The directory sync reads `directory.department_attribute` and `directory.business_area_attribute` through Graph, trims, collapses whitespace and lower-cases the values (`normalizeDirectoryValue`), and writes them to `dim_user.department` and `dim_user.business_area`. An empty attribute setting disables that scope: nothing is read, the grant API answers `scope_disabled`. When an enabled attribute is empty for more than `directory.empty_attribute_threshold_percent` of users, the sync records a `attribute_empty_share` ValidationIssue (`attributeEmptyShareExceeded`). Values longer than the runtime columns (100 characters for department, 50 for business area) are a data issue for the sync to report; the historical external directory descriptors are not the runtime width authority. No company-specific attribute names or values belong in this repository.
 
 ## 11. Login history retention (exception to D-12)
 

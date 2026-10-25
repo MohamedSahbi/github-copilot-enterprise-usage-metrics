@@ -22,6 +22,7 @@ description: 'Backfill, import, replay, or reconcile Copilot usage metrics and A
 
 ## Reconcile (parallel run)
 
-1. For each day, compare per-user and total counts between the legacy output and SQL.
-2. Produce a report: matching days, mismatching days with differences, missing days.
-3. Cut-over is allowed only when the report shows no unexplained differences.
+1. Keep the two solutions independent, with separate databases (D-29, D-34); never add compatibility shadow tables or a runtime old-database comparison identity.
+2. For each day, compare per-user and total counts between explicitly authorized legacy evidence and new SQL. Use synthetic fixtures locally; source access is not implied.
+3. Produce a report: provenance, coverage, matching days, mismatching days with differences, missing days and unavailable evidence. Missing evidence is incomplete, not a match; public evidence contains sanitized counts/conclusions only.
+4. No unexplained differences is a necessary acceptance criterion, not cut-over permission. Final data migration happens at the end under a separately approved plan; decommission follows new-solution acceptance and explicit authorization. Restore/rollback, Azure SQL grants and maintenance-window gates remain.

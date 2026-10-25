@@ -4,6 +4,8 @@
 **Scope:** `copilot-metrics-portal/portal` (customized downstream of the public `copilot-user-level-statistics-viewer` project; upstream is added as a git remote and cherry-picked, not a GitHub fork)
 **Verification boundary:** This assessment is based on static inspection of the local working tree only. **No application code, tests, pipelines, or Terraform were changed or run; this Markdown document is the sole workspace artifact.** No `git status`, `git log`, or `git diff` output, and no deployed/production configuration, was available at assessment time. Historical intent (why a file was added, when it diverged from upstream, whether a change was deliberate or incidental) is therefore not inferred.
 
+**Owner revision (2026-10-25, issue #66):** the new solution runs independently in a **separate database from the old solution**. D-29/D-34 and their target-design references below supersede the earlier shared-old-database/shadow-table plan. The old solution remains untouched during parallel operation; data migration happens at the end, and decommissioning follows new-solution acceptance and separate authorization. Historical observations in §2 and the original assessment evidence in §18 are not descriptions of the new runtime.
+
 ---
 
 ## 1. Executive Summary
@@ -12,7 +14,7 @@ This portal is a server-backed Next.js application based on a public statistics 
 
 The main design concern is not simply that files exist; it is that Blob is still the portal's metrics runtime source, directory data has both SQL and Table Storage representations, schema creation runs at app startup, and enterprise views are wired into upstream-owned frontend code. Documentation also describes an earlier static-site architecture. The current weekly cherry-pick pipeline has bounded commit retrieval and stages conflict markers, so it does not provide reliable semantic compatibility evidence by itself.
 
-**Decided target (see §14 decision record):** a public, MIT-licensed, single-tenant-per-deployment portal composed of a small **core** (Copilot usage analytics, authentication, scoped access, admin, health) plus **optional modules** (AI Credits, Budget Lookup, Feedback) toggled by Terraform flags so that enabling a module needs only a secret and a permission. Ingestion moves from Automation runbooks to **TypeScript timer Functions** that land raw NDJSON in a Blob archive and load **Azure SQL**, the only runtime read store. The API enforces scope and returns aggregates by default. Our public repository consumes Anton's upstream as a **pinned git submodule that is never edited**; our own app shell owns navigation and composes upstream chart components. EMU repositories pull our tagged releases and carry configuration only. The portal shares one SQL database with the existing PowerShell budget Function App; every table has exactly one writer, and a TypeScript directory sync becomes the single writer of the user directory and hierarchy (D-29, D-34). PowerShell remains only in the out-of-scope budget automation. Billing *automation* (budgets, cost-center mutation, chargeback) and general EMU IAM policy remain out of scope; read-only AI Credits usage ingestion is in scope as a module (deviation V-2, §18.1).
+**Decided target (see §14 decision record):** a public, MIT-licensed, single-tenant-per-deployment portal composed of a small **core** (Copilot usage analytics, authentication, scoped access, admin, health) plus **optional modules** (AI Credits, Budget Lookup, Feedback) toggled by Terraform flags so that enabling a module needs only a secret and a permission. Ingestion moves from Automation runbooks to **TypeScript timer Functions** that land raw NDJSON in a Blob archive and load **Azure SQL**, the only runtime read store. The API enforces scope and returns aggregates by default. Our public repository consumes Anton's upstream as a **pinned git submodule that is never edited**; our own app shell owns navigation and composes upstream chart components. EMU repositories pull our tagged releases and carry configuration only. The new portal and its TypeScript ingestion use a SQL database separate from the old solution; every table still has exactly one writer (D-29, D-34). The old portal, runbooks and PowerShell Functions keep operating unchanged until a later approved migration/retirement. Billing *automation* (budgets, cost-center mutation, chargeback) and general EMU IAM policy remain out of scope; read-only AI Credits usage ingestion is in scope as a module (deviation V-2, §18.1).
 
 **Evidence labels:** “Verified” means visible in the inspected local source tree. “Recommendation” is a proposed target, not deployed behavior. “Assumption” identifies a planning premise. “Decision required” identifies a stakeholder choice. Historical intent and production configuration remain unverified unless stated otherwise.
 
@@ -80,8 +82,8 @@ Classification key: **Keep** (enterprise-essential, retain as-is or with minor h
 | Customization | Classification | Rationale |
 | --- | --- | --- |
 | Entra ID + GitHub dual OAuth (NextAuth 5) | Keep, refactor | Both providers stay (D-5); permissions attach to one internal principal keyed on immutable IDs, never on email or provider (§13.1) |
-| SQL app/control tables (budget DDL, directory) | Refactor | One writer per table in the shared database; portal tables in their own schema with versioned migrations; the portal stops creating budget DDL, which belongs to the Function App (D-34) |
-| Portal hierarchy-sync read from `CopilotUserDirectory` in Azure Table Storage | Replace | A TypeScript directory sync becomes the single writer of `CopilotUserDirectory` and `ManagerHierarchy`, replacing the PowerShell `Sync-CopilotUserDirectory-SQL` and `Sync-ManagerHierarchy` after a matching parallel run (D-29); shared Table Storage is untouched |
+| SQL app/control tables (budget DDL, directory) | Refactor | New solution uses a separate database, `portal` schema and versioned migrations; one writer per table; no budget DDL or old-database changes (D-34) |
+| Portal hierarchy-sync read from `CopilotUserDirectory` in Azure Table Storage | Replace | TypeScript directory sync builds the new database's directory/hierarchy through the ingestion component; the old directory, Table Storage and PowerShell Functions stay untouched during independent parallel operation (D-29) |
 | Metrics NDJSON → Web Worker aggregation pipeline | Replace | Aggregates are computed in SQL and served by the API (D-15); upstream's aggregation code is reused only as a test oracle |
 | Budget lookup API/ownership (Functions-owned) | Keep (as portal feature) | Portal should remain a read-only consumer of Functions-owned budget data; do not pull budget write/automation logic into the portal |
 | Business-area / scope selector | Keep | Enterprise scoping requirement, appears load-bearing for multi-business-unit views |
@@ -218,7 +220,7 @@ Principles:
 | **Raw (Blob archive)** | Replayable landing zone for raw NDJSON (D-11) | Immutable objects with source, organization, report day, ingestion ID, schema version, and content hash; lifecycle-managed | `raw/{source}/{org}/{yyyy}/{mm}/{dd}/...` |
 | **Staging** | Typed, validated records before deduplication/conformance | Preserve source keys and run ID; route invalid rows to quarantine with reason and raw-object reference | `stg_user_daily_metrics`, `stg_metric_breakdown` |
 | **Curated** | Query-optimized metrics facts and dimensions read by the portal | Stable user key, explicit metric definition/version, current organization attributes (D-16), indexed by organization/date/user | `fact_user_daily_usage`, `fact_usage_breakdown`, `dim_user`, `dim_feature`, `dim_model`, `dim_client`, `dim_language`, `dim_date` |
-| **Control** | Ingestion, lineage, authorization, and operational metadata | Run status, source cursor/checkpoint, validation issues, transformation version, audit and directory/hierarchy state | `IngestionRun`, `SourceCheckpoint`, `SourceArtifact`, `ValidationIssue`, `TransformVersion`, `CopilotUserDirectory`, `ManagerHierarchy`, `AuditLog` |
+| **Control** | Ingestion, lineage, authorization, and operational metadata | Run status, source cursor/checkpoint, validation issues, transformation version, audit and directory/hierarchy state | `IngestionRun`, `SourceCheckpoint`, `SourceArtifact`, `ValidationIssue`, `TransformVersion`, `DirectorySyncState`, `PrincipalLinkState`, `AuditLog` |
 
 ### 6.1 Data architecture alternatives
 
@@ -265,24 +267,26 @@ Principles:
 
 Effective-dated organizational attributes are not modelled (D-16); facts record the organization values seen at load time for audit only.
 
-### 6.5 Shared database and table ownership (D-29, D-34)
+### 6.5 Independent database and table ownership (D-29, D-34)
 
-The portal and the PowerShell budget Function App share one SQL database. Rule: **every table has exactly one writer**.
+The new solution uses a **database separate from the old solution**. The old portal, directory/hierarchy sync, budget Functions and their database keep running unchanged. Separation is at the database boundary; a separate logical SQL server is not required. Terraform may create the new database or reference separately provisioned new SQL resources with `existing`; `existing` must not mean the old solution's database.
 
-| Tables | Schema | Writer | Readers |
-| --- | --- | --- | --- |
-| Portal metrics, control, access, feedback | `portal` (own migrations) | Portal / TypeScript Functions | Portal |
-| `CopilotUserDirectory`, `ManagerHierarchy` | Kept in place, column set documented as a versioned contract | TypeScript directory sync (D-29) | Portal, `Manage-CostCenter`, `Lookup-BudgetCostCenter` |
-| `HierarchySyncRun` | Kept in place, part of the same contract | Today: portal hierarchy sync; target: TypeScript directory sync, one `success` row per completed run | Budget reconciliation, which trusts only the latest `success` row |
-| Budget and cost-center tables | `dbo` | PowerShell Function App | Portal (Budget Lookup module, read-only) |
-| `dbo.AuditLog` | `dbo` | PowerShell Function App (cost-center and budget actions) | Budget Lookup |
-| `portal.AuditLog` | `portal` | Portal (access, hierarchy, feedback, admin actions) | Portal admin |
+Within the new solution, **every table has exactly one writer**. The logical `ingestion` component is the sole writer of `portal.dim_user` and `portal.dim_user_login_history`; metrics and directory paths use that component, not independent database writers. Directory sync owns directory attributes and current hierarchy/link/revocation state through ingestion. Runtime identity isolation and Graph consent remain the separate #67 decision; the table-writer name does not settle that credential boundary.
 
-**Verified two-writer table today:** `dbo.AuditLog` is written by both the portal and the Function App (`Manage-CostCenter`, `Backfill-IndividualBudgetsToSql`). In the target the portal writes only `portal.AuditLog`; portal-originated rows are copied there during migration (§15.1) and `dbo.AuditLog` stays with the Function App.
+| New database tables | Writer | Readers / purpose |
+| --- | --- | --- |
+| `portal.dim_user`, `portal.dim_user_login_history` | `ingestion` | Scoped portal reads; login history admin-only (D-12) |
+| Other ingestion-owned dimensions/facts, staging, lineage and validation tables | `ingestion` (except migration-seeded `dim_date`) | Portal reporting/operations under existing grants |
+| `portal.DirectorySyncState`, `portal.PrincipalLinkState`, `portal.GrantRevocation` | Directory sync through `ingestion` | Freshness and fail-closed grant/link resolution; no success state for partial runs |
+| `portal.Principal`, `portal.PrincipalIdentity`, `portal.AccessGrant`, feedback tables | Portal | Portal under existing authorization |
+| `portal.AuditLog` | Portal (append-only) | Portal admin |
+| `portal.IngestionAuditEvent` | `ingestion` (append-only) | Portal admin; action-specific operational metadata only |
 
-- The portal stops creating budget DDL at startup; those tables belong to the Function App.
-- The Function App's `Ensure-CopilotUserDirectoryTable` and `Merge-CopilotUserDirectoryRow` are no longer called once `Sync-CopilotUserDirectory-SQL` is retired; the directory contract is protected by a contract test the budget Functions' queries rely on.
-- Terraform accepts an **existing** SQL server and database; demo deployments create them (D-34).
+- Reuse the existing numeric-ID `dim_user`, manager Entra ID/recognition email, directory attributes and sync-state contracts. #69 inventories and defines only missing contracts; #70 supplies only justified persistence deltas. Do not copy old email/login-keyed tables or create v1-compatible shadows merely for old consumers. Existing v1/v2 descriptors in `shared/` remain historical/external-integration references, not the new runtime schema.
+- Do not create/alter old `dbo` directory, hierarchy, audit, budget or cost-center tables, or create budget DDL in the new database. No runtime cross-database comparison reader/identity is required. Reconciliation still requires authorized evidence, coverage and no unexplained differences (#79/#80); missing evidence is not a pass.
+- Stable numeric GitHub IDs, immutable principal Entra columns, the existing tenant-FK arrangement, single-writer access/grant boundaries, privacy and fail-closed authorization remain unchanged. `github_license_type` stays nullable/unsourced wherever retained; `consumed-licenses` stays excluded (D-38).
+- **Budget Lookup remains an optional read-only module (D-1).** Its previously assumed shared-`dbo` source/access contract is unresolved under database separation. Decide the module's approved read source/access before implementation; do not assume access to the old database, introduce per-request external calls, or remove the module. #43 is a deferred external Budget Functions integration decision, not a prerequisite for independent Phase 2 directory operation.
+- Final migration/source access and cutover need a separately approved plan (§15.1). #55/#56, restore/rollback, the `20261026001200` maintenance window and acceptance evidence remain gates; database separation authorizes none of those operations.
 
 ---
 
@@ -303,7 +307,7 @@ The portal and the PowerShell budget Function App share one SQL database. Rule: 
 
 The original brief offered C#, Python, or PowerShell. The decision is **TypeScript** for the portal, API, and ingestion Functions, because one language across UI, API contracts, and ingestion is the simplest to maintain and the most open to contributors. TypeScript on Azure Functions is production-ready: the Node.js v4 programming model is GA (timer, queue, HTTP, Durable Functions), `@azure/identity` provides managed identity, and `mssql` supports Entra tokens. C# is the fallback only if a proof-of-concept shows a blocking gap.
 
-The metrics runbooks are rewritten as TypeScript timer Functions and retired after a parallel run matches (D-10). The PowerShell directory and hierarchy Functions (`Sync-CopilotUserDirectory-SQL`, `Sync-ManagerHierarchy`) are replaced by the TypeScript directory sync (D-29). The rest of the PowerShell Function App (`{budget-function-app}`: budget and cost-center automation) is out of scope and stays PowerShell; it is the only PowerShell left.
+The new solution uses TypeScript timer Functions for metrics and directory/hierarchy sync (D-10, D-29). During parallel operation the old metrics runbooks, `Sync-CopilotUserDirectory-SQL`, `Sync-ManagerHierarchy` and old portal remain unchanged against their own stores. Final data migration happens at the end; retirement requires new-solution acceptance and separate authorization. Budget and cost-center automation remains out of scope and stays PowerShell; this design does not authorize changing or retiring its dependencies.
 
 ---
 
@@ -459,7 +463,7 @@ Versions observed 2026-10-16; **all are pre-1.0 and must be revalidated against 
 | --- | --- | --- | --- |
 | `Azure/avm-res-web-site/azurerm` | 0.24.1 | App hosting for the Next.js standalone portal (App Service/Functions) | Required |
 | `Azure/avm-res-keyvault-vault/azurerm` | 0.12.0 | Secrets (OAuth client secrets and integration credentials) | Required |
-| `Azure/avm-res-sql-server/azurerm` | 0.2.1 | Curated/control/staging SQL database; existing server and database supported (D-34) | Required (demo) / existing (enterprise) |
+| `Azure/avm-res-sql-server/azurerm` | 0.2.1 | Curated/control/staging database separate from the old solution; create or reference separately provisioned SQL resources (D-34) | Required; `create` / `existing` |
 | `Azure/avm-res-storage-storageaccount/azurerm` | 0.10.0 | Raw NDJSON archive (D-11) and Functions host storage | Required |
 | `Azure/avm-res-managedidentity-userassignedidentity/azurerm` | 0.5.3 | Runtime identity and optional GitHub Actions federation | Recommended |
 | `Azure/avm-res-operationalinsights-workspace/azurerm` | 0.5.1 | Central diagnostics and operational queries; created by default, BYO allowed (D-24) | Required |
@@ -510,7 +514,7 @@ All modules are pre-1.0 per upstream AVM versioning at time of observation; pin 
   - **Classic PAT** with `read:org` and `admin:enterprise`, used only by the directory sync for SCIM and seats. The portal and ingestion Functions have no access to it.
   The portal's GitHub sign-in uses its own OAuth app registration, separate from both. No secrets in Terraform variables or state.
 - **Operations:** send App Service, Functions, SQL, Storage, and Key Vault diagnostics to Log Analytics; connect Application Insights for distributed traces and API/ingestion telemetry. Define alerts for ingestion lag/completeness, schema drift, API authorization failures, SQL saturation, and elevated error rates.
-- **Migration boundary:** provision this as a greenfield portal state. The shared SQL server and database are referenced as `existing` (D-34), not imported. Do not import or refactor the neighboring automation account's storage or Functions resources.
+- **Migration boundary:** provision this as a greenfield portal state with a database separate from the old solution (D-34). Retain `create` and `existing` for new-solution SQL resources; do not point at or import the old database. Do not import or refactor the neighboring automation account's storage or Functions resources.
 
 ### 12.5 Module toggles (D-1)
 
@@ -612,7 +616,7 @@ The GitHub Actions wrapper is functional, not identical: no published plan artif
 | Layer | What it proves | Tooling | Runs |
 | --- | --- | --- | --- |
 | Unit | Calculators, adapters, authorization rules, ingestion transforms, mapping rules | Vitest (already used) | Every PR |
-| Contract | Shared DTOs; `CopilotUserDirectory`/`ManagerHierarchy` column contract read by the budget Functions; upstream test oracle (§9) | Vitest with fixture NDJSON | Every PR, every submodule bump |
+| Contract | Shared DTOs and new portal directory rows; historical/external budget descriptors remain reference tests, not a new runtime compatibility requirement; upstream test oracle (§9) | Vitest with fixture NDJSON | Every PR, every submodule bump |
 | Integration | Migrations apply cleanly; one-day load; day-replace guard; `sp_getapplock`; scope queries; minimum group size; directory mapping | Vitest + SQL Server 2022 Linux container + Azurite + recorded GitHub/Graph/SCIM responses (no live calls) | Every PR |
 | End-to-end (UI) | Sign-in states (signed out, no access, outage), navigation per role, scope filtering, module flags on/off, upstream charts render, no console errors, basic accessibility | Playwright + axe against a local build seeded from fixture NDJSON | Every PR; screenshots attached as artifacts |
 | Infrastructure | Terraform formats, validates, and plans for the demo and enterprise example tfvars | `terraform fmt`/`validate`/`plan` | Every PR touching `infra/` |
@@ -655,7 +659,7 @@ The GitHub Actions wrapper is functional, not identical: no published plan artif
 
 ## 14. Decision Record
 
-Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questions asked.
+Decisions from the stakeholder grill sessions (2026-10-21), with D-29/D-34 revised by the owner on 2026-10-25. IDs match the original questions.
 
 | ID | Decision | Section |
 | --- | --- | --- |
@@ -687,9 +691,9 @@ Decisions from the stakeholder grill sessions (2026-10-21). IDs match the questi
 | D-26 | CI logic in scripts; Actions tested end to end; Azure Pipelines community-tested (partly superseded by D-54: Azure Pipelines is primary for EMU) | §12.6 |
 | D-27 | release-please automation with agent commit-convention instructions | §12.6 |
 | D-28 | Idempotent per-day ingestion; importer only places raw files | §6.4 |
-| D-29 | TypeScript directory sync is the single writer of `CopilotUserDirectory` and `ManagerHierarchy`; PowerShell `Sync-CopilotUserDirectory-SQL` and `Sync-ManagerHierarchy` retired after a matching parallel run; budget Functions read through a documented contract (revised by Q33) | §6.5 |
+| D-29 | New TypeScript directory sync owns directory/hierarchy and link lifecycle through the single `ingestion` writer in the new database. Old directory/hierarchy Functions and consumers remain untouched during independent parallel operation; no v1-compatible shadow tables or runtime comparison identity. Reconciliation/acceptance still required; data migration at the end, decommission only after new-solution acceptance and separate authorization (owner revision 2026-10-25) | §6.5, §15.1 |
 | D-30 | This document is the final decision record; cross-reviewed before sign-off | §18 |
-| D-34 | Shared SQL database: Terraform accepts an existing server and database; portal tables in a `portal` schema; one writer per table; portal stops creating budget DDL | §6.5 |
+| D-34 | New solution uses a database separate from the old solution; SQL resources may be created or separately provisioned and referenced as existing. New tables live in `portal`, one writer per table, with one logical `ingestion` writer for `dim_user`/login history; no old-database or budget DDL changes. Internal ownership, immutable identity and authorization rules remain (owner revision 2026-10-25) | §6.5 |
 | D-35 | Network dependencies support `create`, `existing` (enterprise default), and `import` modes | §12.2 |
 | D-36 | GitHub-to-Entra mapping: SCIM login (`profileUrl`, else normalized `userName`) + `externalId` joined to the numeric GitHub user ID from seats/metrics; login string rules last; permissions only from a stored Entra object ID match. The directory sync owns the link lifecycle: on Entra disable it records the unlink and revokes grants softly through its own append-only tables (never deletes), with an audit row; sign-in is keyed on the Entra object ID only | §13.1 |
 | D-37 | Two GitHub credentials: GitHub App for ingestion; classic PAT (`read:org`, `admin:enterprise`) held only by the directory sync | §12.4 |
@@ -741,7 +745,7 @@ The two authorization gaps in §2.1 (screenshot visibility, fail-open admin boot
 
 - TypeScript timer Functions: metrics ingestion with `backfill_from`, raw archive, idempotent per-day load; directory sync (Graph bulk reads, SCIM mapping, CSV); AI Credits ingestion module.
 - One-off importer for existing raw NDJSON; replay and reconciliation report.
-- Parallel run with the existing runbooks and the PowerShell directory and hierarchy Functions until results match (D-10, D-29).
+- Independent parallel operation with the existing runbooks and PowerShell directory/hierarchy Functions, using separate databases (D-10, D-29). Compare against explicitly authorized legacy evidence, not runtime cross-database access. Provenance, gaps, coverage and unexplained differences remain visible; no final portal data migration or old-system changes in this phase.
 
 ### Phase 3 — API and frontend
 
@@ -752,8 +756,8 @@ The two authorization gaps in §2.1 (screenshot visibility, fail-open admin boot
 ### Phase 4 — Cut-over and retirement
 
 - Migrate existing portal data (§15.1) and pass the feature-parity checklist as E2E tests.
-- Switch the deployment to the new portal following the cut-over runbook; retire the metrics runbooks, per-request Blob reads, the enhanced NDJSON, the cherry-pick sync pipeline, and the PowerShell `Sync-CopilotUserDirectory-SQL` and `Sync-ManagerHierarchy` Functions.
-- The shared Table Storage and the budget and cost-center Functions are not decommissioned under this proposal.
+- Switch to the new portal only under a separately approved cut-over runbook. Decommission the old solution only after new-solution acceptance and explicit authorization; do not infer retirement permission from a matching parallel run.
+- Budget and cost-center automation and its dependencies are not modified or decommissioned by this documentation task. Any later external directory integration is a separate owner decision (#43).
 - Update README/AGENTS/project-overview.
 
 ### Phase 5 — Promotion and EMU
@@ -764,13 +768,15 @@ The two authorization gaps in §2.1 (screenshot visibility, fail-open admin boot
 
 ### 15.1 Portal data migration and cut-over (D-49)
 
+Data migration takes place **at the end**, into the new solution's separate database. The mapping and go/no-go requirements below are acceptance constraints, not an approved extraction/migration procedure. Source access, mapping details, operational sequence, cutover and retirement require a separate reviewed plan and explicit authorization; do not infer live database access from D-29/D-34. The old solution remains untouched during independent parallel operation. #55 restore/rollback and #56 non-production Azure SQL grants remain deployment gates; schedule the maintenance window before first deployment containing `20261026001200`.
+
 | Existing data | Target | Rule |
 | --- | --- | --- |
 | `AccessControl` (grants) | `portal` access tables keyed on principal | Map each grant to an Entra object ID; unmapped grants are reported, not dropped |
-| `ManagerHierarchy` | Rebuilt by the TypeScript directory sync | Compare rebuilt vs existing; manual overrides (if any) migrated explicitly |
+| `ManagerHierarchy` | Current hierarchy in the new portal's directory model | Compare rebuilt vs authorized legacy evidence; identify any manual overrides in the final migration plan, without changing old tables |
 | `FeedbackItem`, `FeedbackVote`, `FeedbackComment`, screenshots | `portal` feedback tables; screenshots stay in Blob | Authors mapped to principals; screenshot references verified |
 | Portal-originated rows in `dbo.AuditLog` | `portal.AuditLog` | Copy only portal actions; `dbo.AuditLog` is left untouched |
-| Budget and cost-center tables | Unchanged | Owned by the Function App |
+| Budget and cost-center tables | Remain outside the new portal's owned schema | Old Function App ownership unchanged; optional Budget Lookup source/access still needs a decision (§6.5) |
 
 **Cut-over runbook** (`docs/runbooks/cutover.md`), go/no-go criteria:
 
@@ -780,7 +786,7 @@ The two authorization gaps in §2.1 (screenshot visibility, fail-open admin boot
 4. Credentials valid for at least 30 days; alert emails confirmed.
 5. Rollback path ready: previous portal deployable, runbooks still schedulable for one release.
 
-Order: freeze admin changes → final migration run → reconcile → switch → smoke → monitor 48 h → retire legacy paths after one release.
+The earlier freeze → migrate → reconcile → switch → smoke → monitor 48 h → retire sequence is planning guidance, not authority to freeze or change the old solution. The final approved runbook must settle timing, source access, rollback and retirement; migration is at the end and decommission follows new-solution acceptance.
 
 ---
 
@@ -791,7 +797,7 @@ Order: freeze admin changes → final migration run → reconcile → switch →
 | Chart-level Keep/Remove decisions made without merge-base/`lastSyncedSha` evidence | Accidental removal of intentional enterprise functionality, or retention of genuinely dead upstream-diverged code | Obtain merge-base or `lastSyncedSha` before any chart deletion (§4.4); treat all current chart-presence data as inventory, not a removal mandate |
 | Parallel run (Phase 2) surfaces discrepancies between runbook/Blob output and SQL | Delays cut-over | Reconciliation report gates the Phase 4 cut-over; no fixed date |
 | Cut-over in Phase 4 retires several paths at once | No quick rollback | Keep the runbooks and previous portal deployable for one release after cut-over; SQL migrations are forward-only, with point-in-time restore tested before cut-over |
-| Startup-DDL-to-migrations transition breaks existing deployed schema state | App startup failures, data loss risk during schema change | Treat this as a database migration project with its own rollback plan; do not combine with the first production deploy of the new ingestion pipeline |
+| Final migration into the separate new database loses or mis-maps existing portal data | Missing grants, feedback or audit history | Separately approved source access, stable-ID mapping, reconciliation and rollback plan (§15.1); no old-schema alteration during parallel operation |
 | Submodule bump PRs show only a commit change; upstream content could prompt-inject the coding agent | Unreviewed upstream changes or malicious edits | CI posts the upstream compare link and changed-file summary on the PR; agent instructions treat upstream content as untrusted; agent and Dependabot runs have no deployment secrets (oracle tests use fixtures); human approval required |
 | Identity linking abused to gain another person's scope | Data exposure | Linking requires signing in with both identities in one session (or the verified EMU mapping); one-to-one link constraint; links removed when the Entra account is disabled |
 | New hosting components (dedicated API, APIM) introduced prematurely | Unjustified operational overhead | Enforce the explicit triggers in §8 (second consumer, governance need) before promoting beyond BFF |
@@ -801,8 +807,8 @@ Order: freeze admin changes → final migration run → reconcile → switch →
 | Upstream couples charts to its own context or state in future | Charts no longer importable as-is | Detected by the bump PR build; wrap with upstream providers or own a copy as a module chart |
 | GitHub API history window shorter than desired backfill | Older history unavailable from the API | One-off importer for existing raw files (D-23) |
 | Identity linking ambiguity between GitHub and Entra | Wrong data visible | Immutable-ID principal, no email matching, unlinked GitHub sees only own data (D-5) |
-| Directory table changes break the PowerShell budget Functions that read `CopilotUserDirectory` | Budget lookup and cost-center automation fail | Versioned column contract and a contract test; parallel run before retiring the PowerShell sync (D-29) |
-| Two writers on a shared table during the parallel run | Conflicting directory data | During the parallel run the TypeScript sync writes to a shadow table and a comparison report gates the switch |
+| Budget Lookup source/access left implicit after database separation | Module cannot be implemented consistently with the SQL-only runtime boundary | Preserve the module and obtain an explicit read-source/access decision before implementation; no assumed old-database access (§6.5) |
+| Metrics and directory paths become separate writers of shared user rows in the new database | Conflicting identity/attribute state | One logical ingestion writer for `dim_user`/login history; directory-owned attributes and lifecycle; contract and writer-boundary tests (D-34) |
 | Azure Pipelines templates drift from Actions | Broken pipelines for ADO users | Thin wrappers over shared scripts; marked community-tested (D-26) |
 | Test-only sign-in reaches a deployed environment | Authentication bypass | Startup refuses `E2E_TEST_AUTH` with `NODE_ENV=production`; Terraform never sets it; CI check scans deployment configuration (D-41) |
 
@@ -830,7 +836,9 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | Migration runner | Decision | **Resolved:** postgrator with forward-only `yyyyMMddHHmmss.do.description.sql` names (D-48, §13.6) |
 | Portal authz PR implements the access-model rules from PR #48 (grant API, stale-sync denial of elevated scopes, link lifecycle reads) | Build | Follow-up (issue #49) |
 | Security review leftovers from PR #48 (M3-M9, L2-L6) | Fix | Follow-up (issue #50) |
-| Budget Functions migrate to directory contract v2 (numeric GitHub ID) | Build | Follow-up (issue #43) |
+| Optional Budget Lookup read-source/access contract under independent database operation | Decision | Before Budget Lookup implementation; preserve SQL-only runtime and read-only module scope (§6.5) |
+| External Budget Functions directory integration, if still needed | Decision | Deferred owner decision (issue #43); not a prerequisite for independent Phase 2 operation |
+| Authorized legacy comparison evidence inputs and final migration/source-access procedure | Decision / evidence | #79/#80 must record provenance/coverage; final migration plan before Phase 4. No runtime cross-database comparison identity is implied |
 | Record a real `ai_credit` sample and verify CSV fields and breakdown shapes | Fact check | Follow-up (issue #42) |
 
 These items are not checked by CI. Update this table when one is resolved.
@@ -861,8 +869,8 @@ These items are not checked by CI. Update this table when one is resolved.
 | V-4 | Earlier draft: keep the existing small scheduled PowerShell scripts (the runbooks that call the GitHub API and save files) rather than rewrite them only for consistency | Metrics runbooks rewritten in TypeScript Functions | Single runtime and deployment unit (D-10) |
 | V-5 | Effective-dated organization attributes for scope | Current hierarchy only | Simplicity; no requirement for historical scope (D-16) |
 | V-6 | Raw archive optional | Raw archive kept | Already exists, cheap, enables replay (D-11) |
-| V-7 | Converge directory on SQL by re-pointing hierarchy sync; leave the Function App untouched | TypeScript directory sync is the single writer; two PowerShell Functions retired | One writer per table in the shared database; no duplicated data or effort (D-29) |
-| V-8 | Portal gets its own greenfield resources | Shared SQL database referenced as existing; network resources support `existing` and `import` | Matches the enterprise's shared database and restricted network permissions (D-34, D-35) |
+| V-7 | Earlier target: replace old directory writers behind a compatible shared contract | Independent TypeScript directory sync in the new database; old writers/consumers untouched during parallel operation | Owner revision 2026-10-25: separate solutions, final migration at the end; internal single-writer rules and acceptance remain (D-29) |
+| V-8 | Earlier target: reference the old shared SQL database as existing | Separate new database, created or separately provisioned and referenced as existing; network modes unchanged | Owner selected database separation, not Terraform create-only or a mandatory separate SQL server (D-34, D-35) |
 
 ---
 

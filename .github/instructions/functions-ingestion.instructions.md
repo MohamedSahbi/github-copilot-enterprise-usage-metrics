@@ -21,11 +21,19 @@ applyTo: "functions/**"
 
 ## Directory sync
 
-- Single writer of `CopilotUserDirectory`, `ManagerHierarchy`, and `HierarchySyncRun`; keep the documented column contract the PowerShell budget Functions read. Write one `HierarchySyncRun` row per run; budget reconciliation trusts only the latest `success` row, so never write `success` for a partial run.
+- Write only to the new solution's separate database (D-29, D-34); the old directory, hierarchy and PowerShell Functions remain untouched. No v1-compatible shadow tables or runtime old-database comparison access.
+- One logical `ingestion` component is the sole writer of `portal.dim_user` and login history; metrics/directory paths use it, not independent database writers. Directory sync owns directory attributes and current hierarchy/link/revocation state through ingestion. Reuse manager-ID attributes, `DirectorySyncState` and the approved shared contracts; do not treat historical budget v1/v2 descriptors as the new runtime schema.
+- Never mark a partial directory run successful or advance successful sync state. Preserve stable-ID authorization, immutable principal Entra columns, tenant-FK arrangement, append-only revocation/audit and portal-owned access/grant boundaries.
 - Sources: SCIM `GET /scim/v2/enterprises/{ent}/Users` supplies identity and groups (login from `profileUrl`, fallback normalized `userName`; `externalId` = Entra object ID), seats `GET /orgs/{org}/copilot/billing/seats` supplies numeric user ID + login, and Entra Graph bulk reads supply manager, department, and business area.
 - Department and business area come from configurable Entra attributes (`directory.department_attribute` and `directory.business_area_attribute`, D-5/§13.1), copied into `department` and `business_area`. An empty attribute setting disables that scope. Never derive these attributes from SCIM groups; keep organization-specific attribute names in private deployment configuration.
 - Store `github_user_id` ↔ `entra_object_id`. Login string rules are the last resort and never grant permissions.
 - Do not call `consumed-licenses` (D-38).
+- Leave `github_license_type` nullable/unsourced wherever retained. Required contract deltas land separately (#69), before persistence (#70) or provider implementation (#75).
+
+## Independent parallel run
+
+- Compare new outputs against explicitly authorized legacy evidence with provenance, coverage and limitations; missing evidence is not a match. No old-database access or extraction approval is implied.
+- Final data migration happens at the end under a separate approved plan. New-solution acceptance and explicit authorization precede decommission; parity, privacy and deployment/restore gates are not waived by database separation.
 
 ## Credentials (D-37)
 
