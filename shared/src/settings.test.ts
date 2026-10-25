@@ -9,6 +9,7 @@ import {
 describe("deployment settings (items 6, 8, 11)", () => {
   it("has the agreed defaults", () => {
     expect(DEFAULT_SETTINGS).toEqual({
+      organization: { directory_provider: "entra" },
       retention: { perUserMonths: 13, loginHistoryMonths: 24 },
       privacy: { minGroupSize: 5 },
       access: { breakGlassGroupId: "", permissionFreshnessMinutes: 5 },
