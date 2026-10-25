@@ -23,6 +23,8 @@ export const TEST_CURATED_RUN_IDS = {
   aiCredits: "00000000-0000-4000-8000-0000000000c3",
 } as const;
 
+export const TEST_CURATED_DIRECTORY_SYNC_SOURCES = ["scim", "graph", "seats", "csv"] as const;
+
 export const TEST_CURATED_EXPECTED_COUNTS = {
   users: 9,
   organizations: 2,
@@ -152,6 +154,11 @@ async function insertJsonRows(
 async function clearPreviousSeed(tx: sql.Transaction): Promise<void> {
   const usage = TEST_CURATED_RUN_IDS.usage;
   const credits = TEST_CURATED_RUN_IDS.aiCredits;
+  const syncRequest = new sql.Request(tx);
+  TEST_CURATED_DIRECTORY_SYNC_SOURCES.forEach((source, index) => syncRequest.input(`source${index}`, sql.VarChar(16), source));
+  await syncRequest.query(`DELETE FROM portal.DirectorySyncState WHERE source IN (${insertPlaceholders(
+    TEST_CURATED_DIRECTORY_SYNC_SOURCES.length, "source",
+  )})`);
   for (const table of ["agg_daily_usage", "agg_ai_credit_daily", "fact_usage_family_count", "fact_usage_breakdown", "fact_user_daily_usage", "fact_ai_credit_line"] as const) {
     await new sql.Request(tx)
       .input("usage", sql.UniqueIdentifier, usage)
@@ -337,6 +344,17 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
       }
 
       await seedPersonaGrants(tx);
+      for (const source of TEST_CURATED_DIRECTORY_SYNC_SOURCES) {
+        await new sql.Request(tx)
+          .input("source", sql.VarChar(16), source)
+          .query(`
+            UPDATE portal.DirectorySyncState
+            SET last_success_at = SYSUTCDATETIME(), last_attempt_at = SYSUTCDATETIME(), last_error_code = NULL
+            WHERE source = @source;
+            IF @@ROWCOUNT = 0
+              INSERT INTO portal.DirectorySyncState (source, last_success_at, last_attempt_at, last_error_code)
+              VALUES (@source, SYSUTCDATETIME(), SYSUTCDATETIME(), NULL);`);
+      }
 
       const userFactRows = usageRows.map((row) => ({
         organization_id: row.organization_id,
@@ -483,6 +501,7 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
         WHERE b.run_id = @run AND b.breakdown_kind IN ('language_feature', 'language_model')
           AND NOT EXISTS (SELECT 1 FROM portal.dim_language l WHERE l.language_key = b.key_1)`);
 
+      // The real metrics loader (#73) owns these definitions; test data must not encode approximations.
       await new sql.Request(tx)
         .input("run", sql.UniqueIdentifier, usageArtifact.runId)
         .input("version", sql.VarChar(32), TRANSFORM_VERSION)
@@ -497,12 +516,7 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
           SUM(CONVERT(INT, used_chat)), SUM(CONVERT(INT, used_agent)), SUM(CONVERT(INT, used_cli)),
           SUM(CONVERT(INT, used_cloud_agent)), SUM(CONVERT(INT, used_vscode_agent)), SUM(CONVERT(INT, used_copilot_app)),
           SUM(CONVERT(INT, CASE WHEN used_code_review_active = 1 OR used_code_review_passive = 1 THEN 1 ELSE 0 END)),
-          SUM(CONVERT(INT, CASE WHEN used_agent = 1 OR used_chat = 1 OR used_cli = 1 OR used_coding_agent = 1
-            OR used_cloud_agent = 1 OR used_copilot_app = 1 OR used_vscode_agent = 1 OR used_code_review_active = 1
-            OR used_code_review_passive = 1 THEN 1 ELSE 0 END)),
-          SUM(CONVERT(INT, CASE WHEN used_agent = 0 AND used_chat = 0 AND used_cli = 0 AND used_coding_agent = 0
-            AND used_cloud_agent = 0 AND used_copilot_app = 0 AND used_vscode_agent = 0
-            AND used_code_review_active = 0 AND used_code_review_passive = 0 AND interaction_count > 0 THEN 1 ELSE 0 END)),
+          0, 0,
           SUM(ai_credits_used), @run, @version
         FROM portal.fact_user_daily_usage
         WHERE run_id = @run
@@ -517,20 +531,20 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
              cloud_agent_users, vscode_agent_users, app_users, code_review_users, advanced_users, completion_only_users,
              ai_credits_used, run_id, transform_version)
           SELECT b.organization_id, b.usage_day,
-            CASE WHEN b.breakdown_kind IN ('language_feature', 'language_model') THEN 'language'
+            CASE WHEN b.breakdown_kind = 'language_feature' THEN 'language'
                  WHEN b.breakdown_kind = 'model_feature' THEN 'model'
                  ELSE b.breakdown_kind END,
-            CASE WHEN b.breakdown_kind = 'language_model' THEN b.key_2 ELSE b.key_1 END,
+            b.key_1,
             1, COUNT(DISTINCT b.user_id), SUM(b.interaction_count), SUM(b.code_generation_count),
             SUM(b.code_acceptance_count), SUM(b.loc_added), SUM(b.loc_deleted),
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, @run, @version
           FROM portal.fact_usage_breakdown AS b
-          WHERE b.run_id = @run
+          WHERE b.run_id = @run AND b.breakdown_kind <> 'language_model'
           GROUP BY b.organization_id, b.usage_day,
-            CASE WHEN b.breakdown_kind IN ('language_feature', 'language_model') THEN 'language'
+            CASE WHEN b.breakdown_kind = 'language_feature' THEN 'language'
                  WHEN b.breakdown_kind = 'model_feature' THEN 'model'
                  ELSE b.breakdown_kind END,
-            CASE WHEN b.breakdown_kind = 'language_model' THEN b.key_2 ELSE b.key_1 END`);
+            b.key_1`);
 
       await new sql.Request(tx)
         .input("run", sql.UniqueIdentifier, creditArtifact.runId)

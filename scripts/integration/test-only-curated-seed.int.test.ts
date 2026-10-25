@@ -49,6 +49,34 @@ describe("test-only curated seed (synthetic fixtures → curated)", () => {
       (request) => request.input("run", TEST_CURATED_RUN_IDS.usage),
     )).toBe(seedResult.usageAggregates);
     expect(seedResult.familyFacts).toBeGreaterThan(0);
+
+    const languageDimensions = await pool.request().query<{ language_key: string }>(
+      "SELECT language_key FROM portal.dim_language ORDER BY language_key",
+    );
+    const languageAggregates = await pool.request()
+      .input("run", TEST_CURATED_RUN_IDS.usage)
+      .query<{ language_key: string; interactions: number }>(`
+        SELECT group_key AS language_key, SUM(interaction_count) AS interactions
+        FROM portal.agg_daily_usage
+        WHERE run_id = @run AND group_kind = 'language'
+        GROUP BY group_key ORDER BY group_key`);
+    const languageFeatures = await pool.request()
+      .input("run", TEST_CURATED_RUN_IDS.usage)
+      .query<{ language_key: string; interactions: number }>(`
+        SELECT key_1 AS language_key, SUM(interaction_count) AS interactions
+        FROM portal.fact_usage_breakdown
+        WHERE run_id = @run AND breakdown_kind = 'language_feature'
+        GROUP BY key_1 ORDER BY key_1`);
+    expect(languageAggregates.recordset.map((row) => row.language_key))
+      .toEqual(languageDimensions.recordset.map((row) => row.language_key));
+    expect(languageAggregates.recordset.map((row) => [row.language_key, Number(row.interactions)]))
+      .toEqual(languageFeatures.recordset.map((row) => [row.language_key, Number(row.interactions)]));
+    expect(await scalar(
+      `SELECT COUNT(*) AS n FROM portal.agg_daily_usage
+       WHERE run_id = @run AND group_kind = 'organization'
+         AND (advanced_users <> 0 OR completion_only_users <> 0)`,
+      (request) => request.input("run", TEST_CURATED_RUN_IDS.usage),
+    )).toBe(0);
   });
 
   it("loads AI Credits fixture lines and aggregates", async () => {
@@ -75,6 +103,13 @@ describe("test-only curated seed (synthetic fixtures → curated)", () => {
     expect(scopes.manager).toEqual([{ role: "manager", scope: "self" }, { role: "manager", scope: "team" }]);
     expect(scopes.member).toEqual([{ role: "user", scope: "self" }]);
     expect(scopes["no-access"]).toEqual([]);
+
+    const freshSyncSources = await pool.request().query<{ source: string }>(`
+      SELECT source FROM portal.DirectorySyncState
+      WHERE source IN ('scim', 'graph', 'seats', 'csv')
+        AND last_success_at >= DATEADD(MINUTE, -5, SYSUTCDATETIME())
+      ORDER BY source`);
+    expect(freshSyncSources.recordset.map((row) => row.source)).toEqual(["csv", "graph", "scim", "seats"]);
 
     const managerId = TEST_CURATED_PERSONAS.manager.userId;
     const teamCount = await scalar(
