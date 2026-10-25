@@ -40,8 +40,8 @@ export async function seedAuth(executor: sql.ConnectionPool | sql.Transaction): 
   }
   for (const source of ["scim", "graph", "seats"]) {
     await executor.request().query(`
-      UPDATE portal.DirectorySyncState SET last_success_at = SYSUTCDATETIME() WHERE source = '${source}';
-      IF @@ROWCOUNT = 0 INSERT INTO portal.DirectorySyncState (source, last_success_at) VALUES ('${source}', SYSUTCDATETIME());
+      UPDATE portal.DirectorySyncState SET last_success_at = DATEADD(second, -1, SYSUTCDATETIME()) WHERE source = '${source}';
+      IF @@ROWCOUNT = 0 INSERT INTO portal.DirectorySyncState (source, last_success_at) VALUES ('${source}', DATEADD(second, -1, SYSUTCDATETIME()));
     `);
   }
 }

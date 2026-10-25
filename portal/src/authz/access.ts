@@ -21,6 +21,9 @@ export type AccessResult =
   | { state: "no-access" | "unavailable"; breakGlass: boolean }
   | { state: "authorized"; breakGlass: boolean; principal: Principal; grants: Grant[]; namesVisible: boolean };
 
+// DATETIME2(0) rounds SYSUTCDATETIME() to the nearest second, so a fresh sync can read back up to 0.5 s in the future.
+const FUTURE_SYNC_TOLERANCE_MS = 500;
+
 export async function resolveAccess(
   identity: Identity | null,
   repository: AccessRepository,
@@ -47,7 +50,7 @@ export async function resolveAccess(
   const directoryFresh = settings.directorySources.every((source) => {
     const success = sync.find((s) => s.source === source)?.last_success_at;
     const age = success ? now.getTime() - success.getTime() : Infinity;
-    return age >= 0 && age <= settings.directoryStaleHours * 3600000;
+    return age >= -FUTURE_SYNC_TOLERANCE_MS && age <= settings.directoryStaleHours * 3600000;
   });
   const scopes = enabledScopes(settings.directory);
   const grants = snapshot.grants.filter((g) => isValidRoleScope(g.role, g.scope) && scopes.includes(g.scope) &&
