@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: repositoryRoot,
   turbopack: { root: repositoryRoot },
   poweredByHeader: false,
+  // Playwright drives `next dev` on 127.0.0.1; dev-only, ignored by production builds.
+  allowedDevOrigins: ["127.0.0.1"],
 };
 
 export default nextConfig;
