@@ -14,7 +14,7 @@ This portal is a server-backed Next.js application based on a public statistics 
 
 The main design concern is not simply that files exist; it is that Blob is still the portal's metrics runtime source, directory data has both SQL and Table Storage representations, schema creation runs at app startup, and enterprise views are wired into upstream-owned frontend code. Documentation also describes an earlier static-site architecture. The current weekly cherry-pick pipeline has bounded commit retrieval and stages conflict markers, so it does not provide reliable semantic compatibility evidence by itself.
 
-**Decided target (see §14 decision record):** a public, MIT-licensed, single-tenant-per-deployment portal composed of a small **core** (Copilot usage analytics, authentication, scoped access, admin, health) plus **optional modules** (AI Credits, Budget Lookup, Feedback) toggled by Terraform flags so that enabling a module needs only a secret and a permission. Ingestion moves from Automation runbooks to **TypeScript timer Functions** that land raw NDJSON in a Blob archive and load **Azure SQL**, the only runtime read store. The API enforces scope and returns aggregates by default. Our public repository consumes Anton's upstream as a **pinned git submodule that is never edited**; our own app shell owns navigation and composes upstream chart components. EMU repositories pull our tagged releases and carry configuration only. The new portal and its TypeScript ingestion use a SQL database separate from the old solution; every table still has exactly one writer (D-29, D-34). The old portal, runbooks and PowerShell Functions keep operating unchanged until a later approved migration/retirement. Billing *automation* (budgets, cost-center mutation, chargeback) and general EMU IAM policy remain out of scope; read-only AI Credits usage ingestion is in scope as a module (deviation V-2, §18.1).
+**Decided target (see §14 decision record):** a public, MIT-licensed, single-tenant-per-deployment portal composed of a small **core** (Copilot usage analytics, authentication, scoped access, admin, health) plus **optional modules** (AI Credits, Budget Lookup, Feedback) toggled by Terraform flags so that enabling a module needs only a secret and a permission. Ingestion moves from Automation runbooks to **TypeScript timer Functions** that land raw NDJSON in a Blob archive and load **Azure SQL**, the runtime read store except for Budget Lookup's scoped live-GitHub read-only API exception (D-55). The API enforces scope and returns aggregates by default. Our public repository consumes Anton's upstream as a **pinned git submodule that is never edited**; our own app shell owns navigation and composes upstream chart components. EMU repositories pull our tagged releases and carry configuration only. The new portal and its TypeScript ingestion use a SQL database separate from the old solution; every table still has exactly one writer (D-29, D-34). The old portal, runbooks and PowerShell Functions keep operating unchanged until a later approved migration/retirement. Billing *automation* (budgets, cost-center mutation, chargeback) and general EMU IAM policy remain out of scope; read-only AI Credits usage ingestion is in scope as a module (deviation V-2, §18.1).
 
 **Evidence labels:** “Verified” means visible in the inspected local source tree. “Recommendation” is a proposed target, not deployed behavior. “Assumption” identifies a planning premise. “Decision required” identifies a stakeholder choice. Historical intent and production configuration remain unverified unless stated otherwise.
 
@@ -63,12 +63,13 @@ The main design concern is not simply that files exist; it is that Blob is still
 
 ### 2.3 GitHub API inventory (verified in code and GitHub docs, API version 2026-03-10)
 
-In-scope endpoints, taken from the existing runbooks and Functions. Budget and cost-center endpoints (`/settings/billing/budgets`, `/settings/billing/cost-centers`) are billing automation and out of scope. Today a GitHub App is used only for portal sign-in (OAuth); every API call above uses a PAT.
+The usage and directory endpoints below are taken from the existing runbooks and Functions. Budget Lookup endpoints are the target module's live, read-only GitHub REST calls (D-55), verified against the official API docs. Creating, updating, deleting budgets or changing cost-center resources remains billing automation and out of scope. The module's live GitHub API call is the sole runtime exception to the SQL-only read-store rule. Existing ingestion and directory credentials remain component-specific; Budget Lookup uses its own read-only credential.
 
 | Purpose | Endpoint | Used today in | Token support (docs) |
 | --- | --- | --- | --- |
 | Usage metrics (core) | `GET /orgs/{org}/copilot/metrics/reports/users-1-day?day=` | `Get-UsageMetricsData.ps1`, `Invoke-HistoricalBackfill.ps1` | Classic PAT `read:org`; fine-grained "View Organization Copilot Metrics". Data from 2025-10-10, **last 365 days only** (confirmed by owner) |
 | AI Credits (module) | `POST /enterprises/{ent}/settings/billing/reports`, `GET .../reports/{id}`, then download URLs | `Get-CopilotPremiumBillingData*.ps1` | **GitHub App installation token** with enterprise billing read is supported; classic PAT also works. Up to 24 months of data. `report_type` now offers `ai_credit`; the runbook still requests `premium_request` |
+| Budget Lookup (read-only module, D-55) | `GET /enterprises/{enterprise}/settings/billing/budgets`; `GET .../budgets/{budget_id}/user-states`; `GET /enterprises/{enterprise}/settings/billing/cost-centers`; `GET .../cost-centers/{cost_center_id}`. Organization-scoped reads: `GET /organizations/{org}/settings/billing/budgets` | New portal module; replaces the legacy SQL fallback | GitHub App installation token with the enterprise **Enterprise billing** permission at read access (the endpoint docs call this “read access to enterprise billing”); enterprise owners or billing managers, and organization administrators for organization/repository-scoped resources. The organization endpoint requires an organization administrator or billing manager; fine-grained PAT permission is **Administration: read**. The API's optional `user` filter is a GitHub login, resolved from the numeric ID through the new directory and never used as a permission key. See [budgets](https://docs.github.com/en/rest/billing/budgets), [cost centers](https://docs.github.com/en/rest/billing/cost-centers), and [fine-grained PAT permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens) |
 | Copilot seat holders (directory) | `GET /orgs/{org}/copilot/billing/seats` | `Sync-CopilotUserDirectory-SQL` | Classic PAT `manage_billing:copilot` or `read:org`. Returns numeric GitHub user ID and login |
 | License type (directory) | `GET /enterprises/{ent}/consumed-licenses` | `Sync-CopilotUserDirectory-SQL` | **Classic PAT only** (`read:enterprise`); no fine-grained or App support. **Dropped in the target (D-38)**: only `license_type` remained unique to it |
 | GitHub-to-Entra identity (directory) | `GET /scim/v2/enterprises/{ent}/Users` | Not used today | **Classic PAT only** (`admin:enterprise` for reads by an enterprise owner). `externalId` = Entra object ID (documented for Entra SAML). Returns `userName` (UPN), `emails`, `active`, SCIM `groups` (for example `{group-prefix}.{BA}.RestrictedUser`), and in practice `profileUrl` (`https://github.com/{login}`); no numeric GitHub user ID |
@@ -207,7 +208,7 @@ flowchart LR
 
 Principles:
 
-- **Azure SQL is the only runtime read store** (D-11). The portal never reads Blob or calls GitHub/Graph per request.
+- **Azure SQL is the runtime read store except for Budget Lookup (D-11, D-55).** The portal never reads Blob; other than the Budget Lookup module it does not call GitHub or Graph per request. Budget Lookup reads GitHub's budget and cost-center REST endpoints live and read-only; it has no SQL snapshot fallback and no old-database access.
 - **Raw NDJSON is archived in Blob** with a lifecycle policy so data can be replayed when parsers or definitions change (D-11). The current "enhanced" NDJSON is dropped; SQL replaces it.
 - **Ingestion, validation, typed staging, and idempotent transform** are explicit stages; re-running a day replaces that day and never duplicates it (D-28).
 - **The API returns aggregates by default**; per-user detail is a deployment setting.
@@ -287,7 +288,7 @@ Within the new solution, **every table has exactly one writer**. The logical `in
 - Reuse the existing numeric-ID `dim_user`, manager Entra ID/recognition email, directory attributes and sync-state contracts. #69 inventories and defines only missing contracts; #70 supplies only justified persistence deltas. Do not copy old email/login-keyed tables or create v1-compatible shadows merely for old consumers. Existing v1/v2 descriptors in `shared/` remain historical/external-integration references, not the new runtime schema.
 - Do not create/alter old `dbo` directory, hierarchy, audit, budget or cost-center tables, or create budget DDL in the new database. No runtime cross-database comparison reader/identity is required. Reconciliation still requires authorized evidence, coverage and no unexplained differences (#79/#80); missing evidence is not a pass.
 - Stable numeric GitHub IDs, immutable principal Entra columns, the existing tenant-FK arrangement, single-writer access/grant boundaries, privacy and fail-closed authorization remain unchanged. `github_license_type` stays nullable/unsourced wherever retained; `consumed-licenses` stays excluded (D-38).
-- **Budget Lookup remains an optional read-only module (D-1).** Its previously assumed shared-`dbo` source/access contract is unresolved under database separation. Decide the module's approved read source/access before implementation; do not assume access to the old database, introduce per-request external calls, or remove the module. #43 is a deferred external Budget Functions integration decision, not a prerequisite for independent Phase 2 directory operation.
+- **Budget Lookup remains an optional read-only module (D-1, D-55).** It reads universal, individual and cost-center budgets live from GitHub using the read-only endpoints and permission in §2.3. The module is the scoped exception to D-11; it does not use a SQL snapshot fallback, read the old database, or mutate budgets or cost-center resources. #43 remains a deferred external Budget Functions integration decision, not a prerequisite for independent Phase 2 directory operation.
 - Final migration/source access and cutover need a separately approved plan (§15.1). #55/#56, restore/rollback, the `20261026001200` maintenance window and acceptance evidence remain gates; database separation authorizes none of those operations.
 
 ---
@@ -511,10 +512,11 @@ All modules are pre-1.0 per upstream AVM versioning at time of observation; pin 
 - **Ingestion:** separate Functions app using the same App Service AVM with Function App configuration. Use a consumption-style plan for intermittent workloads only if networking, cold start, and execution needs fit; consider Premium/Flex or dedicated hosting when VNet, warm capacity, or execution requirements demand it. Durable orchestration is limited to long-running ingestion workflows.
 - **Data:** Azure SQL contains curated/control data; Storage holds the raw archive and Functions host artifacts. Use private endpoints/private DNS for SQL, Storage, and Key Vault where network ownership permits; disable public access where supported and connect the apps through the approved VNet path.
 - **Identity:** assign least-privileged managed identities separately to portal, ingestion, and deployment. Portal gets SQL read and narrowly-scoped feedback/admin writes; ingestion gets SQL staging/curation writes and raw-container access. GitHub OIDC is for deployment, not runtime.
-- **Secrets (D-9, D-37):** Key Vault stores OAuth and GitHub integration secrets. Two GitHub credentials, each used by one component only:
+- **Secrets (D-9, D-37, D-55):** Key Vault stores OAuth and GitHub integration secrets. GitHub credentials are component-specific:
   - **GitHub App** (App ID + private key) for ingestion: AI Credits reports, and usage metrics if App installations are accepted (otherwise a classic PAT with `read:org` only).
   - **Classic PAT** with `read:org` and `admin:enterprise`, used only by the directory sync for SCIM and seats. The portal and ingestion Functions have no access to it.
-  The portal's GitHub sign-in uses its own OAuth app registration, separate from both. No secrets in Terraform variables or state.
+  - **Budget Lookup** uses the existing `budget-lookup-key` Key Vault secret for a separate credential with read access to enterprise billing; it is not shared with ingestion or directory sync.
+  The portal's GitHub sign-in uses its own OAuth app registration, separate from the ingestion, directory-sync and Budget Lookup credentials. No secrets in Terraform variables or state.
 - **Operations:** send App Service, Functions, SQL, Storage, and Key Vault diagnostics to Log Analytics; connect Application Insights for distributed traces and API/ingestion telemetry. Define alerts for ingestion lag/completeness, schema drift, API authorization failures, SQL saturation, and elevated error rates.
 - **Migration boundary:** provision this as a greenfield portal state with a database separate from the old solution (D-34). Retain `create` and `existing` for new-solution SQL resources; do not point at or import the old database. Do not import or refactor the neighboring automation account's storage or Functions resources.
 
@@ -531,6 +533,8 @@ Each optional module is ready-made automation that needs only a secret and a per
 | Check | Admin health page shows per module: secret present, permission OK, last run OK |
 
 No plugin or override framework exists (D-13); changing module behaviour means forking the repository.
+
+Budget Lookup (D-55) uses the existing `budget-lookup-key` Key Vault secret for its separate GitHub credential. Grant read access to enterprise billing; the module calls only the GET endpoints listed in §2.3. No budget or cost-center write permission is required or in scope.
 
 ### 12.6 CI/CD and releases (D-20, D-21, D-26, D-27)
 
@@ -717,6 +721,7 @@ Decisions from the stakeholder grill sessions (2026-10-21), with D-29/D-34 revis
 
 | D-53 | Configuration placement: a value any tool or the portal reads lives in a typed, validated file, never in Markdown: Terraform and app-setting inputs in `config/<env>.tfvars`, pipeline-only settings in `config/deployment.yml`; no secrets in tfvars, variables, outputs or state (Key Vault at runtime, environment secrets or workload identity federation in pipelines); human-only facts in the private deployment note; company-specific values only in the private deployment repository, never in a public repository. The private repository starts from the public config-only template and re-syncs from it by hand | §12.8 |
 | D-54 | The deployment template is Azure DevOps first: Azure Pipelines is the primary wrapper for EMU (Plan and Apply stages, Apply behind an environment approval and applying the published plan artifact, checksum-verified pinned Terraform, workload identity federation, Entra-authenticated state), GitHub Actions the equivalent secondary wrapper. The template pins one released portal version, and `scripts/deploy-infra.sh` (init, validate, plan, apply) is the only interface the wrappers call | §12.8 |
+| D-55 | Budget Lookup is the scoped exception to D-11: it reads universal, individual and cost-center budgets live from GitHub REST APIs using a separate read-only credential. It accepts only a numeric GitHub user ID or cost-center name as its lookup key; no SQL fallback, old-database access, budget writes or cost-center resource mutations | §2.3, §6.4, §6.5, §12.5 |
 
 Q31 and Q32 were confirmation questions and have no decision rows.
 
@@ -778,7 +783,7 @@ Data migration takes place **at the end**, into the new solution's separate data
 | `ManagerHierarchy` | Current hierarchy in the new portal's directory model | Compare rebuilt vs authorized legacy evidence; identify any manual overrides in the final migration plan, without changing old tables |
 | `FeedbackItem`, `FeedbackVote`, `FeedbackComment`, screenshots | `portal` feedback tables; screenshots stay in Blob | Authors mapped to principals; screenshot references verified |
 | Portal-originated rows in `dbo.AuditLog` | `portal.AuditLog` | Copy only portal actions; `dbo.AuditLog` is left untouched |
-| Budget and cost-center tables | Remain outside the new portal's owned schema | Old Function App ownership unchanged; optional Budget Lookup source/access still needs a decision (§6.5) |
+| Budget and cost-center tables | Remain outside the new portal's owned schema | Old Function App ownership unchanged; Budget Lookup reads GitHub live under D-55 and does not access either database |
 
 **Cut-over runbook** (`docs/runbooks/cutover.md`), go/no-go criteria:
 
@@ -809,7 +814,7 @@ The earlier freeze → migrate → reconcile → switch → smoke → monitor 48
 | Upstream couples charts to its own context or state in future | Charts no longer importable as-is | Detected by the bump PR build; wrap with upstream providers or own a copy as a module chart |
 | GitHub API history window shorter than desired backfill | Older history unavailable from the API | One-off importer for existing raw files (D-23) |
 | Identity linking ambiguity between GitHub and Entra | Wrong data visible | Immutable-ID principal, no email matching, unlinked GitHub sees only own data (D-5) |
-| Budget Lookup source/access left implicit after database separation | Module cannot be implemented consistently with the SQL-only runtime boundary | Preserve the module and obtain an explicit read-source/access decision before implementation; no assumed old-database access (§6.5) |
+| GitHub Budget API is unavailable or its read permission is missing | Budget Lookup cannot return current budget data | Fail the live lookup visibly; there is no SQL snapshot or old-database fallback (D-55) |
 | Metrics and directory paths become separate writers of shared user rows in the new database | Conflicting identity/attribute state | One logical ingestion writer for `dim_user`/login history; directory-owned attributes and lifecycle; contract and writer-boundary tests (D-34) |
 | Azure Pipelines templates drift from Actions | Broken pipelines for ADO users | Thin wrappers over shared scripts; marked community-tested (D-26) |
 | Test-only sign-in reaches a deployed environment | Authentication bypass | Startup refuses `E2E_TEST_AUTH` with `NODE_ENV=production`; Terraform never sets it; CI check scans deployment configuration (D-41) |
@@ -838,7 +843,6 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | Migration runner | Decision | **Resolved:** postgrator with forward-only `yyyyMMddHHmmss.do.description.sql` names (D-48, §13.6) |
 | Portal authz PR implements the access-model rules from PR #48 (grant API, stale-sync denial of elevated scopes, link lifecycle reads) | Build | Follow-up (issue #49) |
 | Security review leftovers from PR #48 (M3-M9, L2-L6) | Fix | Follow-up (issue #50) |
-| Optional Budget Lookup read-source/access contract under independent database operation | Decision | Before Budget Lookup implementation; preserve SQL-only runtime and read-only module scope (§6.5) |
 | External Budget Functions directory integration, if still needed | Decision | Deferred owner decision (issue #43); not a prerequisite for independent Phase 2 operation |
 | Authorized legacy comparison evidence inputs and final migration/source-access procedure | Decision / evidence | #79/#80 must record provenance/coverage; final migration plan before Phase 4. No runtime cross-database comparison identity is implied |
 | Record a real `ai_credit` sample and verify CSV fields and breakdown shapes | Fact check | Follow-up (issue #42) |
@@ -873,6 +877,7 @@ These items are not checked by CI. Update this table when one is resolved.
 | V-6 | Raw archive optional | Raw archive kept | Already exists, cheap, enables replay (D-11) |
 | V-7 | Earlier target: replace old directory writers behind a compatible shared contract | Independent TypeScript directory sync in the new database; old writers/consumers untouched during parallel operation | Owner revision 2026-10-25: separate solutions, final migration at the end; internal single-writer rules and acceptance remain (D-29) |
 | V-8 | Earlier target: reference the old shared SQL database as existing | Separate new database, created or separately provisioned and referenced as existing; network modes unchanged | Owner selected database separation, not Terraform create-only or a mandatory separate SQL server (D-34, D-35) |
+| V-9 | Budget Lookup has no read source under the SQL-only runtime rule after database separation | Live, read-only GitHub budget API calls as a scoped D-11 exception; no SQL fallback or old-database access | Preserves Budget Lookup while avoiding access to another company's database; budget and cost-center writes remain out of scope (D-55) |
 
 ---
 

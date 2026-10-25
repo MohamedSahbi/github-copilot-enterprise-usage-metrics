@@ -186,17 +186,108 @@ export type AiCreditsResponse = PagedResponse<Suppressible<AiCreditsDailyRow>>;
 
 // ---- Budget Lookup (read-only) ----------------------------------------------------------------------------------
 
-export interface BudgetLookupRequest {
-  // Identifies a person by numeric GitHub user ID; email and login are never accepted as lookup keys.
-  userId: number;
+// Email and login are never lookup or permission keys.
+export type BudgetLookupRequest =
+  | { userId: number; costCenterName?: never }
+  | { userId?: never; costCenterName: string };
+
+export type BudgetLookupRequestValidation =
+  | { ok: true; request: BudgetLookupRequest }
+  | { ok: false; code: "invalid_request" };
+
+export function validateBudgetLookupRequest(request: unknown): BudgetLookupRequestValidation {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+    return { ok: false, code: "invalid_request" };
+  }
+
+  const input = request as Record<string, unknown>;
+  const keys = Object.keys(input);
+  if (keys.length !== 1) return { ok: false, code: "invalid_request" };
+
+  if (keys[0] === "userId") {
+    const userId = input.userId;
+    if (typeof userId !== "number" || !Number.isSafeInteger(userId) || userId <= 0) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { userId } };
+  }
+
+  if (keys[0] === "costCenterName") {
+    const costCenterName = input.costCenterName;
+    if (typeof costCenterName !== "string" || costCenterName.trim().length === 0) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { costCenterName: costCenterName.trim() } };
+  }
+
+  return { ok: false, code: "invalid_request" };
 }
-export type BudgetLookupResponse = ApiResponse<{
-  entityType: string;
+
+// Raw values preserve unknown upstream scopes without expanding which scopes callers may request.
+export type BudgetLookupScope =
+  | { type: "universal"; githubScope: "multi_user_customer" | "multi_user_cost_center" }
+  | { type: "individual"; githubScope: "user" }
+  | { type: "cost_center"; githubScope: "cost_center" }
+  | { type: "raw"; githubScope: string };
+
+// The string intersection preserves recognized labels while allowing GitHub's raw fallback values.
+export type BudgetLookupConsumedAgainstType =
+  | "universal_default"
+  | "team_budget"
+  | "individual_budget"
+  | "cost_center"
+  | (string & {});
+
+export interface BudgetLookupBudget {
+  id: string;
+  scope: BudgetLookupScope;
   entityName: string | null;
-  amount: string | null;
-  currency: string | null;
-  effectiveFrom: IsoDate | null;
-}[]>;
+  amount: string;
+  currency: string;
+  consumedAmount: string | null;
+  consumedAgainstType: BudgetLookupConsumedAgainstType | null;
+  expiresAt: IsoDate | null;
+}
+
+export interface BudgetLookupEffectiveBudget {
+  id: string;
+  amount: string;
+  consumedAmount: string;
+  consumedAgainstType: BudgetLookupConsumedAgainstType | null;
+}
+
+export interface BudgetLookupCostCenterMembership {
+  id: string;
+  name: string;
+  state: "active" | "deleted";
+}
+
+export interface BudgetLookupCostCenterMember {
+  // Member data is scope-sensitive; consumers must authorize server-side under D-17 before returning it.
+  resourceType: string;
+  // Descriptive only; never a lookup or permission key.
+  resourceName: string;
+  userId: number | null;
+  consumedAmount: string | null;
+  targetAmount: string | null;
+}
+
+/** Per-user budget data is scope-sensitive and must be authorized server-side under D-17. */
+export interface BudgetLookupUserData {
+  userId: number;
+  budgets: BudgetLookupBudget[];
+  effectiveBudget: BudgetLookupEffectiveBudget | null;
+  costCenterMemberships: BudgetLookupCostCenterMembership[];
+}
+
+/** Member-level detail must be authorized server-side under D-17 before it is returned. */
+export interface BudgetLookupCostCenterData {
+  costCenterName: string;
+  budget: BudgetLookupBudget | null;
+  members: BudgetLookupCostCenterMember[];
+}
+
+export type BudgetLookupResponse = ApiResponse<BudgetLookupUserData | BudgetLookupCostCenterData>;
 
 // ---- Admin ------------------------------------------------------------------------------------------------------
 
