@@ -51,11 +51,104 @@ describe("users-1-day → staging shape", () => {
     delete row.ai_credits_used;
     const r = mapUsersDayLine(JSON.stringify(row), 1, ctx, ART);
     expect(r.daily!.used_vscode_agent).toBe(false);
-    expect(r.daily!.ai_credits_used).toBe(0);
+    expect(r.daily!.ai_credits_used).toBe("0");
+  });
+
+  it.each([
+    ["999999999.999999999", "999999999.999999999"],
+    ["0.000000001", "0.000000001"],
+    ["123456789123456789e-9", "123456789.123456789"],
+    ["1e-9", "0.000000001"],
+    ["1.2300000000", "1.23"],
+    ["-0", "0"],
+  ])("preserves exact credit token %s", (token, expected) => {
+    const row = JSON.parse(lines("users-1-day.ndjson")[0]!);
+    row.ai_credits_used = null;
+    const line = JSON.stringify(row).replace('"ai_credits_used":null', `"ai_credits_used":${token}`);
+    const result = mapUsersDayLine(line, 1, createStagingContext(RUN, WINDOW), ART);
+    expect(result.issues).toEqual([]);
+    expect(result.daily!.ai_credits_used).toBe(expected);
+  });
+
+  it.each(["1000000000", "0.0000000001", "-1", "1e999", '"1.25"', "0.0000000010000000001"])("rejects credit token %s without rounding", (token) => {
+    const row = JSON.parse(lines("users-1-day.ndjson")[0]!);
+    row.ai_credits_used = null;
+    const line = JSON.stringify(row).replace('"ai_credits_used":null', `"ai_credits_used":${token}`);
+    const result = mapUsersDayLine(line, 1, createStagingContext(RUN, WINDOW), ART);
+    expect(result.loaded).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({ error_code: "negative_count", field_path: "ai_credits_used" })]));
   });
 });
 
 describe("ai_credit CSV → staging shape", () => {
+  const header = "date,username,model,organization,aic_quantity";
+
+  it.each([
+    '2026-03-02,"unterminated,m,,1',
+    '2026-03-02,a"b,m,,1',
+    '2026-03-02,"a"x,m,,1',
+  ])("fails malformed CSV quoting: %s", (row) => {
+    const result = parseAiCreditCsv(`${header}\n${row}`, RUN, ART);
+    expect(result.rows).toEqual([]);
+    expect(result.issues).toEqual([expect.objectContaining({ severity: "fatal", error_code: "unsupported_schema", line_number: 2 })]);
+  });
+
+  it("rejects duplicate headers", () => {
+    const result = parseAiCreditCsv(`${header},model\n2026-03-02,a,m,,1,m`, RUN, ART);
+    expect(result.rows).toEqual([]);
+    expect(result.issues[0]).toMatchObject({ severity: "fatal", error_code: "unsupported_schema", line_number: 1 });
+  });
+
+  it.each(["2026-03-02,a,m,,1,extra", "2026-03-02,a,m,"])("rejects inconsistent row width: %s", (row) => {
+    const result = parseAiCreditCsv(`${header}\n${row}`, RUN, ART);
+    expect(result.rows).toEqual([]);
+    expect(result.issues[0]).toMatchObject({ error_code: "malformed_json", line_number: 2 });
+  });
+
+  it("supports escaped quotes, commas, multiline cells, CRLF and physical line numbers", () => {
+    const result = parseAiCreditCsv(`${header}\r\n\r\n2026-03-02,a,"model,\r\n""quoted""",,1\r\n2026-03-03,b,m,,2\r\n`, RUN, ART);
+    expect(result.issues).toEqual([]);
+    expect(result.rows.map((r) => [r.model, r.line_number])).toEqual([['model,\r\n"quoted"', 3], ["m", 5]]);
+  });
+
+  it("does not mutate multipart dedup state when CSV syntax is invalid", () => {
+    const seen = new Map<string, string>();
+    parseAiCreditCsv(`${header}\n2026-03-02,a,m,,1\n2026-03-03,b,"bad`, RUN, ART, seen);
+    expect(seen.size).toBe(0);
+  });
+
+  it("keeps delimiter-containing natural keys distinct and still rejects real duplicates", () => {
+    const result = parseAiCreditCsv(`${header}\n2026-03-02,a|b,c,,1\n2026-03-02,a,b|c,,1\n2026-03-02,a|b,c,,1`, RUN, ART);
+    expect(result.rows).toHaveLength(2);
+    expect(result.issues.map((i) => i.error_code)).toEqual(["duplicate_key"]);
+  });
+
+  it.each(["quantity", "applied_cost_per_quantity", "gross_amount", "discount_amount", "net_amount", "total_monthly_quota", "aic_gross_amount"])("rejects an unrepresentable %s decimal", (column) => {
+    const result = parseAiCreditCsv(`${header},${column}\n2026-03-02,a,m,,1,0.0000000001`, RUN, ART);
+    expect(result.rows).toEqual([]);
+    expect(result.issues[0]).toMatchObject({ error_code: "negative_count", field_path: column });
+  });
+
+  it.each(["0x10", "NaN", "-1", "1000000000", "0.0000000001"])("rejects invalid aic_quantity %s", (value) => {
+    const result = parseAiCreditCsv(`${header}\n2026-03-02,a,m,,${value}`, RUN, ART);
+    expect(result.rows).toEqual([]);
+    expect(result.issues[0]).toMatchObject({ error_code: "negative_count", field_path: "aic_quantity" });
+  });
+
+  it("canonicalizes exact exponent decimals for SQL and preserves signed adjustment amounts", () => {
+    const result = parseAiCreditCsv(`${header},net_amount,discount_amount\n2026-03-02,a,m,,1e-9,-1.23,-0.000000001`, RUN, ART);
+    expect(result.issues).toEqual([]);
+    expect(result.rows[0]).toMatchObject({ aic_quantity: "0.000000001", net_amount: "-1.23", discount_amount: "-0.000000001" });
+  });
+
+  it.each(["input", "output", "cache_read", "cache_write"])("rejects malformed or unsafe %s instead of silently returning null", (column) => {
+    for (const value of ["oops", "-1", "1.5", "9007199254740992"]) {
+      const result = parseAiCreditCsv(`${header},${column}\n2026-03-02,a,m,,1,${value}`, RUN, ART);
+      expect(result.rows).toEqual([]);
+      expect(result.issues[0]).toMatchObject({ error_code: "negative_count", field_path: column });
+    }
+  });
+
   it("parses every fixture row, keeps decimals as strings and '' for empty keys", () => {
     const { rows, issues } = parseAiCreditCsv(readFileSync(join(dir, "ai-credit.csv"), "utf8"), RUN, ART);
     expect(issues).toEqual([]);

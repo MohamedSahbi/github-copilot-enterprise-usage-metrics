@@ -81,7 +81,8 @@ export type RangeValidation = { ok: true } | { ok: false; code: "invalid_request
 export function validateDateRange(range: DateRange): RangeValidation {
   const from = Date.parse(`${range.from}T00:00:00Z`);
   const to = Date.parse(`${range.to}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(range.from) || !/^\d{4}-\d{2}-\d{2}$/.test(range.to) || Number.isNaN(from) || Number.isNaN(to) || to < from) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(range.from) || !/^\d{4}-\d{2}-\d{2}$/.test(range.to) || Number.isNaN(from) || Number.isNaN(to) ||
+      new Date(from).toISOString().slice(0, 10) !== range.from || new Date(to).toISOString().slice(0, 10) !== range.to || to < from) {
     return { ok: false, code: "invalid_request" };
   }
   const days = (to - from) / 86_400_000 + 1;

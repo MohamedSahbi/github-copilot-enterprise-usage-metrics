@@ -26,7 +26,7 @@ const rows: AdoptionRow[] = staged.map((s) => ({
   used_cloud_agent: s.daily!.used_cloud_agent,
   used_code_review_active: s.daily!.used_code_review_active,
   used_code_review_passive: s.daily!.used_code_review_passive,
-  ai_credits_used: s.daily!.ai_credits_used,
+  ai_credits_used: Number(s.daily!.ai_credits_used),
   features: s.breakdown.filter((b) => b.breakdown_kind === "feature").map((b) => ({
     feature: b.key_1, interactions: b.interaction_count, generations: b.code_generation_count,
   })),
