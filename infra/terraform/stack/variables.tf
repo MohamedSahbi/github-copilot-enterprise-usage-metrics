@@ -61,8 +61,111 @@ variable "organization" {
   }
 
   validation {
-    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.organization.entra_tenant_id))
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.organization.entra_tenant_id))
     error_message = "organization.entra_tenant_id must be a GUID."
+  }
+}
+
+variable "auth_trust_host" {
+  description = "Whether Auth.js trusts the forwarded host. Enable only behind a trusted forwarding ingress."
+  type        = bool
+
+  validation {
+    condition     = !var.auth_trust_host || var.trusted_forwarding_ingress
+    error_message = "auth_trust_host can be true only when trusted_forwarding_ingress is true."
+  }
+}
+
+variable "trusted_forwarding_ingress" {
+  description = "Operator assertion that a trusted ingress controls forwarded host and protocol headers."
+  type        = bool
+  default     = false
+}
+
+variable "auth_microsoft_entra_id_id" {
+  description = "Client ID of the portal's Entra sign-in application."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.auth_microsoft_entra_id_id))
+    error_message = "auth_microsoft_entra_id_id must be a GUID."
+  }
+}
+
+variable "auth_github_id" {
+  description = "Client ID of the separate GitHub sign-in OAuth application."
+  type        = string
+
+  validation {
+    condition     = trimspace(var.auth_github_id) != ""
+    error_message = "auth_github_id must not be empty."
+  }
+}
+
+variable "access_break_glass_group_id" {
+  description = "Entra group object ID allowed to use the restricted break-glass path; empty disables it."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.access_break_glass_group_id == "" || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.access_break_glass_group_id))
+    error_message = "access_break_glass_group_id must be empty or an Entra group object ID (GUID)."
+  }
+}
+
+variable "access_permission_freshness_minutes" {
+  description = "Maximum age of verified permission evidence in whole minutes (D-17)."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.access_permission_freshness_minutes >= 1 && var.access_permission_freshness_minutes <= 60 && floor(var.access_permission_freshness_minutes) == var.access_permission_freshness_minutes
+    error_message = "access_permission_freshness_minutes must be an integer between 1 and 60."
+  }
+}
+
+variable "access_no_access_message" {
+  description = "Optional message shown after a completed permission lookup with no usable grant."
+  type        = string
+  default     = "You do not currently have permission to use this portal."
+}
+
+variable "access_request_url" {
+  description = "Optional HTTPS request-access link; empty hides the link."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.access_request_url == "" || can(regex("^https://[^\\s]+$", var.access_request_url))
+    error_message = "access_request_url must be empty or an HTTPS URL without whitespace."
+  }
+}
+
+variable "access_contact" {
+  description = "Optional plain-text access contact; empty hides it."
+  type        = string
+  default     = ""
+}
+
+variable "directory_department_attribute" {
+  description = "Entra attribute path used for department scope; empty disables that scope."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = trimspace(var.directory_department_attribute) == "" || can(regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$", trimspace(var.directory_department_attribute)))
+    error_message = "directory_department_attribute must be empty or an Entra attribute path."
+  }
+}
+
+variable "directory_business_area_attribute" {
+  description = "Entra attribute path used for business-area scope; empty disables that scope."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = trimspace(var.directory_business_area_attribute) == "" || can(regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$", trimspace(var.directory_business_area_attribute)))
+    error_message = "directory_business_area_attribute must be empty or an Entra attribute path."
   }
 }
 
@@ -76,6 +179,17 @@ variable "stale_data_threshold_hours" {
   description = "Raise the data-staleness alert after this many hours without a successful ingestion."
   type        = number
   default     = 36
+
+  validation {
+    condition     = var.stale_data_threshold_hours >= 1 && floor(var.stale_data_threshold_hours) == var.stale_data_threshold_hours
+    error_message = "stale_data_threshold_hours must be a positive whole number."
+  }
+}
+
+variable "per_user_detail_enabled" {
+  description = "Whether the portal may return per-user detail; false keeps responses aggregate-only."
+  type        = bool
+  default     = false
 }
 
 variable "private_endpoints_enabled" {

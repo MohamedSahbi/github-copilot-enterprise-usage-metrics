@@ -1,6 +1,6 @@
 # Authentication and access configuration
 
-The portal reads only the new portal database. Configure the following app settings through the private deployment repository. Terraform wiring is tracked in #96; this PR does not provision registrations or change infrastructure. `.env.example` contains placeholders only, not usable credentials. Never enable test sign-in in a deployment.
+The portal reads only the new portal database. Configure the following app settings through the private deployment repository's typed Terraform inputs and Key Vault. The public Terraform example contains synthetic IDs only; `.env.example` contains placeholders, not usable credentials. Never enable test sign-in in a deployment.
 
 | App setting | Meaning |
 | --- | --- |
@@ -22,6 +22,8 @@ The portal reads only the new portal database. Configure the following app setti
 | `DIRECTORY_DEPARTMENT_ATTRIBUTE`, `DIRECTORY_BUSINESS_AREA_ATTRIBUTE` | Attribute paths; empty disables the corresponding grant scope |
 | `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing or future success timestamps deny elevated grants |
 | `PER_USER_DETAIL_ENABLED` | `false` by default; server-derived `namesVisible`, never a request parameter |
+
+The Terraform stack wires `SQL_SERVER`, `SQL_DATABASE`, and the portal `AZURE_CLIENT_ID` from the selected SQL resources and managed identity. It provides Key Vault references for `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_GITHUB_SECRET`; create the values separately in Key Vault using the corresponding names from the `secret_names` output. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key. The GitHub sign-in OAuth secret belongs to its separate sign-in app and must not reuse ingestion or directory credentials; the portal cannot read ingestion or directory secrets.
 
 OAuth callbacks are `/api/auth/callback/microsoft-entra-id` and `/api/auth/callback/github`. Configure Entra to emit group object IDs in its signed ID token for break-glass. Group overage/missing claims do **not** trigger Graph calls and do not grant break-glass. Only matching-tenant Entra sign-in can use it, for admin and health surfaces only. Group evidence expires at the configured permission-freshness interval; sign in again to renew it. It never grants data or feedback access.
 
