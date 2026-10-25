@@ -3,6 +3,7 @@ import type { UsageBreakdownRow, UsageSeriesPoint, UserUsageRow } from "../../..
 import { toFeatureAdoptionData } from "@/adapters/featureAdoption";
 import AccessibleUpstreamCharts from "@/components/AccessibleUpstreamCharts";
 import type { ApiCorePageData } from "@/data/portalDataSource";
+import InteractionTotal from "./InteractionTotal";
 
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -212,7 +213,6 @@ function ApiPageContent({ data, pageTitle }: { data: ApiCorePageData; pageTitle:
     );
   }
 
-  const totalInteractions = series.reduce((total, row) => total + row.interactions, 0);
   return (
     <section className="space-y-4">
       <h2 className="text-2xl font-semibold">{pageTitle}</h2>
@@ -224,7 +224,9 @@ function ApiPageContent({ data, pageTitle }: { data: ApiCorePageData; pageTitle:
         </div>
         <div className="rounded border border-default bg-white p-4">
           <dt className="text-sm text-muted">Interactions</dt>
-          <dd className="mt-2 text-2xl font-semibold">{formatNumber(totalInteractions)}</dd>
+          <dd className="mt-2 text-2xl font-semibold">
+            <InteractionTotal series={data.overview.series} />
+          </dd>
         </div>
       </dl>
       <SeriesTable rows={series} />
