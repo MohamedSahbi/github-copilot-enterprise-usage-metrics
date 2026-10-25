@@ -21,9 +21,9 @@ Public, MIT-licensed, single-tenant-per-deployment portal for GitHub Copilot usa
 ## Non-negotiable rules
 
 - TypeScript everywhere (D-6). No PowerShell, C#, or Python in this repository.
-- Azure SQL is the only runtime read store. The portal never reads Blob or calls GitHub/Graph per request (D-11).
+- Azure SQL is the runtime read store except for Budget Lookup's scoped live, read-only GitHub API calls (D-11, D-55). The portal never reads Blob or calls Graph per request.
 - The new solution uses a database separate from the old solution (D-29, D-34). The old system stays untouched during parallel operation; no compatibility shadow tables or runtime cross-database comparison identity. Every table still has exactly one writer; one logical `ingestion` component owns `portal.dim_user` and login history. Portal-owned tables live in `portal`; never write to old `dbo` directory, budget or cost-center tables.
-- Data migration happens at the end; decommission only after new-solution acceptance and separate authorization. Reconciliation, privacy, #55/#56 deployment gates and migration maintenance windows remain required. Optional Budget Lookup stays in scope, but its independent-database read-source/access contract needs a decision before implementation.
+- Data migration happens at the end; decommission only after new-solution acceptance and separate authorization. Reconciliation, privacy, #55/#56 deployment gates and migration maintenance windows remain required. Budget Lookup uses live GitHub budget APIs with no SQL fallback or old-database access (D-55).
 - The API returns aggregates by default; per-user detail only when the deployment setting allows it. Suppress groups smaller than the configured minimum (default 5).
 - Permissions attach to one internal principal keyed on Entra object ID; never grant access from email, login, or provider (D-5, D-36). Fail closed when permissions cannot be read (D-17).
 - Feature flags control module visibility only; they never grant access.

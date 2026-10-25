@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MIN_GROUP_SIZE, MAX_DATE_RANGE_DAYS, MAX_PAGE_SIZE, normalizePage, suppress, validateDateRange } from "../../shared/src/api";
+import {
+  DEFAULT_MIN_GROUP_SIZE,
+  MAX_DATE_RANGE_DAYS,
+  MAX_PAGE_SIZE,
+  normalizePage,
+  suppress,
+  validateDateRange,
+  validateUsagePeriod,
+} from "../../shared/src/api";
 
 describe("API contract helpers", () => {
   it.each(["2025-02-31", "2025-02-29", "2026-04-31", "2026-00-01", "2026-13-01"])("rejects invalid calendar date %s at either boundary", (day) => {
@@ -18,6 +26,36 @@ describe("API contract helpers", () => {
     expect(validateDateRange({ from: "2025-01-01", to: "2026-12-31" })).toEqual({ ok: false, code: "date_range_too_large" });
     const edge = new Date(Date.UTC(2026, 0, 1) + (MAX_DATE_RANGE_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
     expect(validateDateRange({ from: "2026-01-01", to: edge })).toEqual({ ok: true });
+  });
+
+  it.each([
+    ["last_7_days", "2026-03-25"],
+    ["last_28_days", "2026-03-04"],
+    ["last_90_days", "2026-01-01"],
+  ] as const)("resolves %s ending on the latest available usage day", (period, from) => {
+    expect(validateUsagePeriod({ period }, "2026-03-31")).toEqual({
+      ok: true,
+      range: { from, to: "2026-03-31" },
+    });
+  });
+
+  it("resolves only whole calendar months ending by the latest available usage day", () => {
+    expect(validateUsagePeriod({ period: "calendar_month", month: "2026-02" }, "2026-03-31")).toEqual({
+      ok: true,
+      range: { from: "2026-02-01", to: "2026-02-28" },
+    });
+    expect(validateUsagePeriod({ period: "calendar_month", month: "2024-02" }, "2026-03-31")).toEqual({
+      ok: true,
+      range: { from: "2024-02-01", to: "2024-02-29" },
+    });
+    expect(validateUsagePeriod({ period: "calendar_month", month: "2026-03" }, "2026-03-30")).toEqual({
+      ok: false,
+      code: "invalid_request",
+    });
+    expect(validateUsagePeriod({ period: "calendar_month", month: "2026-13" }, "2026-03-31")).toEqual({
+      ok: false,
+      code: "invalid_request",
+    });
   });
 
   it("bounds page sizes", () => {
