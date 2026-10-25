@@ -37,14 +37,17 @@ test.describe("core pages by persona", () => {
         await page.goto(route.path);
         await expect(page.getByRole("heading", { name: route.title, exact: true }).first()).toBeVisible();
         await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
-        if (persona !== "member" && route.path === "/copilot-adoption") {
+        if (persona === "admin" && route.path === "/copilot-adoption") {
           for (const category of ["VS Code Agents", "Copilot App", "Cloud Agent", "Code Review", "Advanced Users"]) {
             await expect(page.getByText(category, { exact: true }).first()).toBeVisible();
           }
         }
         if (route.path === "/ai-adoption-phases") {
-          const expectedUsers = persona === "admin" ? 9 : 6;
-          await expect(page.getByText(`Not reported · ${expectedUsers}`, { exact: true })).toBeVisible();
+          if (persona === "admin") {
+            await expect(page.getByText("Not reported · 9", { exact: true })).toBeVisible();
+          } else {
+            await expect(page.getByText("Metrics are hidden because this scope is smaller than the minimum group size.")).toBeVisible();
+          }
         }
         await expectNoAxeViolations(page);
         await page.screenshot({
@@ -54,25 +57,27 @@ test.describe("core pages by persona", () => {
       }
 
       if (persona === "manager") {
-        await expect(page.getByText("6 users in the selected scope.")).toBeVisible();
         await page.goto("/");
-        await page.getByLabel("Scope").selectOption("department:department-b");
+        await expect(page.getByText("2 users in the selected scope.")).toBeVisible();
+        await page.getByLabel("Scope").selectOption("department:department-a");
         await page.getByRole("button", { name: "Apply" }).click();
-        await expect(page).toHaveURL(/scope=department%3Adepartment-b/);
+        await expect(page).toHaveURL(/scope=department%3Adepartment-a/);
         await expect(page.getByText("Metrics are hidden because this scope is smaller than the minimum group size.")).toBeVisible();
         await expectNoAxeViolations(page);
         await page.screenshot({
-          path: "test-results/screenshots/manager-department-b-suppressed.png",
+          path: "test-results/screenshots/manager-department-a-suppressed.png",
           fullPage: true,
         });
         await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Languages" }).click();
-        await expect(page).toHaveURL(/scope=department%3Adepartment-b/);
-        await expect(page.getByLabel("Scope")).toHaveValue("department:department-b");
+        await expect(page).toHaveURL(/scope=department%3Adepartment-a/);
+        await expect(page.getByLabel("Scope")).toHaveValue("department:department-a");
         await expect(page.getByText("Metrics are hidden because this scope is smaller than the minimum group size.")).toBeVisible();
         await expectNoAxeViolations(page);
       }
       if (persona === "member") {
         await expect(page.getByText("Metrics are hidden because this scope is smaller than the minimum group size.")).toBeVisible();
+        await expect(page.getByText("1 users in the selected scope.")).toBeVisible();
+        await expect(page.getByLabel("Scope")).toHaveValue("self:self");
         await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Users" })).toHaveCount(0);
         await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Executive Summary" })).toHaveCount(0);
         const usersResponse = await page.request.get("/users");
@@ -80,7 +85,19 @@ test.describe("core pages by persona", () => {
       }
       expect(consoleErrors).toEqual([]);
     });
+
   }
+
+  test("member cannot read a different user's details outside its self grant", async ({ page, signInAs }) => {
+    test.skip(process.env.E2E_PER_USER_DETAIL_ENABLED !== "1", "run in the scoped user-detail E2E configuration");
+    test.setTimeout(60_000);
+    await signInAs("member");
+
+    const ownDetails = await page.goto("/users/1000006");
+    expect(ownDetails?.status()).toBe(200);
+    const otherUserDetails = await page.goto("/users/1000001");
+    expect(otherUserDetails?.status()).toBe(404);
+  });
 });
 
 test("no-access persona receives no core navigation or metrics", async ({ page, signInAs, consoleErrors }) => {

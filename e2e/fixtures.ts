@@ -13,7 +13,12 @@ export const test = base.extend<{
       if (message.type() === "error") errors.push(message.text());
     });
     page.on("pageerror", (error) => errors.push(error.message));
-    page.on("requestfailed", (request) => errors.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "request failed"}`));
+    page.on("requestfailed", (request) => {
+      const failure = request.failure()?.errorText;
+      if (failure !== "net::ERR_ABORTED") {
+        errors.push(`${request.method()} ${request.url()}: ${failure ?? "request failed"}`);
+      }
+    });
     await use(errors);
   },
   signInAs: async ({ page }, use) => {

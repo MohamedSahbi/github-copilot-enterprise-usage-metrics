@@ -29,6 +29,19 @@ describe("SQL-backed immutable principal and active-grant reads", () => {
     expect((await repository.read({ ...entra(0), tenantId: AUTH_OBJECTS[0]! } as Identity)).principal).toBeNull();
     expect((await repository.read({ provider: "github", userId: 123456789 })).principal).toBeNull();
   });
+  it("returns safe numeric user IDs from authorized SQL directory scopes", async () => {
+    const adminUsers = await repository.readScopedUsers(AUTH_OBJECTS[0]!, [
+      { role: "admin", scope: "company", scope_value: "" },
+    ]);
+    expect(adminUsers.map(({ user_id }) => user_id).sort((a, b) => a - b)).toEqual([
+      1000001, 1000003, 1000004, 1000006, 1000007, 1000008, 1000009, 1000011, 1000012,
+    ]);
+
+    const managerUsers = await repository.readScopedUsers(AUTH_OBJECTS[1]!, [
+      { role: "manager", scope: "team", scope_value: "" },
+    ]);
+    expect(managerUsers.map(({ user_id }) => user_id).sort((a, b) => a - b)).toEqual([1000003, 1000007]);
+  });
   it("sees revocation on the next read through v_active_grant", async () => {
     const id = AUTH_PRINCIPALS[2]!;
     expect((await repository.read(entra(2))).grants).toHaveLength(1);

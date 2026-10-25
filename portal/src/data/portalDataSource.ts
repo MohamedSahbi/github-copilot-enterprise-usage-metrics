@@ -81,3 +81,7 @@ export const syntheticPortalDataSource: PortalDataSource = {
     return selectUserDetailsViewModel(routeModel, details);
   },
 };
+
+export function getPortalDataSource(): PortalDataSource | null {
+  return isTestAuthEnabled() ? syntheticPortalDataSource : null;
+}

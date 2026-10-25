@@ -4,7 +4,7 @@ import UserDetailsView from "@/adapters/UserDetailsView";
 import PortalShell from "@/components/PortalShell";
 import { getPortalViewer, resolvePortalScope } from "@/access/portalAccess";
 import type { PortalScopeKind } from "@/access/portalAccess";
-import { syntheticPortalDataSource } from "@/data/portalDataSource";
+import { getPortalDataSource } from "@/data/portalDataSource";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,8 @@ export default async function UserDetailsPage({
   searchParams: Promise<{ scope?: string }>;
 }) {
   const viewer = await getPortalViewer();
-  if (!viewer.authenticated || !viewer.perUserDetailEnabled || !["admin", "manager", "member"].includes(viewer.role)) {
+  if (viewer.accessState !== "authorized" || !viewer.perUserDetailEnabled ||
+    !["admin", "executive", "manager", "member"].includes(viewer.role)) {
     notFound();
   }
   const userId = Number((await params).userId);
@@ -38,7 +39,17 @@ export default async function UserDetailsPage({
   );
   if (!selection || !selection.userIds.includes(userId)) notFound();
 
-  const model = await syntheticPortalDataSource.getUserDetails(
+  const dataSource = getPortalDataSource();
+  if (!dataSource) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-16">
+        <h1 className="text-2xl font-semibold">Data unavailable</h1>
+        <p className="mt-2 text-muted">A reporting data source is not configured for this deployment.</p>
+      </main>
+    );
+  }
+
+  const model = await dataSource.getUserDetails(
     {
       request: FIXTURE_RANGE,
       scope: apiScope(selection.kind),
