@@ -18,15 +18,15 @@ Run after `npm run db:migrate` as the deploy identity. Values come from the envi
 DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-object-id>' AS uniqueidentifier));
 DECLARE @ingest_sid varbinary(16) = CONVERT(varbinary(16), CAST('<ingest-identity-object-id>' AS uniqueidentifier));
 
-DECLARE @sql nvarchar(400);
+DECLARE @sql nvarchar(max);
 IF DATABASE_PRINCIPAL_ID(N'<portal-identity-name>') IS NULL
 BEGIN
-    SET @sql = N'CREATE USER [<portal-identity-name>] WITH SID = ' + CONVERT(nvarchar(34), @portal_sid, 1) + N', TYPE = E';
+    SET @sql = N'CREATE USER ' + QUOTENAME(N'<portal-identity-name>') + N' WITH SID = ' + CONVERT(nvarchar(34), @portal_sid, 1) + N', TYPE = E';
     EXEC (@sql);
 END;
 IF DATABASE_PRINCIPAL_ID(N'<ingest-identity-name>') IS NULL
 BEGIN
-    SET @sql = N'CREATE USER [<ingest-identity-name>] WITH SID = ' + CONVERT(nvarchar(34), @ingest_sid, 1) + N', TYPE = E';
+    SET @sql = N'CREATE USER ' + QUOTENAME(N'<ingest-identity-name>') + N' WITH SID = ' + CONVERT(nvarchar(34), @ingest_sid, 1) + N', TYPE = E';
     EXEC (@sql);
 END;
 
@@ -49,6 +49,6 @@ JOIN sys.database_principals m ON m.principal_id = rm.member_principal_id
 WHERE m.name IN (N'<portal-identity-name>', N'<ingest-identity-name>');
 ```
 
-Expected: the portal identity in `portal_reader` and `portal_writer`; the ingestion identity in `portal_ingest`; no `db_owner`, `db_ddladmin` or `db_securityadmin` rows for either.
+Also check `SELECT IS_ROLEMEMBER('db_owner', N'<name>')` is 0 for both and that `sys.database_permissions` lists no direct grants for them. Expected: the portal identity in `portal_reader` and `portal_writer`; the ingestion identity in `portal_ingest`; no `db_owner`, `db_ddladmin` or `db_securityadmin` rows for either.
 
 Rotating an identity: create the new user the same way, add it to the role, deploy, then `DROP USER` the old one.

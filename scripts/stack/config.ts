@@ -8,14 +8,20 @@ const DEFAULT_PORT = "14330";
 export function localConnectionString(env: Record<string, string | undefined>, database = LOCAL_DATABASE): string {
   const port = env.LOCAL_SQL_PORT ?? DEFAULT_PORT;
   const password = env.LOCAL_SQL_SA_PASSWORD ?? DEFAULT_PASSWORD;
+  if (!/^\d{1,5}$/.test(port)) throw new Error("LOCAL_SQL_PORT must be a number");
+  if (/[;=]/.test(password)) throw new Error("LOCAL_SQL_SA_PASSWORD must not contain ';' or '='");
   return `Server=127.0.0.1,${port};Database=${database};User Id=sa;Password=${password};Encrypt=true;TrustServerCertificate=true`;
 }
 
 // Fixture loading writes staging tables, which only ingestion may do against a real database (D-34).
 export function assertLocalHost(connectionString: string): void {
-  const server = /(?:^|;)\s*(?:Server|Data Source)\s*=\s*([^;]*)/i.exec(connectionString)?.[1]?.trim() ?? "";
-  const host = server.replace(/^tcp:/i, "").split(",")[0]?.trim().toLowerCase() ?? "";
-  if (host !== "127.0.0.1" && host !== "localhost") {
+  const hosts = connectionString
+    .split(";")
+    .map((part) => /^\s*(server|data source|address|addr|network address)\s*=\s*(.*)$/i.exec(part))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => (m[2] ?? "").trim().replace(/^tcp:/i, "").split(",")[0]!.trim().toLowerCase());
+  // Exactly one host key, so a later duplicate cannot override the checked one.
+  if (hosts.length !== 1 || (hosts[0] !== "127.0.0.1" && hosts[0] !== "localhost")) {
     throw new Error("Refusing to run: the target is not a local SQL Server (127.0.0.1 or localhost).");
   }
 }

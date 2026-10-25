@@ -80,6 +80,10 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
       validateChecksums: false,
       execQuery: async (query) => ({ rows: await batch(query) }),
       execSqlScript: async (script) => {
+        const held = await batch(`SELECT APPLOCK_MODE('public', N'${LOCK_RESOURCE}', 'Session') AS mode`);
+        if ((held[0] as { mode?: string } | undefined)?.mode !== "Exclusive") {
+          throw new MigrationError("LOCK_TIMEOUT", `Lost the "${LOCK_RESOURCE}" lock; aborting before the next migration`);
+        }
         for (const text of splitBatches(script)) await batch(text);
       },
     });
@@ -111,6 +115,9 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
           .input("LockOwner", sql.VarChar(32), "Session")
           .execute("sp_releaseapplock");
       }
+    } catch (releaseError) {
+      // The session lock dies with the connection; do not mask the primary error.
+      log(`warning: could not release lock: ${(releaseError as Error).message}`);
     } finally {
       await pool.close();
     }

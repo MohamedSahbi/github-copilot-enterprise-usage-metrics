@@ -9,7 +9,8 @@ describe("docker/compose.local.yml", () => {
   it("pins SQL Server 2022 and Azurite by version and runs SQL Server as amd64", () => {
     expect(compose).toMatch(/image:\s*mcr\.microsoft\.com\/mssql\/server:2022-/);
     expect(compose).toMatch(/image:\s*mcr\.microsoft\.com\/azure-storage\/azurite:\d+\.\d+\.\d+/);
-    expect(compose).not.toMatch(/:latest/);
+    expect(compose).toMatch(/mssql\/server:2022-[\w.-]+@sha256:[0-9a-f]{64}/);
+    expect(compose).toMatch(/azurite:\d+\.\d+\.\d+/);
     expect(compose).toMatch(/platform:\s*linux\/amd64/);
   });
 
@@ -42,6 +43,11 @@ describe("local stack config", () => {
     expect(() => assertLocalHost("Server=tcp:prod.database.windows.net,1433;Database=x")).toThrow(/local/i);
     expect(() => assertLocalHost("Server=10.0.0.4;Database=x")).toThrow(/local/i);
     expect(() => assertLocalHost("Database=x")).toThrow(/local/i);
+    expect(() => assertLocalHost("Server=localhost;Server=prod.example.net")).toThrow(/local/i);
+    expect(() => assertLocalHost("Server=localhost;Address=prod.example.net")).toThrow(/local/i);
+    expect(() => assertLocalHost("Addr=prod.example.net;Database=x")).toThrow(/local/i);
+    expect(() => localConnectionString({ LOCAL_SQL_PORT: "1;Server=x" })).toThrow(/port/i);
+    expect(() => localConnectionString({ LOCAL_SQL_SA_PASSWORD: "a;b" })).toThrow(/password/i);
   });
 
   it("plans one valid run and one invalid run with fixed ids", () => {

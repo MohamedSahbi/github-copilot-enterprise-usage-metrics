@@ -45,6 +45,10 @@ Do not run two pipelines against one database at once; the applock serialises th
 
 Authentication today is a connection string. The `mssql` driver also accepts Entra authentication options in the connection string; moving the pipeline to token-based sign-in is a follow-up.
 
+## Restore plan
+
+Migrations are not transactional. Before the first migration of a release on a database that holds data, take a point-in-time restore marker (note the UTC time) or copy the database. If a file fails half-way, the schema may be partly changed and the history has no row for it: since files are idempotent, fix forward and re-run; if the state is unusable, restore to the marker and re-run after the fix. Rollback, cut-over and restore runbooks (D-50) are still to be written.
+
 ## Failures
 
 | Symptom | Meaning | Action |
