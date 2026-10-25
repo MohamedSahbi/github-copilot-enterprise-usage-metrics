@@ -1,0 +1,181 @@
+# Data contracts (D-47)
+
+Status: proposed with the contracts PR. Companion to [decision-record.md](decision-record.md) (§6, §6.5, §13.6). Types are in `shared/src/`, SQL in `db/migrations/`. A change to any contract lands in `shared/` first, in its own PR.
+
+Verification legend: **V** = verified against a recorded sample or the enterprise docs; **A** = assumption, not verified (listed again in the PR).
+
+## 1. Settings (deployment settings, not SQL rows)
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `retention.per_user_months` | 13 | Per-user rows and PII are purged after this window (D-12) |
+| `retention.aggregate_months` | unlimited | Aggregates kept indefinitely (D-12) |
+| `privacy.min_group_size` | 5 | Groups below this size are suppressed (§6.3) |
+| `privacy.per_user_detail` | off | Named users in responses (see §6) |
+| `staging.retention_days` | 14 | Staged rows of published or failed runs are deleted after this |
+
+## 2. users-1-day NDJSON → staging/curated (V against a recorded sample)
+
+One JSON object per line; one line = one user, one organization, one day. Fact key: `(organization_id, usage_day, user_id)`.
+
+| Field | Column | Type | Null | Notes |
+| --- | --- | --- | --- | --- |
+| `user_id` | `user_id` | BIGINT | no | Numeric GitHub ID; the identity key |
+| `user_login` | dim_user.login | NVARCHAR(255) | yes | Mutable attribute |
+| `day` | `usage_day` | DATE | no | Must lie inside the requested report window |
+| `organization_id` | `organization_id` | BIGINT | no | Sent as a string; parsed to integer |
+| `enterprise_id` | `enterprise_id` | BIGINT | yes | Staging only |
+| `user_initiated_interaction_count` | `interaction_count` | INT | no | ≥ 0 |
+| `code_generation_activity_count` | `code_generation_count` | INT | no | ≥ 0 |
+| `code_acceptance_activity_count` | `code_acceptance_count` | INT | no | ≥ 0 |
+| `loc_suggested_to_add_sum` / `_delete_sum` | `loc_suggested_to_add` / `_delete` | BIGINT | no | ≥ 0 |
+| `loc_added_sum` / `loc_deleted_sum` | `loc_added` / `loc_deleted` | BIGINT | no | ≥ 0 |
+| `used_agent`, `used_chat`, `used_cli` | same | BIT | no | |
+| `used_copilot_coding_agent` | `used_coding_agent` | BIT | no | |
+| `used_copilot_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | `used_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | BIT | no | Absent in some rows → false |
+| `used_copilot_code_review_active` / `_passive` | `used_code_review_active` / `_passive` | BIT | no | Absent/null → false |
+| `ai_credits_used` | `ai_credits_used` | DECIMAL(18,9) | no | Absent → 0; never rounded |
+| `ai_adoption_phase{phase_number,phase,version}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR | yes | |
+| `totals_by_ide[]` | breakdown `ide` (key_1 = ide) | | | `last_known_ide_version` and `last_known_plugin_version` → `version_info` (compact JSON of the documented string fields, NULL when absent) |
+| `totals_by_feature[]` | breakdown `feature` | | | |
+| `totals_by_language_feature[]` | breakdown `language_feature` (key_1 language, key_2 feature) | | | No interaction count in source → 0 |
+| `totals_by_language_model[]` | breakdown `language_model` | | | |
+| `totals_by_model_feature[]` | breakdown `model_feature` | | | |
+| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. A supplied value that is not a valid count is rejected (`negative_count`), an absent one is NULL. `prompt_count` and `avg_tokens_per_request` are not staged |
+| `totals_by_skill`, `_custom_agent`, `_mcp`, `_slash_cmd`, `_plugin` | `fact_usage_family_count` (family, name, count) | | | |
+| any other field | `extra_json` (daily) | | | Warn `unknown_field`, load. `totals_by_client` is not in the pinned upstream types, so it is not mapped: it lands here until a recorded sample defines its shape |
+
+Language names are normalized with the upstream language normalizer before loading (oracle parity).
+
+### Quarantine rules
+
+| Severity | Error code | Condition |
+| --- | --- | --- |
+| reject | `missing_user_id` | `user_id` absent, null or not an integer |
+| reject | `invalid_day` | `day` unparseable or outside the report window |
+| reject | `missing_organization_id` | `organization_id` absent or non-numeric |
+| reject | `negative_count` | any count or LOC value that is not a non-negative integer or exceeds its column (INT counts ≤ 2147483647; BIGINT LOC and token sums ≤ 2^53−1); also an invalid supplied client counter |
+| reject | `duplicate_key` | second row with the same `(organization_id, user_id, day)` in a file (first wins; the second is reported) |
+| reject | `malformed_json` | line is not a JSON object |
+| warn | `unknown_field` | top-level field not listed above |
+| warn | `unknown_enum_value` | unrecognised feature/IDE/model/client key (added to the dimension with `is_known = 0`) |
+| warn | `unresolved_billing_login` | billing username does not resolve to a user ID |
+| warn | `extra_nested_item` | nested item with unknown shape |
+| fatal | `unsupported_schema` | deprecated root fields (`generated_loc_sum`, `accepted_loc_sum`) or file schema unrecognised |
+| fatal | `hash_mismatch` | SHA-256 of the downloaded file differs from the recorded one |
+
+A run with fatal issues publishes nothing. A run with rejects publishes the valid rows and reports the counts in `IngestionRun`.
+
+Staging row identity is `(run_id, artifact_id, line_number)`: a report can arrive as several parts under one run, every part restarts at line 1, and `artifact_id` (the `SourceArtifact` of the part) keeps the rows apart. Duplicate-key detection stays per run, so a row repeated in another part is still rejected (`duplicate_key`).
+
+## 3. ai_credit enterprise billing report → staging/curated
+
+Source: `POST /enterprises/{ent}/settings/billing/reports` then poll and download CSV parts from short-lived signed URLs (never stored or logged). One export at a time per enterprise: HTTP 409 means wait and retry; the run holds an enterprise-scoped applock. Records live 31 days at the source; history reaches back 24 months. Grain: date × username × model (plus organization, cost center, repository, app client).
+
+| CSV column | Column | Type | Null | Status |
+| --- | --- | --- | --- | --- |
+| `date` | `usage_date` | DATE | no | V |
+| `username` | `username` | NVARCHAR(255) | no | V; hashed for deleted users |
+| `product`, `sku` | same | NVARCHAR | yes | V |
+| `model` | `model` | NVARCHAR(128) | no | V |
+| `quantity` | `quantity` | DECIMAL(18,9) | yes | V |
+| `unit_type` | `unit_type` | NVARCHAR(32) | yes | V |
+| `applied_cost_per_quantity`, `gross_amount`, `discount_amount`, `net_amount` | same | DECIMAL(18,9) | yes | V |
+| `total_monthly_quota` | same | DECIMAL(18,9) | yes | V (always 0 in the sample: **A** meaning) |
+| `organization` | `organization_login` (+ resolved `organization_id`) | NVARCHAR | no, '' allowed | V (a name, not an ID) |
+| `app_client_id`, `repository` | same | NVARCHAR | '' allowed | **V** (documented by GitHub; empty in the sample because the owner's deployment does not use repositories) |
+| `cost_center_name` | same | NVARCHAR | '' allowed | V |
+| `aic_quantity`, `aic_gross_amount` | same | DECIMAL(18,9) | yes | V (`aic_gross_amount = aic_quantity × 0.01` observed) |
+| `input`, `output`, `cache_read`, `cache_write` | `*_tokens` | BIGINT | yes | V |
+
+Natural key: `(date, organization, username, model, sku, cost_center_name, repository, app_client_id)`; the tables key on a persisted SHA-256 `natural_key` of these text columns because they exceed SQL Server's index key size limits (1700 bytes nonclustered, 900 clustered). Duplicates in one export → reject `duplicate_key`. Unknown columns → warn `unknown_field` (ignored, since CSV has no JSON overflow column). Decimals are never rounded.
+
+Verification: columns and values were checked against a recorded 50-row sample of the real report (the owner's export; the sample adds an export-only `_sample_reason` column that is ignored with an `unknown_field` warning, and the reference parser stages all 50 rows). Download parts are named `AIUsageReport_<part>_<hash>.csv` (the `ai_credit` report type; "premium request" is the former product name, no longer valid since June, and survives only in older API and file names); `download_urls` can hold several parts, each with the same header. Schema statistics from a full recorded export (3,242 rows, 3 days, schema extracted and the file deleted; no values recorded here): exactly the 22 columns above in this order, no extra columns; no duplicate natural keys; no negative numbers; `product`, `sku` (`copilot_premium_request`), `unit_type` (`requests`) and `applied_cost_per_quantity` (0.04) each have a single value; `total_monthly_quota` is always 0; `app_client_id` and `repository` are always empty; `cost_center_name` is empty on about 83% of rows; money and quantity values have up to 9 decimals and at most 4 integer digits; token counts are non-negative integers up to 9 digits (fits BIGINT); `username` up to 35 characters; `model` up to 23 characters. Invariants held on every row: `net_amount = gross_amount - discount_amount` and `aic_gross_amount = aic_quantity * 0.01`. Model names can carry an `Auto: ` prefix for automatically selected models (kept verbatim in `model`; not normalized). The migrations' column types and widths accommodate all observed values.
+
+Field semantics from GitHub's billing reports reference ("Billing reports reference", AI usage report): `quantity` is the amount of the SKU used, in the unit named by `unit_type` (`requests` in the recorded export); `gross_amount - discount_amount = net_amount`; `repository` is the associated repository, if any, and is empty when the deployment does not use repositories for Copilot usage (owner-confirmed for this deployment; other deployments may fill it); `app_client_id` is the client ID of the GitHub App for usage billed directly to an organization and is empty for usage attributed to a user, GitHub Actions or GitHub-owned apps. Both columns stay nullable/empty-allowed and part of the natural key. The report is summed per date, model and username (plus organization, cost center, repository and app).
+
+Remaining assumptions (A): none for the column set; `unit_type` could differ for other SKUs, so `quantity` is stored with its `unit_type` and never assumed to be a request count.
+
+## 4. Metric definitions
+
+Oracle: the pinned upstream aggregation (`portal/upstream/src/domain`, D-14); our SQL aggregates must equal it on the fixture. All metrics are version 1. Counts are distinct `user_id` over the selected organization and date range.
+
+| Key | Formula (per selected range) | Upstream source |
+| --- | --- | --- |
+| `total_users` | distinct users with any feature, CLI, App, VS Code agent, coding agent or code review signal | `computeFeatureAdoptionData.totalUsers` |
+| `completion_users` | users with `code_completion` interactions or generations > 0 | `featureAdoptionCalculator` |
+| `chat_users` | users with a chat feature (taxonomy `isChat`) and interactions or generations > 0 | same |
+| `agent_mode_users` | users with an agent feature (taxonomy `isAgent`) | same |
+| `ask_mode_users`, `inline_mode_users`, `plan_mode_users` | users with a feature whose chat-mode bucket is `ask`, `inline` or `plan` (not derivable from `chat_users`; the adapter requires them) | `getChatModeBucket` in `featureAdoptionCalculator` |
+| `cli_users` | users with `used_cli` on any day | same |
+| `app_users` | users with `used_copilot_app` | same |
+| `vscode_agent_users` | users with `used_vscode_agent = true` | same |
+| `coding_agent_users` | users with `used_copilot_cloud_agent` | `resolveCopilotCloudAgentUsage` |
+| `code_review_users` | users with active or passive code review | same |
+| `advanced_users` | users with agent feature **or** CLI **or** VS Code agent **or** coding agent | same (see D-22 note) |
+| `completion_only_users` | has completion and none of chat, agent, CLI, App, VS Code agent, coding agent, code review | same |
+| `ai_credits_used` (daily) | Σ `ai_credits_used` per day; `users` = distinct with value > 0 | `aiCreditsCalculator` |
+| `aic_cost` (billing) | Σ `aic_gross_amount` | not in upstream (billing report) |
+
+### Deliberate and discovered differences
+
+| Metric | Difference | Reason |
+| --- | --- | --- |
+| `advanced_users` | Widens relative to the old portal's chart: includes CLI, VS Code agent and coding agent in addition to agent mode. | D-22 adopts upstream; stakeholders are told the figure rises. Not a difference from upstream. |
+| `*_users` over a range | Upstream computes over the loaded file; ours over SQL rows inside the retention window and organization scope. Equal when the fixture covers the range. | Scope |
+| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ours applies the same derivation at load. Upstream also appends a synthetic `copilot_app` IDE total; ours does not (no SQL consumer). | Oracle parity for `app_users` |
+| `used_coding_agent` | Upstream sets both coding-agent flags from `used_copilot_cloud_agent` only; ours stores the same value in `used_coding_agent` and `used_cloud_agent`, ignoring the source `used_copilot_coding_agent` field. | Oracle parity for `coding_agent_users` |
+| Language | Upstream normalizes language names at parse time; ours normalizes at load. | Same function applied in the loader |
+
+No other difference was found while reading the calculators (only the adoption and AI credits paths were read and are checked by `scripts/contracts/oracle`; the remaining calculators are not yet compared).
+
+## 5. Identity keys
+
+- The numeric GitHub user ID is the only user key. `login` and email are mutable attributes; login history is kept in `dim_user_login_history`, including hashed logins of deleted users.
+- Soft delete: `state = 'deleted'`, `deleted_at` set; PII is nulled after the retention window; the same ID returning reactivates the row. A recreated EMU account has a new ID and a separate row, linked by Entra object ID.
+- SCIM join (D-36): SCIM gives the login (`profileUrl`, else normalised `userName`) and `externalId` (Entra object ID); the sync joins the login to the numeric ID from seats and metrics. Permissions come only from a stored Entra object ID match. SCIM does not return the numeric ID, manager or department; manager and department come from Graph.
+- Organizations: `dim_organization` (numeric ID, current login) from `GET /orgs/{org}` for the configured list. Billing names resolve through it; unresolved names load with a warning.
+
+## 6. Suppression and aggregate-only behaviour
+
+- A group is any dimension slice that returns user counts or per-user-derived values. Groups with fewer than `privacy.min_group_size` users are replaced by `suppressed: true` with null values; the response also reports `minGroupSize`.
+- Suppression applies only when names are not visible to the viewer. With `privacy.per_user_detail = on`, a viewer sees named users only inside their own grant scope; a manager sees their own small team.
+- No response ships company-wide per-user records to the browser by default (§6.2 step 10).
+
+| Endpoint | Default | With per-user detail on |
+| --- | --- | --- |
+| Core usage pages | aggregates by org/day/dimension, suppressed | unchanged |
+| User list / detail | not available (`per_user_detail_disabled`) | rows only within the viewer's scope, paged |
+| AI Credits | aggregates by org/day/model/cost center | per-user rows within scope, paged |
+| Budget Lookup | reads `dbo` budget tables read-only; own and own-scope records | same |
+| Admin | principals and grants (admin role) | same |
+| Feedback | items per visibility; author shown as display name only to admins | same |
+| Health | status only, no data | same |
+
+Date ranges are bounded (max 400 days) and page sizes are bounded (max 100, default 50).
+
+## 7. Directory column contract (D-29), versions
+
+The budget Functions (outside this repo) read `dbo.CopilotUserDirectory`, `dbo.ManagerHierarchy` and `dbo.HierarchySyncRun`. The code-derived column sets are v1 (shared/src/directory-contract.ts, `DIRECTORY_CONTRACT_V1`), verified by contract tests. v2 re-keys the directory on the numeric GitHub user ID with login and email mutable and a deletion state; this PR defines v2 and the mapping only. Adopting v2 requires changes in the budget Functions (follow-up issue; D-29 note in the PR).
+
+## 8. Old structure → new portal schema (generic names)
+
+| Old (SQL DDL derived from the code; owner-confirmed correct, since the database is only ever changed by the migration script) | New | Note |
+| --- | --- | --- |
+| Directory table, PK login, id nullable text | `portal.dim_user` (PK numeric ID) + login history | Conflicts with D-36 key rule; v2 above |
+| Directory: email, display name, department, business area, manager | Directory contract v2 columns (unchanged names in v1) | Owned by directory sync |
+| Directory: account status, deletion GUID | `dim_user.state`, `deleted_at` | |
+| Directory: license/plan, pending cancellation, last activity | not in portal schema; remain in the directory contract | Read by budget Functions |
+| Access control (email PK, role, scope, comma lists) | `portal.Principal`, `PrincipalIdentity`, `AccessGrant` | Conflicts with D-5 (email key); one row per grant |
+| Manager hierarchy (two emails + login + name) | directory contract v1 / v2 | Email-keyed; kept for budget Functions |
+| Hierarchy sync run | `portal.DirectorySyncState` (portal view) + contract v1 | |
+| Audit log (two writers) | `portal.AuditLog` (portal only) | The Function app keeps its own |
+| Feedback item, vote, comment | `portal.FeedbackItem`, `FeedbackVote`, `FeedbackComment` | |
+| Budget entity, allocation, membership, failures | unchanged, read-only | Out of scope (D-34) |
+| Table-storage budget tables | out of scope | Legacy |
+
+Conflicts flagged as open questions: email-keyed access and hierarchy tables (D-5, D-36); two writers on the old audit table (D-34); the old directory has a text user ID, nullable; legacy `enhanced` files ignored (D-28).
+
+Token types (owner-confirmed): every GitHub endpoint used (users-1-day report, billing export, seats, `orgs/{org}`, SCIM) is called with a personal access token held in Key Vault.
+
+Schema confirmation (owner): the old database is changed only through its migration script, so the code-derived column sets are authoritative. Cross-check against the live Table Storage export of the old directory (2217 entities): every `CopilotUserDirectory` v1 column exists with the expected types and widths (`GitHubUserId` is a numeric string of up to 9 digits, filled on every row). One property exists only in that export: `DeletionRequestedAt` (string, 19 characters, about 0.5% of rows; `DeletionTemporaryGuid` about 56%). In v2 both are replaced by `DeletedAt` (state, not sentinel).

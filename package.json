@@ -13,10 +13,11 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json && npm run typecheck --workspaces --if-present",
+    "typecheck": "tsc -p tsconfig.json && tsc -p scripts/contracts/oracle/tsconfig.json && npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "build": "npm run build --workspaces --if-present",
     "test:e2e": "playwright test",
+    "test:sql": "RUN_SQL_TESTS=1 vitest run scripts/contracts/sql-container.test.ts",
     "test:smoke": "playwright test e2e/smoke",
     "ci": "bash scripts/ci.sh"
   },
