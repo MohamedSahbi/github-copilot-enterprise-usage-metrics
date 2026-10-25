@@ -776,7 +776,7 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | --- | --- | --- |
 | Whether a GitHub App installation token works for `orgs/{org}/copilot/metrics/reports/users-1-day` (docs name the fine-grained permission but not App installations explicitly) | Fact check | Phase 0 |
 | `profileUrl` is returned by SCIM in practice but is not in the documented schema; confirm the normalized-`userName` fallback produces the same login for a sample, including hex-hash logins | Fact check | Phase 0 |
-| Submodule proof of concept outcome (§10.1) | Fact check | Phase 0. Checks 1 to 3 pass; check 4 (EMU fetch from public `github.com`) is open, issue #33 (`docs/architecture/poc-submodule.md`) |
+| Submodule proof of concept outcome (§10.1) | Fact check | Done. Checks 1 to 3 pass; check 4 passes for the portal clone from EMU, and the submodule fetch will be confirmed by the first EMU app build. `github.com` access is a documented prerequisite; #33 is closed (`docs/architecture/poc-submodule.md`) |
 | Whether the Copilot coding agent on github.com can create issues directly, or needs the PR-section workflow (§13.5) | Fact check | **Resolved:** it cannot; it has read-only issue tools, so the PR-section workflow is required (`poc-submodule.md`) |
 | RPO/RTO, SQL tier and budget, data volumes | Decision | Before prod promotion |
 | Product-owner review of which portal-only charts (§4.1) to keep as owned pages | Decision | Phase 3 |
