@@ -1,12 +1,33 @@
-# RBAC vault. Terraform does not create the secrets: the Key Vault secret resource needs a value, and a placeholder would overwrite
-# the operator's value on the next apply. Operators create each secret listed in the `secret_names` output (§12.4, D-9, D-37).
+# Terraform does not create secrets: a placeholder would overwrite the operator's value on the next apply.
+# Operators create each name listed in `secret_names`; each runtime identity receives only its component's secret access.
 locals {
+  secret_names_by_component = {
+    portal = concat(
+      ["github-oauth-client-secret", "auth-secret", "auth-microsoft-entra-id-secret", "auth-github-secret"],
+      var.modules.budget_lookup ? ["budget-lookup-key"] : [],
+    )
+    ingestion = concat(
+      ["github-app-private-key"],
+      # Directory sync runs inside the ingestion Functions app; only its identity can read the PAT, not the portal.
+      ["github-directory-pat"],
+      var.modules.ai_credits ? ["ai-credits-token"] : [],
+    )
+  }
+
   secret_names = concat(
-    ["github-app-private-key", "github-oauth-client-secret"],
-    var.modules.ai_credits ? ["ai-credits-token"] : [],
-    var.modules.budget_lookup ? ["budget-lookup-key"] : [],
-    # Directory sync only; the portal and ingestion identities get no read access to it.
-    ["github-directory-pat"],
+    local.secret_names_by_component.portal,
+    local.secret_names_by_component.ingestion,
+  )
+
+  secret_identity_by_name = merge([
+    for component, names in local.secret_names_by_component : {
+      for name in names : name => component
+    }
+  ]...)
+
+  missing_secret_names = setsubtract(
+    toset(local.secret_names),
+    toset(data.azurerm_key_vault_secrets.existing.names),
   )
 }
 
@@ -30,18 +51,41 @@ module "key_vault" {
     }
   } : {}
 
-  role_assignments = {
-    portal = {
-      role_definition_id_or_name = "Key Vault Secrets User"
-      principal_id               = module.identity["portal"].principal_id
-      principal_type             = "ServicePrincipal"
-    }
-    ingestion = {
-      role_definition_id_or_name = "Key Vault Secrets User"
-      principal_id               = module.identity["ingestion"].principal_id
-      principal_type             = "ServicePrincipal"
-    }
-  }
+  role_assignments = {}
 
   enable_telemetry = false
+}
+
+# Reading only the names checks bootstrap ordering without placing secret values in Terraform state.
+data "azurerm_client_config" "current" {}
+
+data "azurerm_key_vault_secrets" "existing" {
+  key_vault_id = format(
+    "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
+    data.azurerm_client_config.current.subscription_id,
+    local.resource_group_name,
+    local.key_vault_name,
+  )
+}
+
+resource "terraform_data" "required_key_vault_secrets" {
+  input = local.secret_names
+
+  lifecycle {
+    precondition {
+      condition     = length(local.missing_secret_names) == 0
+      error_message = "Create the required Key Vault secrets before planning the full stack: ${join(", ", sort(tolist(local.missing_secret_names)))}."
+    }
+  }
+}
+
+resource "azurerm_role_assignment" "secret_readers" {
+  for_each = local.secret_identity_by_name
+
+  scope                = format("%s/secrets/%s", module.key_vault.resource_id, each.key)
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = module.identity[each.value].principal_id
+  principal_type       = "ServicePrincipal"
+
+  depends_on = [terraform_data.required_key_vault_secrets]
 }

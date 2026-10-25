@@ -18,19 +18,26 @@ module "app_service_plan" {
 
 locals {
   common_app_settings = {
-    ENTERPRISE_SLUG      = var.organization.enterprise_slug
-    ORGANIZATIONS        = join(",", var.organization.organizations)
-    LOGIN_SUFFIX         = var.organization.login_suffix
-    GROUP_PREFIX         = var.organization.group_prefix
-    DIRECTORY_PROVIDER   = var.organization.directory_provider
-    ENTRA_TENANT_ID      = var.organization.entra_tenant_id
-    MODULE_AI_CREDITS    = tostring(var.modules.ai_credits)
-    MODULE_BUDGET_LOOKUP = tostring(var.modules.budget_lookup)
-    MODULE_FEEDBACK      = tostring(var.modules.feedback)
-    SQL_SERVER           = local.sql_server_fqdn
-    SQL_DATABASE         = local.sql_database_name
-    KEY_VAULT_URI        = module.key_vault.uri
+    ENTERPRISE_SLUG                   = var.organization.enterprise_slug
+    ORGANIZATIONS                     = join(",", var.organization.organizations)
+    LOGIN_SUFFIX                      = var.organization.login_suffix
+    GROUP_PREFIX                      = var.organization.group_prefix
+    DIRECTORY_PROVIDER                = var.organization.directory_provider
+    ENTRA_TENANT_ID                   = var.organization.entra_tenant_id
+    DIRECTORY_DEPARTMENT_ATTRIBUTE    = var.directory_department_attribute
+    DIRECTORY_BUSINESS_AREA_ATTRIBUTE = var.directory_business_area_attribute
+    STALE_DATA_THRESHOLD_HOURS        = tostring(var.stale_data_threshold_hours)
+    MODULE_AI_CREDITS                 = tostring(var.modules.ai_credits)
+    MODULE_BUDGET_LOOKUP              = tostring(var.modules.budget_lookup)
+    MODULE_FEEDBACK                   = tostring(var.modules.feedback)
+    SQL_SERVER                        = local.sql_server_fqdn
+    SQL_DATABASE                      = local.sql_database_name
+    KEY_VAULT_URI                     = module.key_vault.uri
   }
+
+  portal_auth_trust_host_setting = var.auth_trust_host ? {
+    AUTH_TRUST_HOST = "true"
+  } : {}
 }
 
 module "portal" {
@@ -51,14 +58,29 @@ module "portal" {
   key_vault_reference_identity           = module.identity["portal"].resource_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["portal"].resource_id] }
+  depends_on = [
+    terraform_data.required_key_vault_secrets,
+    azurerm_role_assignment.secret_readers,
+  ]
 
   site_config = {
     application_stack = { node = { node_version = "22-lts" } }
   }
 
   app_settings = merge(local.common_app_settings, {
-    AZURE_CLIENT_ID = module.identity["portal"].client_id
-  })
+    AZURE_CLIENT_ID                     = module.identity["portal"].client_id
+    AUTH_MICROSOFT_ENTRA_ID_ID          = var.auth_microsoft_entra_id_id
+    AUTH_MICROSOFT_ENTRA_ID_SECRET      = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-microsoft-entra-id-secret)", trimsuffix(module.key_vault.uri, "/"))
+    AUTH_GITHUB_ID                      = var.auth_github_id
+    AUTH_GITHUB_SECRET                  = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-github-secret)", trimsuffix(module.key_vault.uri, "/"))
+    AUTH_SECRET                         = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-secret)", trimsuffix(module.key_vault.uri, "/"))
+    ACCESS_BREAK_GLASS_GROUP_ID         = var.access_break_glass_group_id
+    ACCESS_PERMISSION_FRESHNESS_MINUTES = tostring(var.access_permission_freshness_minutes)
+    ACCESS_NO_ACCESS_MESSAGE            = var.access_no_access_message
+    ACCESS_REQUEST_URL                  = var.access_request_url
+    ACCESS_CONTACT                      = var.access_contact
+    PER_USER_DETAIL_ENABLED             = tostring(var.per_user_detail_enabled)
+  }, local.portal_auth_trust_host_setting)
 
   enable_telemetry = false
 }
@@ -85,16 +107,19 @@ module "ingestion" {
   storage_user_assigned_identity_client_id = module.identity["ingestion"].client_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["ingestion"].resource_id] }
+  depends_on = [
+    terraform_data.required_key_vault_secrets,
+    azurerm_role_assignment.secret_readers,
+  ]
 
   site_config = {
     application_stack = { node = { node_version = "22" } }
   }
 
   app_settings = merge(local.common_app_settings, {
-    AZURE_CLIENT_ID            = module.identity["ingestion"].client_id
-    RAW_ARCHIVE_ACCOUNT        = module.storage.name
-    RAW_ARCHIVE_CONTAINER      = "raw"
-    STALE_DATA_THRESHOLD_HOURS = tostring(var.stale_data_threshold_hours)
+    AZURE_CLIENT_ID       = module.identity["ingestion"].client_id
+    RAW_ARCHIVE_ACCOUNT   = module.storage.name
+    RAW_ARCHIVE_CONTAINER = "raw"
   })
 
   enable_telemetry = false
