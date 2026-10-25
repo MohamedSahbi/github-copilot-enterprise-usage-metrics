@@ -20,7 +20,7 @@ The portal reads only the new portal database. Configure the following app setti
 | `ACCESS_CONTACT` | Optional plain-text contact; empty hides it |
 | `DIRECTORY_PROVIDER` | `entra` (default: requires fresh scim, graph and seats state) or `csv` (requires csv state) |
 | `DIRECTORY_DEPARTMENT_ATTRIBUTE`, `DIRECTORY_BUSINESS_AREA_ATTRIBUTE` | Attribute paths; empty disables the corresponding grant scope |
-| `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing or future success timestamps deny elevated grants |
+| `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing success timestamps, or timestamps more than 500 ms in the future (maximum `DATETIME2(0)` rounding error, not general clock skew), deny elevated grants |
 | `PER_USER_DETAIL_ENABLED` | `false` by default; server-derived `namesVisible`, never a request parameter |
 
 The Terraform stack wires `SQL_SERVER`, `SQL_DATABASE`, and the portal `AZURE_CLIENT_ID` from the selected SQL resources and managed identity. It provides Key Vault references for `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_GITHUB_SECRET`; create the values separately in Key Vault using the corresponding names from the `secret_names` output. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key. The GitHub sign-in OAuth secret belongs to its separate sign-in app and must not reuse ingestion or directory credentials; the portal cannot read ingestion or directory secrets.
