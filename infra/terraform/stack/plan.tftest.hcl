@@ -56,6 +56,11 @@ run "demo_example" {
     }
     error_message = "Each default Key Vault secret must be granted only to its owning component identity."
   }
+
+  assert {
+    condition     = length(local.portal_auth_trust_host_setting) == 0
+    error_message = "Auth.js host trust must be omitted when it is disabled; the string false is truthy."
+  }
 }
 
 run "enterprise_existing_resources" {
@@ -101,6 +106,20 @@ run "optional_module_secret_ownership" {
       local.secret_identity_by_name["budget-lookup-key"] == "portal",
     ])
     error_message = "Optional module secrets must be granted only to the module's owning component identity."
+  }
+}
+
+run "trusted_forwarding_ingress_enabled" {
+  command = plan
+
+  variables {
+    auth_trust_host            = true
+    trusted_forwarding_ingress = true
+  }
+
+  assert {
+    condition     = try(local.portal_auth_trust_host_setting.AUTH_TRUST_HOST, "") == "true"
+    error_message = "Auth.js host trust must be enabled only with an explicit trusted-ingress assertion."
   }
 }
 

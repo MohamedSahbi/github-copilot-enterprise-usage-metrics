@@ -34,6 +34,10 @@ locals {
     SQL_DATABASE                      = local.sql_database_name
     KEY_VAULT_URI                     = module.key_vault.uri
   }
+
+  portal_auth_trust_host_setting = var.auth_trust_host ? {
+    AUTH_TRUST_HOST = "true"
+  } : {}
 }
 
 module "portal" {
@@ -54,7 +58,10 @@ module "portal" {
   key_vault_reference_identity           = module.identity["portal"].resource_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["portal"].resource_id] }
-  depends_on         = [terraform_data.required_key_vault_secrets]
+  depends_on = [
+    terraform_data.required_key_vault_secrets,
+    azurerm_role_assignment.secret_readers,
+  ]
 
   site_config = {
     application_stack = { node = { node_version = "22-lts" } }
@@ -62,7 +69,6 @@ module "portal" {
 
   app_settings = merge(local.common_app_settings, {
     AZURE_CLIENT_ID                     = module.identity["portal"].client_id
-    AUTH_TRUST_HOST                     = tostring(var.auth_trust_host)
     AUTH_MICROSOFT_ENTRA_ID_ID          = var.auth_microsoft_entra_id_id
     AUTH_MICROSOFT_ENTRA_ID_SECRET      = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-microsoft-entra-id-secret)", trimsuffix(module.key_vault.uri, "/"))
     AUTH_GITHUB_ID                      = var.auth_github_id
@@ -74,7 +80,7 @@ module "portal" {
     ACCESS_REQUEST_URL                  = var.access_request_url
     ACCESS_CONTACT                      = var.access_contact
     PER_USER_DETAIL_ENABLED             = tostring(var.per_user_detail_enabled)
-  })
+  }, local.portal_auth_trust_host_setting)
 
   enable_telemetry = false
 }
@@ -101,7 +107,10 @@ module "ingestion" {
   storage_user_assigned_identity_client_id = module.identity["ingestion"].client_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["ingestion"].resource_id] }
-  depends_on         = [terraform_data.required_key_vault_secrets]
+  depends_on = [
+    terraform_data.required_key_vault_secrets,
+    azurerm_role_assignment.secret_readers,
+  ]
 
   site_config = {
     application_stack = { node = { node_version = "22" } }

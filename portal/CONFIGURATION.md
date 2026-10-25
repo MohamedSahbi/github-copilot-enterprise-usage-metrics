@@ -5,7 +5,7 @@ The portal reads only the new portal database. Configure the following app setti
 | App setting | Meaning |
 | --- | --- |
 | `AUTH_SECRET` | NextAuth JWT encryption secret, supplied through a Key Vault reference |
-| `AUTH_TRUST_HOST` | Set `true` only behind a trusted ingress that controls forwarded host/protocol headers |
+| `AUTH_TRUST_HOST` | Set `true` only behind a trusted ingress that controls forwarded host/protocol headers; omitted when false so the literal string `"false"` cannot enable trust |
 | `AUTH_MICROSOFT_ENTRA_ID_ID` | Entra app client ID |
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | Entra client secret, Key Vault reference |
 | `ENTRA_TENANT_ID` | Allowed tenant; sign-in requires this tenant and an immutable Entra object ID |
