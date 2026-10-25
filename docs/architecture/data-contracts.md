@@ -219,7 +219,7 @@ The directory sync reads `directory.department_attribute` and `directory.busines
 
 ## 11. Login history retention (exception to D-12)
 
-`dim_user_login_history` is kept for audit and purged only after `retention.login_history_months` (default 24), measured from `last_seen_day`. This is an explicit exception to the 13-month per-user rule: it holds logins, which are personal data, so only the admin role can read it, and it is never returned in non-admin responses. Writer: ingestion, through `portal.usp_purge_login_history`, which audits each purge to `IngestionAuditEvent` (`login_history.purged`).
+`dim_user_login_history` is kept for audit and purged only after `retention.login_history_months` (default 24), measured from `last_seen_day`. This is an explicit exception to the 13-month per-user rule: it holds logins, which are personal data, so only the admin role can read it, and it is never returned in non-admin responses. Writer: ingestion, through `portal.usp_purge_login_history`, which accepts 1 to 60 months (the same range as the setting) and audits each purge to `IngestionAuditEvent` (`login_history.purged`).
 
 ## 12. Day replacement guard and Admin issues inbox (issue #44 items 9, 10; §6.2 step 9)
 
@@ -232,7 +232,7 @@ The directory sync reads `directory.department_attribute` and `directory.busines
 | `duplicate_file` | `retry`, `accept_last`, `accept_first`, `reject` |
 | `smaller_day` | `force`, `discard` |
 
-Status: `open`, `resolved`, `dismissed` (`reject` and `discard` dismiss). Types: `IssueListRequest/Response`, `OpenIssueCountResponse` (banner), `IssueActionRequest/Response` in `shared/src/issues.ts`. A chosen action only marks the day for reprocessing (an `IssueAction` row); the ingestion Function does the work and sets `handled_at`. Out of scope: comments, assignments, custom rules, arbitrary action types, email or Azure Monitor alerts (issue #37).
+Status: `open`, `resolved`, `dismissed` (`reject` and `discard` dismiss). Types: `IssueListRequest/Response`, `OpenIssueCountResponse` (banner), `IssueActionRequest/Response` in `shared/src/issues.ts`. `force` on an empty day needs the day context and the typed date; without context it is rejected. A chosen action only marks the day for reprocessing (an `IssueAction` row); the ingestion Function does the work and sets `handled_at`. Out of scope: comments, assignments, custom rules, arbitrary action types, email or Azure Monitor alerts (issue #37).
 
 ## 13. Template configuration keys
 
@@ -252,3 +252,9 @@ The deployment template and the private environment repository supply these as t
 #   business_area_attribute: ""       # example: onPremisesExtensionAttributes.extensionAttribute1. Empty disables the business_area scope
 #   empty_attribute_threshold_percent: 20
 ```
+
+## 14. Access-model review notes
+
+- Grant, revocation and unlink timestamps are `DATETIME2(7)`; `portal.v_active_grant` hides a grant when a revocation or unlink is at or after `granted_at`, so an exact tie fails closed.
+- Entra columns of `Principal` are not directly updatable. `portal.usp_link_principal_entra` (EXECUTE for the portal writer) fills a missing Entra ID once (dual-provider linking, decision record §13.1); it never reassigns or clears one.
+- `validateSettings` rejects a non-object root or a supplied non-object section; omitted sections keep defaults.

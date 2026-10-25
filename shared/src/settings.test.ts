@@ -43,6 +43,14 @@ describe("deployment settings (items 6, 8, 11)", () => {
     expect(validateSettings({ retention: { perUserMonths: 0 } }).ok).toBe(false);
   });
 
+  it("rejects a non-object root or a supplied non-object section, but keeps defaults for omitted sections", () => {
+    for (const bad of [null, "x", 5, [], { retention: "36" }, { access: null }, { privacy: [] }, { directory: 1 }]) {
+      expect(validateSettings(bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+    expect(validateSettings({}).ok).toBe(true);
+    expect(validateSettings(undefined).ok).toBe(true);
+  });
+
   it("rejects a break-glass group ID that is not a GUID", () => {
     const r = validateSettings({ access: { breakGlassGroupId: "admins" } });
     expect(r).toMatchObject({ ok: false });

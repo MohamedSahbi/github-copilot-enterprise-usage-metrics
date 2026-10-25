@@ -23,7 +23,8 @@ describe("validateIssueActionRequest", () => {
   const base = { issueId: 7, confirm: true };
   it("accepts an action from the type's set when an admin confirms", () => {
     expect(validateIssueActionRequest({ ...base, action: "accept_last" }, "duplicate_file", true)).toEqual({ ok: true });
-    expect(validateIssueActionRequest({ ...base, action: "force" }, "smaller_day", true)).toEqual({ ok: true });
+    expect(validateIssueActionRequest({ ...base, action: "force" }, "smaller_day", true, { reportDay: "2026-01-05", incomingRows: 3 })).toEqual({ ok: true });
+    expect(validateIssueActionRequest({ ...base, action: "force" }, "smaller_day", true)).toEqual({ ok: false, code: "empty_day_confirmation_required" });
   });
   it("rejects an action that belongs to another type", () => {
     expect(validateIssueActionRequest({ ...base, action: "force" }, "duplicate_file", true)).toEqual({ ok: false, code: "invalid_action" });

@@ -8,6 +8,7 @@
 --              IngestionAuditEvent; UPDATE(handled_at) on ValidationIssue only.
 --   portal:    INSERT on IssueAction. Reads the grant state through portal.v_active_grant.
 --   Append-only: UPDATE and DELETE are denied on GrantRevocation, IssueAction and IngestionAuditEvent for every role.
+--   portal:    EXECUTE on usp_link_principal_entra (fill a missing Entra ID once; the only way to set Entra columns).
 -- Ingestion keeps DENY SELECT on Principal, PrincipalIdentity and AccessGrant; it never reads access data.
 --
 -- dim_user_login_history is kept for audit and purged only after a maximum age (deployment setting
@@ -54,8 +55,8 @@ AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
-    IF @max_age_months IS NULL OR @max_age_months < 1
-        THROW 50045, N'max_age_months must be at least 1', 1;
+    IF @max_age_months IS NULL OR @max_age_months < 1 OR @max_age_months > 60
+        THROW 50045, N'max_age_months must be between 1 and 60', 1;
 
     DECLARE @cutoff DATE = DATEADD(MONTH, -@max_age_months, CAST(SYSUTCDATETIME() AS DATE));
     DECLARE @deleted INT;
@@ -80,4 +81,27 @@ END;
 GO
 
 GRANT EXECUTE ON portal.usp_purge_login_history TO portal_ingest;
+GO
+
+-- Dual-provider linking (decision record §13.1): fills the missing Entra ID of a GitHub-only principal exactly once.
+-- Entra columns are not directly updatable, so an identity can never be re-pointed or cleared.
+CREATE OR ALTER PROCEDURE portal.usp_link_principal_entra
+    @principal_id UNIQUEIDENTIFIER,
+    @entra_tenant_id UNIQUEIDENTIFIER,
+    @entra_object_id UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF @principal_id IS NULL OR @entra_tenant_id IS NULL OR @entra_object_id IS NULL
+        THROW 50046, N'principal, tenant and Entra object ID are required', 1;
+    UPDATE portal.Principal
+    SET entra_tenant_id = @entra_tenant_id, entra_object_id = @entra_object_id, updated_at = SYSUTCDATETIME()
+    WHERE principal_id = @principal_id AND entra_object_id IS NULL;
+    IF @@ROWCOUNT = 0
+        THROW 50047, N'principal not found or already linked to an Entra identity', 1;
+END;
+GO
+
+GRANT EXECUTE ON portal.usp_link_principal_entra TO portal_writer;
 GO

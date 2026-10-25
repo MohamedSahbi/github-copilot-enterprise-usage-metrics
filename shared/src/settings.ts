@@ -31,15 +31,24 @@ export type SettingsValidation =
 const ATTRIBUTE_PATH = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$/;
 
 type Bag = Record<string, unknown>;
-const bag = (v: unknown): Bag => (typeof v === "object" && v !== null ? (v as Bag) : {});
+const isBag = (v: unknown): v is Bag => typeof v === "object" && v !== null && !Array.isArray(v);
 
 export function validateSettings(input: unknown): SettingsValidation {
   const errors: { setting: string; issue: string }[] = [];
-  const root = bag(input);
-  const retention = bag(root.retention);
-  const privacy = bag(root.privacy);
-  const access = bag(root.access);
-  const directory = bag(root.directory);
+  // Omitted (undefined) roots and sections keep their defaults; anything else must be a plain object.
+  const bag = (v: unknown, setting: string): Bag => {
+    if (v === undefined) return {};
+    if (!isBag(v)) {
+      errors.push({ setting, issue: "must be an object" });
+      return {};
+    }
+    return v;
+  };
+  const root = bag(input, "settings");
+  const retention = bag(root.retention, "retention");
+  const privacy = bag(root.privacy, "privacy");
+  const access = bag(root.access, "access");
+  const directory = bag(root.directory, "directory");
   const d = DEFAULT_SETTINGS;
 
   const int = (v: unknown, setting: string, fallback: number, min: number, max = Number.MAX_SAFE_INTEGER): number => {

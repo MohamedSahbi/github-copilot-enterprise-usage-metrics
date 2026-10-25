@@ -68,7 +68,7 @@ export function validateIssueActionRequest(
   if (!isAdmin) return { ok: false, code: "forbidden" };
   if (!(ISSUE_ACTIONS[type] as readonly string[]).includes(req.action)) return { ok: false, code: "invalid_action" };
   if (req.confirm !== true) return { ok: false, code: "confirmation_required" };
-  if (req.action === "force" && ctx !== undefined && ctx.incomingRows === 0 && req.confirmDate !== ctx.reportDay) {
+  if (req.action === "force" && (ctx === undefined || (ctx.incomingRows === 0 && req.confirmDate !== ctx.reportDay))) {
     return { ok: false, code: "empty_day_confirmation_required" };
   }
   return { ok: true };

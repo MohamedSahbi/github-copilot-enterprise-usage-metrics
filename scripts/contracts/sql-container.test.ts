@@ -106,6 +106,32 @@ describe.skipIf(!enabled)("migrations on SQL Server 2022 (RUN_SQL_TESTS=1)", () 
     expect(run(`SELECT COUNT(*) FROM portal.AccessGrant WHERE principal_id = '${pid}' AND revoked_at IS NULL`)).toBe("1");
   });
 
+  it("keeps event order below one second: a re-grant after a revocation is active, a tie fails closed", () => {
+    const O6 = "aaaaaaaa-0000-0000-0000-000000000006";
+    const pid = principal(O6, 1006);
+    run(`INSERT INTO portal.AccessGrant (principal_id, principal_entra_oid, role, scope, scope_value, granted_at) VALUES ('${pid}', '${O6}', 'user', 'self', N'', '2030-01-01T00:00:00.1234567')`);
+    run(`INSERT INTO portal.GrantRevocation (entra_tenant_id, entra_object_id, revoked_at, reason) VALUES ('${T}', '${O6}', '2030-01-01T00:00:00.1234568', 'entra_disabled')`);
+    expect(run(`SELECT COUNT(*) FROM portal.v_active_grant WHERE principal_id = '${pid}'`)).toBe("0");
+    run(`UPDATE portal.AccessGrant SET revoked_at = '2030-01-01T00:00:00.1234568' WHERE principal_id = '${pid}'`);
+    run(`INSERT INTO portal.AccessGrant (principal_id, principal_entra_oid, role, scope, scope_value, granted_at) VALUES ('${pid}', '${O6}', 'user', 'self', N'', '2030-01-01T00:00:00.1234569')`);
+    expect(run(`SELECT COUNT(*) FROM portal.v_active_grant WHERE principal_id = '${pid}'`)).toBe("1");
+    run(`INSERT INTO portal.GrantRevocation (entra_tenant_id, entra_object_id, revoked_at, reason) VALUES ('${T}', '${O6}', '2030-01-01T00:00:00.1234569', 'entra_disabled')`);
+    expect(run(`SELECT COUNT(*) FROM portal.v_active_grant WHERE principal_id = '${pid}'`)).toBe("0");
+  });
+
+  it("fills a missing Entra ID once through usp_link_principal_entra, without reassignment", () => {
+    run("IF DATABASE_PRINCIPAL_ID('t_writer') IS NULL BEGIN CREATE USER t_writer WITHOUT LOGIN; ALTER ROLE portal_writer ADD MEMBER t_writer; END");
+    const O7 = "aaaaaaaa-0000-0000-0000-000000000007";
+    const O8 = "aaaaaaaa-0000-0000-0000-000000000008";
+    const pid = principal(null, 1007);
+    asUserFails("t_writer", `UPDATE portal.Principal SET entra_tenant_id = '${T}', entra_object_id = '${O7}' WHERE principal_id = '${pid}'`);
+    expect(() => asUser("t_writer", `EXEC portal.usp_link_principal_entra @principal_id = '${pid}', @entra_tenant_id = '${T}', @entra_object_id = '${O7}'`)).not.toThrow();
+    expect(run(`SELECT github_user_id FROM portal.Principal WHERE entra_object_id = '${O7}'`)).toBe("1007");
+    fails(`EXECUTE AS USER = 't_writer'; EXEC portal.usp_link_principal_entra @principal_id = '${pid}', @entra_tenant_id = '${T}', @entra_object_id = '${O8}'; REVERT`, /not found or already linked/);
+    const other = principal(null, 1008);
+    fails(`EXECUTE AS USER = 't_writer'; EXEC portal.usp_link_principal_entra @principal_id = '${other}', @entra_tenant_id = '${T}', @entra_object_id = '${O7}'; REVERT`, /UX_Principal_entra/);
+  });
+
   it("requires the manager email whenever a manager object ID is stored", () => {
     fails(`INSERT INTO portal.dim_user (user_id, manager_entra_object_id) VALUES (3001, '${O1}')`, /CK_dim_user_manager_email/);
     expect(() => run(`INSERT INTO portal.dim_user (user_id, manager_entra_object_id, manager_email, department, business_area) VALUES (3002, '${O1}', N'm@example.test', N'dept', N'area')`)).not.toThrow();
@@ -114,10 +140,13 @@ describe.skipIf(!enabled)("migrations on SQL Server 2022 (RUN_SQL_TESTS=1)", () 
   it("purges login history only past the maximum age and audits it", () => {
     run("INSERT INTO portal.dim_user (user_id) VALUES (3003)");
     run("INSERT INTO portal.dim_user_login_history (user_id, login, first_seen_day, last_seen_day) VALUES (3003, N'old', '2000-01-01', '2000-01-02'), (3003, N'new', '2000-01-01', CAST(SYSUTCDATETIME() AS DATE))");
-    fails("EXEC portal.usp_purge_login_history @max_age_months = 0", /at least 1/);
+    fails("EXEC portal.usp_purge_login_history @max_age_months = 0", /between 1 and 60/);
+    fails("EXEC portal.usp_purge_login_history @max_age_months = 61", /between 1 and 60/);
+    expect(run("EXEC portal.usp_purge_login_history @max_age_months = 60")).toBe("1");
+    run("INSERT INTO portal.dim_user_login_history (user_id, login, first_seen_day, last_seen_day) VALUES (3003, N'old', '2000-01-01', '2000-01-02')");
     expect(run("EXEC portal.usp_purge_login_history @max_age_months = 24")).toBe("1");
     expect(run("SELECT login FROM portal.dim_user_login_history WHERE user_id = 3003")).toBe("new");
-    expect(run("SELECT COUNT(*) FROM portal.IngestionAuditEvent WHERE action = 'login_history.purged'")).toBe("1");
+    expect(run("SELECT COUNT(*) FROM portal.IngestionAuditEvent WHERE action = 'login_history.purged'")).toBe("2");
   });
 
   it("accepts a quarantined run and issue actions, and rejects unknown actions", () => {
@@ -135,7 +164,7 @@ describe.skipIf(!enabled)("migrations on SQL Server 2022 (RUN_SQL_TESTS=1)", () 
   const asUserFails = (user: string, q: string): void => fails(`EXECUTE AS USER = '${user}'; ${q}; REVERT`, /permission was denied|permission denied/i);
 
   it("enforces runtime permissions: ingestion cannot read grants, writer cannot rewrite a grant", () => {
-    run("CREATE USER t_ingest WITHOUT LOGIN; ALTER ROLE portal_ingest ADD MEMBER t_ingest; CREATE USER t_writer WITHOUT LOGIN; ALTER ROLE portal_writer ADD MEMBER t_writer");
+    run("CREATE USER t_ingest WITHOUT LOGIN; ALTER ROLE portal_ingest ADD MEMBER t_ingest");
     asUserFails("t_ingest", "SELECT COUNT(*) FROM portal.v_active_grant");
     asUserFails("t_ingest", "SELECT COUNT(*) FROM portal.AccessGrant");
 

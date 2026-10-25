@@ -64,6 +64,27 @@ IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_AccessGrant
 ALTER TABLE portal.AccessGrant WITH CHECK ADD CONSTRAINT CK_AccessGrant_value_empty CHECK (scope IN ('department', 'business_area') OR scope_value = N'');
 GO
 
+-- Event order between grants and directory revocations is compared on these timestamps, so keep sub-second precision
+-- (a tie still fails closed in portal.v_active_grant).
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'portal.AccessGrant') AND name = N'granted_at' AND scale < 7)
+BEGIN
+    DECLARE @df SYSNAME = (SELECT dc.name FROM sys.default_constraints AS dc JOIN sys.columns AS c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id WHERE dc.parent_object_id = OBJECT_ID(N'portal.AccessGrant') AND c.name = N'granted_at');
+    IF @df IS NOT NULL EXEC (N'ALTER TABLE portal.AccessGrant DROP CONSTRAINT ' + @df);
+    ALTER TABLE portal.AccessGrant ALTER COLUMN granted_at DATETIME2(7) NOT NULL;
+    ALTER TABLE portal.AccessGrant ADD CONSTRAINT DF_AccessGrant_granted DEFAULT SYSUTCDATETIME() FOR granted_at;
+END
+GO
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'portal.AccessGrant') AND name = N'revoked_at' AND scale < 7)
+BEGIN
+    IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_AccessGrant_active' AND object_id = OBJECT_ID(N'portal.AccessGrant'))
+    DROP INDEX IX_AccessGrant_active ON portal.AccessGrant;
+    ALTER TABLE portal.AccessGrant ALTER COLUMN revoked_at DATETIME2(7) NULL;
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_AccessGrant_active' AND object_id = OBJECT_ID(N'portal.AccessGrant'))
+CREATE INDEX IX_AccessGrant_active ON portal.AccessGrant (principal_id) WHERE revoked_at IS NULL;
+GO
+
 IF OBJECT_ID(N'portal.BreakGlassConfig', N'U') IS NOT NULL
 DROP TABLE portal.BreakGlassConfig;
 GO
