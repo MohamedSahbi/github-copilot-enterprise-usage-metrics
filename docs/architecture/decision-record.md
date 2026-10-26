@@ -63,7 +63,7 @@ The main design concern is not simply that files exist; it is that Blob is still
 
 ### 2.3 GitHub API inventory (verified in code and GitHub docs, API version 2026-03-10)
 
-The usage and directory endpoints below are taken from the existing runbooks and Functions. Budget Lookup endpoints are the target module's live, read-only GitHub REST calls (D-55), verified against the official API docs. Creating, updating, deleting budgets or changing cost-center resources remains billing automation and out of scope. The module's live GitHub API call is the sole runtime exception to the SQL-only read-store rule. Existing ingestion and directory credentials remain component-specific; Budget Lookup uses its own read-only credential.
+The usage and directory endpoints below are taken from the existing runbooks and Functions. Budget Lookup endpoints are the target module's live, read-only GitHub REST calls (D-55), verified against the official API docs. Creating, updating, deleting budgets or changing cost-center resources remains billing automation and out of scope. The module's live GitHub API call is the sole runtime exception to the SQL-only read-store rule. Existing ingestion and directory credentials remain component-specific; Budget Lookup uses its own credential, with read-only behavior enforced by the adapter's GET-only allowlist, not by a claim that its PAT scope cannot write.
 
 | Purpose | Endpoint | Used today in | Token support (docs) |
 | --- | --- | --- | --- |
