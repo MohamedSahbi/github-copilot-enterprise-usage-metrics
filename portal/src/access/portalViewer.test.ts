@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AccessResult, AccessScopedUser } from "../authz/access";
 import type { Role, Scope } from "../../../shared/src/rows";
-import { portalViewerFromAccess } from "./portalViewer";
+import { portalViewerFromAccess, resolvePortalScope } from "./portalViewer";
 
 const principal = {
   principal_id: "00000000-0000-4000-8000-000000000001",
@@ -58,7 +58,7 @@ describe("portal viewer access mapping", () => {
     });
   });
 
-  it("maps an authorized team grant and only its server-resolved report IDs", () => {
+  it("maps an authorized team grant without inventing dimension or team scopes", () => {
     const viewer = portalViewerFromAccess(authorized("manager", "team"), directoryUsers);
 
     expect(viewer).toMatchObject({
@@ -69,8 +69,6 @@ describe("portal viewer access mapping", () => {
     });
     expect(viewer.scopeOptions).toEqual([
       { kind: "team", value: "team", label: "My reports", userIds: [1000003, 1000007] },
-      { kind: "business_area", value: "business-area-a", label: "business area a", userIds: [1000003, 1000007] },
-      { kind: "department", value: "department-a", label: "department a", userIds: [1000003, 1000007] },
     ]);
   });
 
@@ -85,6 +83,46 @@ describe("portal viewer access mapping", () => {
       label: "All available data",
       userIds: [1000003, 1000007],
     });
+    expect(viewer.scopeOptions).toHaveLength(1);
+  });
+
+  it("offers only exact held department and business-area grants", () => {
+    const access = authorized("executive", "department", "held-department");
+    if (access.state !== "authorized") throw new Error("Expected authorized access");
+    access.grants.push({ role: "executive", scope: "business_area", scope_value: "held-area" });
+    const viewer = portalViewerFromAccess(access, directoryUsers);
+
+    expect(viewer.scopeOptions.map(({ kind, value, label }) => ({ kind, value, label }))).toEqual([
+      { kind: "department", value: "held-department", label: "held department" },
+      { kind: "business_area", value: "held-area", label: "held area" },
+    ]);
+  });
+
+  it("deduplicates repeated exact grants when building scope options", () => {
+    const access = authorized("executive", "department", "department-a");
+    if (access.state !== "authorized") throw new Error("Expected authorized access");
+    access.grants.push({ ...access.grants[0]! });
+
+    expect(portalViewerFromAccess(access, directoryUsers).scopeOptions).toEqual([
+      {
+        kind: "department",
+        value: "department-a",
+        label: "department a",
+        userIds: [1000003, 1000007],
+      },
+    ]);
+  });
+
+  it("defaults only when scope is omitted and rejects malformed, repeated, or stale tokens", () => {
+    const viewer = portalViewerFromAccess(authorized("manager", "team"), directoryUsers);
+
+    expect(resolvePortalScope(viewer)).toMatchObject({ kind: "team", value: "team" });
+    expect(resolvePortalScope(viewer, "team:team")).toMatchObject({ kind: "team", value: "team" });
+    expect(resolvePortalScope(viewer, "")).toBeNull();
+    expect(resolvePortalScope(viewer, "team")).toBeNull();
+    expect(resolvePortalScope(viewer, "team:team-1")).toBeNull();
+    expect(resolvePortalScope(viewer, "department:department-a")).toBeNull();
+    expect(resolvePortalScope(viewer, ["team:team", "team:team"])).toBeNull();
   });
 
   it("fails closed for an unknown access state or role", () => {
