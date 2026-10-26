@@ -1,5 +1,5 @@
 // Reference staging mapper: NDJSON line / CSV row → typed staging rows + ValidationIssues (data-contracts.md §2–§3).
-// Pure and deterministic; test-only oracle for the contract; the ingestion code (a later change) implements the same rules and must pass these tests.
+// Pure and deterministic test oracle for the contract; the Functions parser implements the same rules.
 
 import { createHash } from "node:crypto";
 import { csvRecords, CsvSyntaxError, type CsvRecord } from "../../../shared/src/csv";
@@ -102,6 +102,7 @@ function toInt(v: unknown): number | null {
 }
 
 // artifactId is the SourceArtifact (one download part) the line came from; line numbers restart in every part.
+// This reference maps one line; whole-file duplicate quarantine is enforced by the Functions loader.
 export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingContext, artifactId: number): UsersDayResult {
   const issues: StagedIssue[] = [];
   const issue = (code: ValidationErrorCode, field: string | null, message: string): void => {
@@ -136,6 +137,17 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
     REQUIRED_LOC.some((k) => !(k in raw));
   if (deprecated) {
     issue("unsupported_schema", null, "deprecated or missing LOC fields (old schema is not supported)");
+    return fail();
+  }
+
+  const phase = isObj(raw.ai_adoption_phase) ? raw.ai_adoption_phase : null;
+  const phaseVersion = phase?.version;
+  if (
+    phaseVersion !== undefined &&
+    phaseVersion !== null &&
+    (typeof phaseVersion !== "string" || phaseVersion.length > 64)
+  ) {
+    issue("unsupported_schema", "ai_adoption_phase.version", "version must be a string that fits VARCHAR(64)");
     return fail();
   }
 
@@ -277,7 +289,12 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
       prompt_tokens: optCount(tu, "prompt_tokens_sum", `${field}.token_usage.prompt_tokens_sum`, BIGINT_MAX),
       output_tokens: optCount(tu, "output_tokens_sum", `${field}.token_usage.output_tokens_sum`, BIGINT_MAX),
       version_info: version,
-      prompt_count: null, total_user_messages: null,
+      prompt_count: field === "totals_by_cli" || field === "totals_by_copilot_app"
+        ? optCount(o, "prompt_count", `${field}.prompt_count`)
+        : null,
+      total_user_messages: field === "totals_by_vscode_agent"
+        ? optCount(o, "total_user_messages", `${field}.total_user_messages`)
+        : null,
     });
   };
   clientObject("totals_by_cli", "copilot_cli", "last_known_cli_version", "cli_version");
@@ -305,12 +322,12 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
     });
   }
 
-  if (negative) return fail();
   if (first !== undefined) {
     issue("duplicate_key", "(organization_id,user_id,day)", `duplicate of line ${first}; first row wins`);
     return fail();
   }
   ctx.seen.set(key, lineNumber);
+  if (negative) return fail();
 
   const unknown = Object.keys(raw).filter((k) => !KNOWN_ROOT.has(k));
   const extra: Obj = {};
@@ -326,7 +343,6 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
     bool("used_copilot_app") || Boolean(raw.totals_by_copilot_app) || features.some((f) => isObj(f) && f.feature === "copilot_app") || appActivity;
   // Upstream derives both coding-agent flags from used_copilot_cloud_agent; we match it (data-contracts.md §4).
   const cloud = bool("used_copilot_cloud_agent");
-  const phase = isObj(raw.ai_adoption_phase) ? raw.ai_adoption_phase : null;
 
   const daily: StgUserDailyRow = {
     run_id: ctx.runId,
@@ -351,7 +367,7 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
     ai_adoption_phase_number: phase ? toInt(phase.phase_number) : null,
     ai_adoption_phase: phase ? str(phase.phase) : null,
     extra_json: unknown.length ? JSON.stringify(extra) : null,
-    ai_adoption_phase_version: null,
+    ai_adoption_phase_version: typeof phaseVersion === "string" ? phaseVersion : null,
   };
   return { loaded: true, daily, breakdown, families, issues };
 }

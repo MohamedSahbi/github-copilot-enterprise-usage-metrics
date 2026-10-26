@@ -51,15 +51,15 @@ One JSON object per line; one line = one user, one organization, one day. Fact k
 | `used_copilot_code_review_active` / `_passive` | `used_code_review_active` / `_passive` | BIT | no | Absent/null → false |
 | `ai_credits_used` | `ai_credits_used` | DECIMAL(18,9) | no | Absent/null → exact string `"0"`; numeric JSON tokens preserved losslessly; never rounded |
 | `ai_adoption_phase{phase_number,phase}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR(64) | yes | Existing mapping |
-| `ai_adoption_phase.version` | `ai_adoption_phase_version` | VARCHAR(64) | yes | Staging and daily fact schema available; explicitly NULL until #121 implements extraction/publication |
+| `ai_adoption_phase.version` | `ai_adoption_phase_version` | VARCHAR(64) | yes | Preserved as a validated string in staging and daily facts; absent/null remains NULL; reject values that exceed 64 characters or cannot round-trip losslessly under the target SQL collation |
 | `totals_by_ide[]` | breakdown `ide` (key_1 = ide) | | | `last_known_ide_version` and `last_known_plugin_version` → `version_info` (compact JSON of the documented string fields, NULL when absent) |
 | `totals_by_feature[]` | breakdown `feature` | | | |
 | `totals_by_language_feature[]` | breakdown `language_feature` (key_1 language, key_2 feature) | | | No interaction count in source → 0 |
 | `totals_by_language_model[]` | breakdown `language_model` | | | |
 | `totals_by_model_feature[]` | breakdown `model_feature` | | | |
-| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. A supplied value that is not a valid count is rejected (`negative_count`), an absent one is NULL. The new destinations below are null-only in #120; `avg_tokens_per_request` is not staged |
-| `totals_by_cli.prompt_count`, `totals_by_copilot_app.prompt_count` | breakdown `prompt_count` | INT | yes | Client keys `copilot_cli` / `copilot_app`; storage range 0..2147483647, zero distinct from NULL; extraction/publication deferred to #121 |
-| `totals_by_vscode_agent.total_user_messages` | breakdown `total_user_messages` | INT | yes | Client key `vscode_agent`; storage range 0..2147483647, zero distinct from NULL; extraction/publication deferred to #121 |
+| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. Supplied counts are validated (`negative_count`); absent/null counts remain NULL. `avg_tokens_per_request` is not staged |
+| `totals_by_cli.prompt_count`, `totals_by_copilot_app.prompt_count` | breakdown `prompt_count` | INT | yes | Client keys `copilot_cli` / `copilot_app`; validated range 0..2147483647, zero distinct from NULL |
+| `totals_by_vscode_agent.total_user_messages` | breakdown `total_user_messages` | INT | yes | Client key `vscode_agent`; validated range 0..2147483647, zero distinct from NULL |
 | `totals_by_skill`, `_custom_agent`, `_mcp`, `_slash_cmd`, `_plugin` | `fact_usage_family_count` (family, name, count) | | | |
 | any other field | `extra_json` (daily) | | | Warn `unknown_field`, load. `totals_by_client` is not in the pinned upstream types and is not staged |
 
@@ -76,16 +76,15 @@ or inferred label is substituted. Both counters use the existing INT activity-co
 historic updates are added. All six columns permit NULL; existing rows remain unavailable NULL.
 
 Shared staging row properties are **required and nullable**; daily facts inherit the version
-property. The Functions parser and reference mapper explicitly initialize these destinations to
-NULL for every daily/generic/client constructor, even when the source supplies them. Staging bulk
-columns follow the explicit column registries, not JavaScript object insertion order.
-Exact-credit VARCHAR transport and SQL-server DECIMAL conversion are unchanged. Existing curated
-inserts and the local curated seed omit the new nullable columns, so newly published facts also
-remain NULL. Schema availability is not source preservation.
+property. The Functions parser and reference mapper validate and preserve supplied source values;
+missing/null remains NULL and measured zero remains zero. Before staging, the loader checks phase
+version strings against the target database collation and rejects values that cannot round-trip
+losslessly through `VARCHAR(64)`. The loader sends staging bulk values by the explicit column
+registries, not JavaScript object insertion order, and publishes these fields to their matching
+fact columns. Exact-credit VARCHAR transport and SQL-server DECIMAL conversion are unchanged.
 
-Dependent **#121**, after #120 merges, owns source extraction and validation, missing/null/zero
-distinctions, staging-to-fact publication, and reference source mapping. Until then no newly
-introduced source values are validated or published. Discarded historic values remain unavailable:
+**#121** implements source extraction and validation, missing/null/zero distinctions,
+staging-to-fact publication, and reference source mapping. Discarded historic values remain unavailable:
 no fabricated zeros, replay, backfill or data migration is authorized. Future API consumption and
 parity remain separate work with #115/#119 owners; neither #120 nor #121 implements API consumption
 or promises historic parity. In particular, #119's feature-backed IDE fix does not recover the
@@ -206,7 +205,7 @@ Oracle: the pinned upstream aggregation (`portal/upstream/src/domain`, D-14); ou
 | --- | --- | --- |
 | `advanced_users` | Widens relative to the old portal's chart: includes CLI, VS Code agent and coding agent in addition to agent mode. | D-22 adopts upstream; stakeholders are told the figure rises. Not a difference from upstream. |
 | `*_users` over a range | Upstream computes over the loaded file; ours over SQL rows inside the retention window and organization scope. Equal when the fixture covers the range. | Scope |
-| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ingestion applies the same derivation at load. Upstream appends a synthetic `copilot_app` IDE total from feature interactions or `prompt_count`. The `kind=ide` read model derives App interactions from persisted feature rows at organization/user/day grain, replacing rather than adding to raw App IDE counts, including zero-valued feature rows; raw-only IDE rows remain unchanged. Flag/client-only days without feature or raw IDE rows are not synthesized as zero. The `prompt_count` fallback is unsupported because ingestion does not persist it; client session/request/token counts are not substitutes. A prompt-only aggregate for one user is below the API's enforced minimum group size, so it cannot be a visible parity assertion. | `app_users` derivation agrees. Feature-backed IDE recovery merged in #123 and is compared separately by the strict five-user oracle; the prompt-only fallback remains unavailable and is not a visible parity expectation (see `scripts/contracts/oracle/coverage.md` and #119). |
+| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ingestion applies the same derivation at load. Upstream appends a synthetic `copilot_app` IDE total from feature interactions or `prompt_count`. The `kind=ide` read model derives App interactions from persisted feature rows at organization/user/day grain, replacing rather than adding to raw App IDE counts, including zero-valued feature rows; raw-only IDE rows remain unchanged. Flag/client-only days without feature or raw IDE rows are not synthesized as zero. Newly ingested App `prompt_count` is now preserved by #121, but this API does not consume it; client session/request/token counts are not substitutes for the upstream fallback. Historic NULLs remain unavailable and #121 includes no replay/backfill. A prompt-only aggregate for one user is below the API's enforced minimum group size, so it cannot be a visible parity assertion. | `app_users` derivation agrees. Feature-backed IDE recovery merged in #123 and is compared separately by the strict five-user oracle; the prompt-only API fallback remains unavailable and is not a visible parity expectation (see `scripts/contracts/oracle/coverage.md` and #119). |
 | `used_coding_agent` | Upstream sets both coding-agent flags from `used_copilot_cloud_agent` only; ours stores the same value in `used_coding_agent` and `used_cloud_agent`, ignoring the source `used_copilot_coding_agent` field. | Oracle parity for `coding_agent_users` |
 | Language | Upstream normalizes language names at parse time; ours normalizes at load. | Same function applied in the loader |
 
