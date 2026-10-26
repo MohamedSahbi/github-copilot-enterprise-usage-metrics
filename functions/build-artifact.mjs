@@ -5,9 +5,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const functionsRoot = path.dirname(fileURLToPath(import.meta.url));
-const customArtifactRoot = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
+const component = process.argv[2];
+if (component !== "directory" && component !== "metrics") throw new Error("component_must_be_directory_or_metrics");
+const customArtifactRoot = process.argv[3] ? path.resolve(process.argv[3]) : undefined;
 const manifest = JSON.parse(await readFile(path.join(functionsRoot, "package.json"), "utf8"));
-const requiredRuntimeDependencies = ["@azure/functions", "@azure/identity", "mssql", "zod"];
+const requiredRuntimeDependencies = [
+  "@azure/functions", "@azure/identity", "mssql", "zod",
+  ...(component === "metrics" ? ["@azure/storage-blob"] : []),
+];
 
 for (const dependency of requiredRuntimeDependencies) {
   if (!manifest.dependencies?.[dependency]) throw new Error(`missing_runtime_dependency:${dependency}`);
@@ -21,9 +26,9 @@ if (customArtifactRoot) {
   const relativePath = path.relative(canonicalTempRoot, canonicalArtifactRoot);
   if (customRootStat.isSymbolicLink() || !customRootStat.isDirectory() ||
       relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath) ||
-      !path.basename(customArtifactRoot).startsWith("directory-artifact-") ||
+      !path.basename(customArtifactRoot).startsWith(`${component}-artifact-`) ||
       (await readdir(canonicalArtifactRoot)).length !== 0) {
-    throw new Error("custom_artifact_path_must_be_a_directory_artifact_temp_path");
+    throw new Error("custom_artifact_path_must_be_a_component_artifact_temp_path");
   }
   artifactRoot = canonicalArtifactRoot;
   await mkdir(path.join(artifactRoot, "dist"));
@@ -38,7 +43,7 @@ if (customArtifactRoot) {
     throw new Error("default_artifact_path_must_remain_inside_functions_directory");
   }
 
-  artifactRoot = path.join(canonicalDistRoot, "artifact");
+  artifactRoot = path.join(canonicalDistRoot, component === "directory" ? "artifact" : "metrics-artifact");
   try {
     const artifactStat = await lstat(artifactRoot);
     if (artifactStat.isSymbolicLink()) throw new Error("default_artifact_path_must_not_be_a_symlink");
@@ -52,7 +57,7 @@ if (customArtifactRoot) {
 if (customArtifactRoot === undefined) await mkdir(path.join(artifactRoot, "dist"));
 await build({
   absWorkingDir: functionsRoot,
-  entryPoints: ["src/directory/function.ts"],
+  entryPoints: [`src/${component}/function.ts`],
   outfile: path.join(artifactRoot, "dist/function.js"),
   bundle: true,
   packages: "external",
@@ -66,7 +71,7 @@ await build({
 });
 await cp(path.join(functionsRoot, "host.json"), path.join(artifactRoot, "host.json"));
 await writeFile(path.join(artifactRoot, "package.json"), `${JSON.stringify({
-  name: `${manifest.name}-directory`,
+  name: `${manifest.name}-${component}`,
   version: manifest.version,
   private: true,
   type: "module",

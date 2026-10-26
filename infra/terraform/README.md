@@ -34,6 +34,7 @@ Inputs worth knowing:
 | `access_break_glass_group_id`, `access_permission_freshness_minutes`, `access_no_access_message`, `access_request_url`, `access_contact` | Portal access-state settings (D-17). Empty group disables break-glass; freshness defaults to 5 minutes (1–60); empty request URL/contact hide those details. |
 | `directory_department_attribute`, `directory_business_area_attribute`, `stale_data_threshold_hours`, `per_user_detail_enabled` | Directory scope paths (empty disables each scope), source staleness (default 36 hours), and aggregate-only/per-user detail control (default false). |
 | `directory_sync_schedule` | Required six-field UTC NCRONTAB schedule for the directory timer; Terraform validates numeric field ranges and applies no default cadence. Example: `0 0 2 * * *` (02:00 UTC daily). |
+| `metrics_sync_schedule` | Required six-field UTC NCRONTAB schedule, emitted only as `METRICS_SYNC_SCHEDULE` on the metrics app. No default cadence. The metrics timer remains disabled pending #64 and separate activation approval. |
 | `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_GITHUB_SECRET` | Portal-only Key Vault references using the `auth-secret`, `auth-microsoft-entra-id-secret`, and `auth-github-secret` names in the existing `secret_names` output. Terraform never stores or creates the values. |
 | `app_service_sku` | Plan SKU shared by the portal and both Functions apps (default `B1`). |
 | `network.integration_subnet_id`, `network.private_dns_zones` | Subnet for app VNet integration; private DNS zone IDs keyed `vault`, `blob`, `queue`, `table`, `sql`. |
@@ -71,6 +72,24 @@ The optional `backfill_from` input is omitted by default and emitted as `BACKFIL
 set. This selects an inclusive historical API fetch date; omission does not request a historical
 fetch. Terraform validates the static date form, and the runtime rejects values outside the
 supported moving API window.
+
+Existing environments must also add `metrics_sync_schedule` to their private tfvars;
+there is no default. Standard UTC syntax examples are `0 0 * * * *` (hourly),
+`0 0 2 * * *` (daily), and `0 0 2 * * 1` (weekly). These examples do not select an
+operator cadence. Missing or invalid schedules fail Terraform validation; a
+bypassed invalid setting prevents the Functions host from indexing the timer.
+The stack sets `AzureWebJobs.metricsSync.Disabled = true`: #64 remains the live
+App proof gate, and activation requires separate authorization. No activation
+switch, PAT fallback, or installation-ID configuration is introduced here.
+
+`npm run build --workspace functions` emits two separate deployable roots:
+`functions/dist/artifact` for directory and `functions/dist/metrics-artifact`
+for metrics. Each has its own `host.json`, dependency manifest, and
+`main: dist/function.js`. Select the component's root, not the workspace package,
+for deployment. The metrics artifact registers `metricsSync` and composes real
+App acquisition and the existing day loader; it contains no directory handler,
+Graph/SCIM client, or directory PAT reference. The directory artifact excludes
+metrics acquisition and Blob code. Packaging is not deployment or live evidence.
 
 ## Directory runtime status
 

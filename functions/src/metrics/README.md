@@ -49,9 +49,14 @@ standard six-field UTC NCRONTAB, for example `0 0 * * * *` (hourly),
 `0 0 2 * * *` (daily), or `0 0 2 * * 1` (weekly). These are syntax examples, not a
 selected deployment cadence. Missing input must fail closed; the Functions host validates NCRONTAB syntax and
 ranges when resolving the registered timer.
-Metrics timer registration (`%METRICS_SYNC_SCHEDULE%`) and its emitting artifact
-remain pending the coordinated base update containing #72B, whose packaging
-ownership is now released. Do not copy its unmerged packaging delivery.
+The authorized #72B base is integrated without duplicating its commits.
+The metrics entrypoint registers `metricsSync` with `%METRICS_SYNC_SCHEDULE%`
+and `runOnStartup: false`. Its deployable root is
+`functions/dist/metrics-artifact`, with `main: dist/function.js`; build with
+`npm run build:metrics --workspace functions`. The directory artifact stays
+separate at `functions/dist/artifact`. The stack explicitly disables the metrics
+timer using `AzureWebJobs.metricsSync.Disabled = true` until #64 proof and
+separate activation approval; a packaged timer is not live support evidence.
 SQL integration evidence,
 #55/#56 deployment gates, and #64 live proof remain separate requirements.
 

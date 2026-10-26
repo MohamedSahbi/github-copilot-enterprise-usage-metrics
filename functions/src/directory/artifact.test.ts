@@ -20,7 +20,7 @@ async function listFiles(root: string, relative = ""): Promise<string[]> {
 }
 
 async function buildAndInspect(outputDirectory: string): Promise<[string, string][]> {
-  execFileSync(process.execPath, ["build-directory-artifact.mjs", outputDirectory], {
+  execFileSync(process.execPath, ["build-artifact.mjs", "directory", outputDirectory], {
     cwd: functionsRoot,
     stdio: "ignore",
   });
@@ -70,7 +70,7 @@ describe("directory Functions artifact", () => {
     const output = path.join(parent, "directory-artifact-symlink");
     try {
       await symlink(target, output, "dir");
-      expect(() => execFileSync(process.execPath, ["build-directory-artifact.mjs", output], {
+      expect(() => execFileSync(process.execPath, ["build-artifact.mjs", "directory", output], {
         cwd: functionsRoot,
         stdio: "ignore",
       })).toThrow();

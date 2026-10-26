@@ -68,11 +68,18 @@ locals {
   }, local.portal_auth_trust_host_setting)
 
   ingestion_app_settings = merge(local.common_app_settings, {
-    AZURE_CLIENT_ID        = module.identity["ingestion"].client_id
-    GITHUB_APP_ID          = var.github_app_id
-    GITHUB_APP_PRIVATE_KEY = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)", trimsuffix(module.key_vault.uri, "/"))
-    RAW_ARCHIVE_ACCOUNT    = module.storage.name
-    RAW_ARCHIVE_CONTAINER  = "raw"
+    METRICS_SYNC_SCHEDULE               = var.metrics_sync_schedule
+    FUNCTIONS_EXTENSION_VERSION         = "~4"
+    FUNCTIONS_WORKER_RUNTIME            = "node"
+    "AzureWebJobs.metricsSync.Disabled" = "true"
+    AzureWebJobsStorage__accountName    = module.storage.name
+    AzureWebJobsStorage__credential     = "managedidentity"
+    AzureWebJobsStorage__clientId       = module.identity["ingestion"].client_id
+    AZURE_CLIENT_ID                     = module.identity["ingestion"].client_id
+    GITHUB_APP_ID                       = var.github_app_id
+    GITHUB_APP_PRIVATE_KEY              = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)", trimsuffix(module.key_vault.uri, "/"))
+    RAW_ARCHIVE_ACCOUNT                 = module.storage.name
+    RAW_ARCHIVE_CONTAINER               = "raw"
     }, var.backfill_from == null ? {} : {
     BACKFILL_FROM = var.backfill_from
   })

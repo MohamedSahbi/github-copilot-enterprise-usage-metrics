@@ -33,6 +33,7 @@ access_contact                     = ""
 directory_department_attribute     = ""
 directory_business_area_attribute  = ""
 directory_sync_schedule            = "0 0 2 * * *"
+metrics_sync_schedule              = "0 0 2 * * *"
 stale_data_threshold_hours         = 36
 per_user_detail_enabled            = false
 
