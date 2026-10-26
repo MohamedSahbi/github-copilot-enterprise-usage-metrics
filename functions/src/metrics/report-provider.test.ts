@@ -21,6 +21,7 @@ function harness(responses: (Response | Error)[]) {
   const sleep = vi.fn<(milliseconds: number) => Promise<void>>(async () => undefined);
   const provider = new GitHubMetricsProvider({
     appId: "17", privateKey: pem, fetch: fetcher, sleep,
+    correlationId: "00000000-0000-4000-8000-000000000004",
     now: () => new Date("2026-10-26T01:00:00Z"),
   });
   return { provider, fetcher, sleep };
@@ -42,6 +43,9 @@ describe("GitHub App daily report acquisition", () => {
       link, `${link}&part=2`,
     ]);
     const jwt = new Headers(h.fetcher.mock.calls[0]?.[1]?.headers).get("authorization")!.slice(7);
+    for (const [, init] of h.fetcher.mock.calls.slice(0, 3)) {
+      expect(new Headers(init?.headers).get("x-correlation-id")).toBe("00000000-0000-4000-8000-000000000004");
+    }
     const [header, payload, signature] = jwt.split(".");
     expect(JSON.parse(Buffer.from(header!, "base64url").toString())).toEqual({ alg: "RS256", typ: "JWT" });
     expect(JSON.parse(Buffer.from(payload!, "base64url").toString())).toMatchObject({ iss: "17" });

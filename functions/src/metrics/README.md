@@ -14,6 +14,13 @@ before the existing `loadMetricsDay` receives bytes. This path does not replace
 the parser, archive, validation, quarantine, transaction, or per-day lock.
 The response fixture is synthetic, based on that documented wire shape; it is
 not evidence of a successful authenticated request or an owner report capture.
+Downloads accept HTTPS Azure Blob or GitHubusercontent subdomains only, without
+credentials, redirects, or API authorization headers. Other hosts fail visibly
+rather than receiving a token. Each request has at most three attempts with
+250/500 ms backoff and a 30-second deadline including the body. Parts are capped
+at 128 MiB (including decompressed gzip output), the combined day at 512 MiB, and
+the manifest at 1,000 distinct links. HTTP transfer errors and gzip integrity
+errors reject the day; no first-part-only publication is possible.
 
 Backfill defaults to yesterday (UTC). An explicitly supplied date must be within
 `max(2025-10-10, today - 365 days)` through yesterday, inclusive. Invalid,
@@ -29,10 +36,19 @@ actions are emitted by this path.
 
 ## Runtime integration gates
 
+`createMetricsRuntimeHandler` composes the provider, SQL run store, and existing
+day loader using the existing metrics settings. Dependencies are initialized
+only at invocation, not at module import or handler construction. Invalid
+settings or unresolved/invalid App keys fail closed. Each invocation revalidates
+the rolling backfill window, resumes only complete days, and throws a sanitized
+error when any day is missing or quarantined. Its invocation UUID flows through
+API requests, structured logs, failure runs, and the loader.
+
 The owner approved a required `METRICS_SYNC_SCHEDULE` with no default, using
 standard six-field UTC NCRONTAB, for example `0 0 * * * *` (hourly),
 `0 0 2 * * *` (daily), or `0 0 2 * * 1` (weekly). These are syntax examples, not a
-selected deployment cadence. Missing or invalid input must fail closed.
+selected deployment cadence. Missing input must fail closed; the Functions host validates NCRONTAB syntax and
+ranges when resolving the registered timer.
 Metrics timer registration (`%METRICS_SYNC_SCHEDULE%`) and its emitting artifact
 remain pending the coordinated base update containing #72B, whose packaging
 ownership is now released. Do not copy its unmerged packaging delivery.

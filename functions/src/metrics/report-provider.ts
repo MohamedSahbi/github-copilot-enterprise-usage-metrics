@@ -1,4 +1,4 @@
-import { createPrivateKey, sign } from "node:crypto";
+import { createPrivateKey, randomUUID, sign } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
@@ -36,6 +36,7 @@ interface ProviderOptions {
   fetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
+  correlationId?: string;
 }
 
 function safeOrganization(value: string): string {
@@ -91,12 +92,14 @@ export class GitHubMetricsProvider {
   private readonly fetcher: typeof fetch;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly now: () => Date;
+  private readonly correlationId: string;
   private readonly installations = new Map<string, z.infer<typeof installationSchema>>();
 
   constructor(private readonly options: ProviderOptions) {
     this.fetcher = options.fetch ?? fetch;
     this.sleep = options.sleep ?? delay;
     this.now = options.now ?? (() => new Date());
+    this.correlationId = z.uuid().parse(options.correlationId ?? randomUUID());
   }
 
   private jwt(): string {
@@ -163,6 +166,7 @@ export class GitHubMetricsProvider {
       headers: {
         accept: "application/vnd.github+json", authorization: `Bearer ${token}`,
         "x-github-api-version": "2026-03-10", "user-agent": "copilot-metrics-ingestion",
+        "x-correlation-id": this.correlationId,
       },
     }, 1024 * 1024);
     try {
