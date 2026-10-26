@@ -264,6 +264,9 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
       ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "café" },
     }));
     expect((await loadMetricsDay(valid, { sqlConfig, blobContainer })).status).toBe("published");
+    const validStaged = await pool.request().input("runId", sql.UniqueIdentifier, valid.runId).query(`
+      SELECT ai_adoption_phase_version FROM portal.stg_user_daily WHERE run_id = @runId`);
+    expect(validStaged.recordset).toEqual([{ ai_adoption_phase_version: "café" }]);
     const validStored = await pool.request().input("runId", sql.UniqueIdentifier, valid.runId).query(`
       SELECT ai_adoption_phase_version FROM portal.fact_user_daily_usage WHERE run_id = @runId`);
     expect(validStored.recordset).toEqual([{ ai_adoption_phase_version: "café" }]);
