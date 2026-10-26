@@ -102,6 +102,7 @@ export interface StgUserDailyRow {
   ai_adoption_phase_number: number | null;
   ai_adoption_phase: string | null;
   extra_json: string | null;
+  ai_adoption_phase_version: string | null;
 }
 
 export interface StgUserBreakdownRow {
@@ -124,6 +125,8 @@ export interface StgUserBreakdownRow {
   prompt_tokens: number | null;
   output_tokens: number | null;
   version_info: string | null;
+  prompt_count: number | null;
+  total_user_messages: number | null;
 }
 
 export interface StgUserFamilyCountRow {
@@ -325,8 +328,14 @@ export const TABLE_COLUMNS = {
     "interaction_count", "code_generation_count", "code_acceptance_count", "loc_suggested_to_add",
     "loc_suggested_to_delete", "loc_added", "loc_deleted", "used_agent", "used_chat", "used_cli", "used_coding_agent",
     "used_cloud_agent", "used_copilot_app", "used_vscode_agent", "used_code_review_active", "used_code_review_passive",
-    "ai_credits_used", "ai_adoption_phase_number", "ai_adoption_phase", "extra_json",
+    "ai_credits_used", "ai_adoption_phase_number", "ai_adoption_phase", "extra_json", "ai_adoption_phase_version",
   ] as const satisfies readonly (keyof StgUserDailyRow)[],
+  "portal.stg_user_breakdown": [
+    "run_id", "artifact_id", "line_number", "item_number", "breakdown_kind", "key_1", "key_2",
+    "interaction_count", "code_generation_count", "code_acceptance_count", "loc_suggested_to_add",
+    "loc_suggested_to_delete", "loc_added", "loc_deleted", "session_count", "request_count",
+    "prompt_tokens", "output_tokens", "version_info", "prompt_count", "total_user_messages",
+  ] as const satisfies readonly (keyof StgUserBreakdownRow)[],
   "portal.dim_user": [
     "user_id", "login", "email", "display_name", "entra_object_id", "state", "first_seen_day", "last_seen_day",
     "deleted_at", "pii_purged_at", "updated_at", "manager_entra_object_id", "manager_email", "department", "business_area",
