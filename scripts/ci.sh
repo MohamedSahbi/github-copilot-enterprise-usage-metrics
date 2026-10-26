@@ -10,4 +10,5 @@ npm run build
 trap 'npm run stack:down' EXIT
 npm run stack:up
 npm run test:e2e
-E2E_PORT=3101 E2E_PER_USER_DETAIL_ENABLED=1 npm run test:e2e -- --grep "member cannot read a different user's details outside its self grant"
+# Retained traces show Turbopack HMR hash-mismatch reload loops in this serial secondary phase.
+E2E_DEV_BUNDLER=webpack E2E_PORT=3101 E2E_PER_USER_DETAIL_ENABLED=1 npm run test:e2e -- --grep "member cannot read a different user's details outside its self grant"
