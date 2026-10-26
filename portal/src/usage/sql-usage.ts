@@ -301,11 +301,11 @@ export async function getUsageBreakdown(
     .input("offset", sql.BigInt, offset)
     .input("pageSize", sql.Int, input.pageSize);
   const groupedCte = `ScopedBreakdowns AS (
-    SELECT b.organization_id, b.usage_day, b.user_id, b.breakdown_kind, b.key_1, b.interaction_count
+    SELECT b.organization_id, b.usage_day, b.user_id, b.breakdown_kind, b.key_1, b.interaction_count, b.prompt_count
     FROM portal.fact_usage_breakdown AS b
     INNER JOIN AuthorizedUsers AS au ON au.user_id = b.user_id
     WHERE b.usage_day BETWEEN @fromDay AND @toDay
-      AND ${input.kind === "ide" ? "b.breakdown_kind IN ('ide', 'feature')" : "b.breakdown_kind = @breakdownKind"}
+     AND ${input.kind === "ide" ? "b.breakdown_kind IN ('ide', 'feature', 'client')" : "b.breakdown_kind = @breakdownKind"}
       AND ${organizationFilter("b")}
   ),
   ${input.kind === "ide" ? `AppFeatures AS (
@@ -314,9 +314,42 @@ export async function getUsageBreakdown(
     WHERE breakdown_kind = 'feature' AND key_1 = N'copilot_app'
     GROUP BY organization_id, usage_day, user_id
   ),
+  AppClients AS (
+    SELECT organization_id, usage_day, user_id, MAX(prompt_count) AS prompt_count
+    FROM ScopedBreakdowns
+    WHERE breakdown_kind = 'client' AND key_1 = N'copilot_app'
+    GROUP BY organization_id, usage_day, user_id
+  ),
+  AppActivations AS (
+    SELECT f.organization_id, f.usage_day, f.user_id
+    FROM portal.fact_user_daily_usage AS f
+    INNER JOIN AuthorizedUsers AS au ON au.user_id = f.user_id
+    WHERE f.usage_day BETWEEN @fromDay AND @toDay
+      AND f.used_copilot_app = 1
+      AND ${organizationFilter("f")}
+  ),
+  AppFallbacks AS (
+    SELECT organization_id, usage_day, user_id, ISNULL(prompt_count, 0) AS interaction_count
+    FROM AppClients
+    UNION ALL
+    SELECT f.organization_id, f.usage_day, f.user_id, 0 AS interaction_count
+    FROM AppActivations AS f
+    WHERE NOT EXISTS (
+      SELECT 1 FROM AppClients AS c
+      WHERE c.organization_id = f.organization_id AND c.usage_day = f.usage_day
+        AND c.user_id = f.user_id
+    )
+  ),
   IdeRows AS (
-    SELECT b.key_1, b.user_id, b.interaction_count
+    SELECT b.key_1, b.user_id,
+      CASE WHEN b.key_1 = N'copilot_app' AND b.interaction_count <= 0
+        THEN ISNULL(c.prompt_count, b.interaction_count)
+        ELSE b.interaction_count
+      END AS interaction_count
     FROM ScopedBreakdowns AS b
+    LEFT JOIN AppClients AS c
+      ON c.organization_id = b.organization_id AND c.usage_day = b.usage_day
+        AND c.user_id = b.user_id
     WHERE b.breakdown_kind = 'ide'
       AND (b.key_1 <> N'copilot_app' OR NOT EXISTS (
         SELECT 1 FROM AppFeatures AS a
@@ -325,6 +358,19 @@ export async function getUsageBreakdown(
       ))
     UNION ALL
     SELECT N'copilot_app', user_id, interaction_count FROM AppFeatures
+    UNION ALL
+    SELECT N'copilot_app', f.user_id, f.interaction_count
+    FROM AppFallbacks AS f
+    WHERE NOT EXISTS (
+      SELECT 1 FROM ScopedBreakdowns AS b
+      WHERE b.organization_id = f.organization_id AND b.usage_day = f.usage_day
+        AND b.user_id = f.user_id AND b.breakdown_kind = 'ide' AND b.key_1 = N'copilot_app'
+    )
+      AND NOT EXISTS (
+        SELECT 1 FROM AppFeatures AS a
+        WHERE a.organization_id = f.organization_id AND a.usage_day = f.usage_day
+          AND a.user_id = f.user_id
+      )
   ),
   ` : ""}Grouped AS (
     SELECT key_1 AS [key], SUM(interaction_count) AS interactions,
