@@ -175,11 +175,11 @@ Oracle: the pinned upstream aggregation (`portal/upstream/src/domain`, D-14); ou
 | --- | --- | --- |
 | `advanced_users` | Widens relative to the old portal's chart: includes CLI, VS Code agent and coding agent in addition to agent mode. | D-22 adopts upstream; stakeholders are told the figure rises. Not a difference from upstream. |
 | `*_users` over a range | Upstream computes over the loaded file; ours over SQL rows inside the retention window and organization scope. Equal when the fixture covers the range. | Scope |
-| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ours applies the same derivation at load. Upstream also appends a synthetic `copilot_app` IDE total; ours does not (no SQL consumer). | Oracle parity for `app_users` |
+| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ingestion applies the same derivation. Upstream also appends a synthetic `copilot_app` IDE total from app feature interactions or app prompt count. Ingestion persists feature breakdown rows and stores app client totals separately, but not `prompt_count`. A prompt-only aggregate for one user is below the API's enforced minimum group size, so it cannot be a visible parity assertion. Feature-backed IDE reconstruction merged in #123; the original one-user prompt fallback remains unavailable. | `app_users` derivation agrees; visible feature-backed IDE parity is checked separately from the prompt-count source gap (see `scripts/contracts/oracle/coverage.md` and #119) |
 | `used_coding_agent` | Upstream sets both coding-agent flags from `used_copilot_cloud_agent` only; ours stores the same value in `used_coding_agent` and `used_cloud_agent`, ignoring the source `used_copilot_coding_agent` field. | Oracle parity for `coding_agent_users` |
 | Language | Upstream normalizes language names at parse time; ours normalizes at load. | Same function applied in the loader |
 
-No other difference was found while reading the calculators (only the adoption and AI credits paths were read and are checked by `scripts/contracts/oracle`; the remaining calculators are not yet compared).
+The SQL/upstream oracle coverage and its known limits are tracked in `scripts/contracts/oracle/coverage.md`. It does not claim visible parity for the fixture's one-user prompt-only `copilot_app` fallback; a separate five-user feature-backed comparison remains strict against the SQL reconstruction merged in #123.
 
 ## 5. Identity keys
 
