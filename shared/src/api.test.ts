@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   deriveCoreViewMetric,
   intersectCoreViewScopeOptions,
+  parseCoreViewScopeSelection,
+  serializeCoreViewScopeSelection,
   validateBudgetLookupRequest,
 } from "./api";
 import type {
@@ -10,8 +12,12 @@ import type {
   BudgetLookupResponse,
   CoreViewCohort,
   CoreViewMetric,
+  CoreViewScopeSelection,
   CoreViewScopeOptions,
   GitHubBudgetUserStatesPage,
+  UsageBreakdownRequest,
+  UsageOverviewRequest,
+  UserUsageRequest,
 } from "./api";
 import { exactDecimal18_9 } from "./decimal";
 
@@ -42,6 +48,58 @@ describe("Budget Lookup contract", () => {
   });
 
   describe("core-view contract availability and scope options", () => {
+    it("round-trips canonical scope query parameters and leaves omitted scope empty", () => {
+      const selections = [
+        { scope: "self" },
+        { scope: "team" },
+        { scope: "company" },
+        { scope: "department", value: "{business area}" },
+        { scope: "business_area", value: "{business-area}" },
+      ] satisfies CoreViewScopeSelection[];
+
+      expect(serializeCoreViewScopeSelection().toString()).toBe("");
+      for (const selection of selections) {
+        const params = serializeCoreViewScopeSelection(selection);
+        expect(params.getAll("scope")).toEqual([selection.scope]);
+        expect(params.getAll("value")).toEqual("value" in selection ? [selection.value] : []);
+        expect(parseCoreViewScopeSelection(params)).toEqual({ ok: true, selection });
+      }
+      expect(serializeCoreViewScopeSelection(selections[3]).toString())
+        .toBe("scope=department&value=%7Bbusiness+area%7D");
+    });
+
+    it("composes scope selection with existing fixed-period endpoint requests", () => {
+      const overview: UsageOverviewRequest = { period: "last_7_days", scope: { scope: "team" } };
+      const breakdown: UsageBreakdownRequest = {
+        period: "last_28_days",
+        scope: { scope: "department", value: "{department}" },
+        kind: "client",
+        page: 1,
+      };
+      const users: UserUsageRequest = { period: "calendar_month", month: "2026-09" };
+
+      expect([overview.scope, breakdown.scope, users.scope]).toEqual([
+        { scope: "team" },
+        { scope: "department", value: "{department}" },
+        undefined,
+      ]);
+    });
+
+    it.each([
+      "value=department-a",
+      "scope=unknown",
+      "scope=self&value=department-a",
+      "scope=department",
+      "scope=department&value=",
+      "scope=business_area&value=area-a&value=area-b",
+      "scope=self&scope=team",
+    ])("rejects malformed or ambiguous scope query parameters: %s", (query) => {
+      expect(parseCoreViewScopeSelection(new URLSearchParams(query))).toEqual({
+        ok: false,
+        code: "invalid_request",
+      });
+    });
+
     it("distinguishes measured zero, source-not-reported, discarded source, and suppression", () => {
       const measuredZero: CoreViewCohort<number> = {
         availability: "available",
