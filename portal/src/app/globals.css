@@ -9,3 +9,14 @@
 }
 
 @source "../../upstream/src";
+
+.faq h1 { font-size: 2rem; font-weight: 600; margin: 1.5rem 0 1rem; }
+.faq h2 { font-size: 1.5rem; font-weight: 600; margin: 2rem 0 1rem; }
+.faq h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
+.faq p, .faq ul, .faq ol { margin: 0.75rem 0; }
+.faq ul, .faq ol { padding-left: 1.5rem; }
+.faq ul { list-style: disc; }
+.faq ol { list-style: decimal; }
+.faq a { text-decoration: underline; }
+.faq :target { scroll-margin-top: 1rem; }
+.faq section[data-footnotes] { border-top: 1px solid var(--borderColor-default); margin-top: 2rem; }
