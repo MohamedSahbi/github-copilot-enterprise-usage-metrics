@@ -4,7 +4,13 @@ Single-tenant-per-deployment portal for GitHub Copilot usage analytics on Azure 
 
 See the [portal FAQ](docs/portal-faq.md) for usage-period and privacy behavior.
 
-Status: Phase 1 skeleton. No business features yet.
+Status: restricted private alpha. Only Overview and Copilot Impact are released, as
+server-rendered daily aggregate tables. The usage JSON APIs and direct user-detail
+routes are unavailable even when per-user detail is enabled. Scope choices come
+only from effective direct grants; navigation and feature flags never grant access.
+See the [Safe Alpha runbook](docs/runbooks/safe-alpha.md) for the release boundary
+and verification procedure. This restriction does not complete the broader #115
+reporting scope.
 
 ## Getting started
 

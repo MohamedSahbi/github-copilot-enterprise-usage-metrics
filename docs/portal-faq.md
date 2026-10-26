@@ -2,17 +2,23 @@
 
 Help with the portal, without needing access to usage data. Your deployment may not include every feature described here.
 
+The current private alpha releases only Overview and Copilot Impact as
+server-rendered daily aggregate tables for the latest seven available days.
+Other charts, user lists/details, and direct usage JSON APIs are unavailable.
+The broader reporting scope remains unfinished; this restriction is not a
+privacy exception or completion of issue #115.
+
 [Data](#data) · [Access](#access) · [Features](#features) · [Privacy](#privacy)
 
 ## Data
 
 ### Why are usage date ranges fixed?
 
-Usage reports support the last 7, 28, or 90 days, or a whole calendar month. Rolling periods end on the latest usage day available in the portal, not necessarily today. A calendar month must be complete. You cannot choose arbitrary start and end dates.
+The underlying reporting contract supports the last 7, 28, or 90 days, or a whole calendar month. The private alpha exposes only the latest seven-day view, with no period picker or direct usage API access. Rolling periods end on the latest usage day available in the portal, not necessarily today. A calendar month must be complete. You cannot choose arbitrary start and end dates.
 
 Fixed periods protect individuals in aggregate-only mode: with arbitrary overlapping ranges, someone could subtract two aggregate results to isolate one person's usage on a single day. The API continues to suppress aggregate groups smaller than the configured minimum, which defaults to five.
 
-Fixed periods do not eliminate all overlap. The last 7 days are nested within the last 28 days, which are nested within the last 90 days, so subtraction between those periods can still reveal differences. This is an accepted trade-off at the five-user minimum. Per-user detail is governed separately by the deployment setting `PER_USER_DETAIL_ENABLED`.
+Fixed periods do not eliminate all overlap in the broader reporting design. The last 7 days are nested within the last 28 days, which are nested within the last 90 days, so subtraction between those periods can still reveal differences. The restricted alpha does not release those alternative periods. The deployment setting `PER_USER_DETAIL_ENABLED` does not reopen the alpha's blocked user-detail routes.
 
 Why (maintainers): fixed-period owner decision in [PR #108](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/pull/108), and the [privacy design](architecture/decision-record.md#6-sql-data-model-raw--staging--curated--control).[^periods]
 
@@ -49,7 +55,7 @@ Your assigned scope matters as well as your role. A role never grants access to 
 - **Executive:** the assigned department, business area, or company scope.
 - **Admin:** company scope. Administration capabilities are part of the design, but admin management pages are not yet provided by this release.
 
-The current shell offers core usage pages according to role. The Users page is additionally hidden unless per-user detail is enabled. Changing a scope selector cannot expand your permissions.[^roles]
+The current alpha offers only Overview and Copilot Impact. Scope options are the effective direct grants you actually hold: company, canonical reports, self, or the exact assigned department or business area. It does not discover additional small groups from directory data. Invalid or stale selections are rejected instead of falling back to broader access. The Users page and direct detail URLs remain unavailable regardless of the detail setting. Changing a scope selector cannot expand your permissions.[^roles]
 
 ### How do I request access?
 
@@ -89,7 +95,7 @@ Raw report files are archived separately from the reporting database. The retent
 
 ### Can my manager see my individual usage?
 
-By default the portal returns aggregates, with small groups hidden. Individual usage is available only when the deployment enables `PER_USER_DETAIL_ENABLED`, and only within the viewer's authorized scope. If enabled, a manager with the appropriate team grant can see individual usage for direct and indirect reports in the current hierarchy. Enabling detail does not give a manager access outside that scope. Ask your deployment's administrator whether detail is enabled; do not infer it from an empty or hidden result.[^manager]
+The current private alpha does not release individual usage: user-list/detail pages and usage JSON APIs are denied server-side, even if `PER_USER_DETAIL_ENABLED` is enabled. The broader design permits individual usage only when the deployment enables it and only within the viewer's authorized scope; it is not available through this alpha. Do not infer individual activity from an empty or hidden result.[^manager]
 
 ## Why notes for maintainers
 
