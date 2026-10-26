@@ -1,4 +1,5 @@
 import FeatureAdoptionChart from "@upstream/components/charts/FeatureAdoptionChart";
+import AccessibleUpstreamCharts from "@/components/AccessibleUpstreamCharts";
 import { toFeatureAdoptionData } from "@/adapters/featureAdoption";
 import { auth } from "@/auth/config";
 import { getAccess } from "@/authz/server";
@@ -23,7 +24,9 @@ export default async function FeatureAdoptionPocPage() {
         {persona ? `Signed in as ${persona}` : "Signed out"}. Upstream chart fed from a hard-coded fixture.
       </p>
       <div className="mt-4">
-        <FeatureAdoptionChart data={toFeatureAdoptionData(featureAdoptionFixture)} />
+        <AccessibleUpstreamCharts pageTitle="Feature adoption">
+          <FeatureAdoptionChart data={toFeatureAdoptionData(featureAdoptionFixture)} />
+        </AccessibleUpstreamCharts>
       </div>
     </main>
   );

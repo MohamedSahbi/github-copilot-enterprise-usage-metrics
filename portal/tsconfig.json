@@ -9,7 +9,8 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@upstream/*": ["./upstream/src/*"]
+      "@upstream/*": ["./upstream/src/*"],
+      "@shared/*": ["../shared/src/*"]
     }
   },
   "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],

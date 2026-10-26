@@ -1,4 +1,4 @@
-# One Linux plan hosts the Next.js portal and the ingestion Functions app (§12.4); each has its own identity.
+# One Linux plan hosts the portal and separate metrics/directory Functions apps (§12.4); each has its own identity.
 module "app_service_plan" {
   source  = "Azure/avm-res-web-serverfarm/azurerm"
   version = "2.0.8"
@@ -38,6 +38,14 @@ locals {
   portal_auth_trust_host_setting = var.auth_trust_host ? {
     AUTH_TRUST_HOST = "true"
   } : {}
+
+  directory_app_settings = merge(local.common_app_settings, {
+    AZURE_CLIENT_ID                  = module.identity["directory"].client_id
+    AzureWebJobsStorage__accountName = module.directory_host_storage.name
+    AzureWebJobsStorage__credential  = "managedidentity"
+    AzureWebJobsStorage__clientId    = module.identity["directory"].client_id
+    GITHUB_DIRECTORY_PAT             = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-directory-pat)", trimsuffix(module.key_vault.uri, "/"))
+  })
 }
 
 module "portal" {
@@ -121,6 +129,45 @@ module "ingestion" {
     RAW_ARCHIVE_ACCOUNT   = module.storage.name
     RAW_ARCHIVE_CONTAINER = "raw"
   })
+
+  enable_telemetry = false
+}
+
+module "directory" {
+  source  = "Azure/avm-res-web-site/azurerm"
+  version = "0.24.1"
+
+  name                     = "func-directory-${local.name}-${local.suffix}"
+  location                 = var.location
+  parent_id                = local.resource_group_id
+  kind                     = "functionapp"
+  os_type                  = "Linux"
+  service_plan_resource_id = module.app_service_plan.resource_id
+  tags                     = local.tags
+
+  https_only                             = true
+  enabled                                = local.directory_platform_state.enabled
+  scm_site_also_stopped                  = local.directory_platform_state.scm_site_also_stopped
+  virtual_network_subnet_id              = var.network.integration_subnet_id
+  application_insights_connection_string = local.application_insights_connection_string
+  key_vault_reference_identity           = module.identity["directory"].resource_id
+
+  storage_account_name                     = module.directory_host_storage.name
+  storage_uses_managed_identity            = true
+  storage_user_assigned_identity_client_id = module.identity["directory"].client_id
+
+  managed_identities = { user_assigned_resource_ids = [module.identity["directory"].resource_id] }
+  depends_on = [
+    terraform_data.required_key_vault_secrets,
+    azurerm_role_assignment.secret_readers,
+    module.directory_host_storage,
+  ]
+
+  site_config = {
+    application_stack = { node = { node_version = "22" } }
+  }
+
+  app_settings = local.directory_app_settings
 
   enable_telemetry = false
 }

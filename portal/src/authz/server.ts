@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { auth } from "../auth/config";
 import { readAccessSettings } from "../auth/settings";
-import { resolveAccess, type AccessRepository } from "./access";
+import { resolveAccess, type AccessRepository, type AccessScopedUser, type AccessResult } from "./access";
 import { SqlAccessRepository } from "./sql-access";
 import { isGuid, validateGrantRequest, type GrantRequestInput } from "../../../shared/src/access";
 import { getPortalSqlPool } from "../db/pool";
@@ -20,6 +20,19 @@ export async function getAccess(correlationId: string = randomUUID()) {
     },
   };
   return resolveAccess(session?.identity ?? null, repository, readAccessSettings());
+}
+
+export async function getAuthorizedScopeUsers(
+  access: Extract<AccessResult, { state: "authorized" }>,
+): Promise<AccessScopedUser[]> {
+  const objectId = access.principal.entra_object_id;
+  if (!objectId) throw new Error("Authorized principal is missing its Entra object ID");
+  try {
+    return await new SqlAccessRepository(await getPortalSqlPool()).readScopedUsers(objectId, access.grants);
+  } catch (error) {
+    process.stderr.write(`${JSON.stringify({ level: "error", event: "access.scope_users_unavailable", correlationId: randomUUID() })}\n`);
+    throw error;
+  }
 }
 
 // Admin routes supply only the requested grant; directory facts and link state never come from HTTP input.

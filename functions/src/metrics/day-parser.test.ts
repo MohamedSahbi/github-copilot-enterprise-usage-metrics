@@ -19,6 +19,31 @@ const line = (overrides: Record<string, unknown> = {}): string =>
   });
 
 describe("parseMetricsDay", () => {
+  it("leaves restoration destinations explicitly null even when source values are present", () => {
+    const result = parseMetricsDay(line({
+      ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "v1" },
+      totals_by_cli: { session_count: 3, request_count: 4, prompt_count: 5 },
+      totals_by_copilot_app: { session_count: 6, prompt_count: 7 },
+      totals_by_vscode_agent: { total_user_messages: 8, token_usage: { prompt_tokens_sum: 9 } },
+    }), {
+      runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
+    });
+    expect(result.issues).toEqual([]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.daily).toMatchObject({
+      ai_adoption_phase_version: null, ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
+      interaction_count: 2, code_generation_count: 1, loc_added: 1,
+    });
+    expect(result.rows[0]!.breakdown).toHaveLength(4);
+    for (const row of result.rows[0]!.breakdown) {
+      expect(row).toMatchObject({ prompt_count: null, total_user_messages: null });
+    }
+    expect(result.rows[0]!.breakdown.find((row) => row.key_1 === "copilot_cli"))
+      .toMatchObject({ session_count: 3, request_count: 4 });
+    expect(result.rows[0]!.breakdown.find((row) => row.key_1 === "vscode_agent"))
+      .toMatchObject({ prompt_tokens: 9 });
+  });
+
   it("maps a valid day row and preserves the exact credit token", () => {
     const result = parseMetricsDay(
       `${line().replace('"loc_deleted_sum":0', '"loc_deleted_sum":0').slice(0, -1)},"ai_credits_used":999999999.999999999}\n`,

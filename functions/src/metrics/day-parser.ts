@@ -322,6 +322,7 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
         interaction_count: interactions ? itemCounts.interaction_count : 0,
         session_count: null, request_count: null, prompt_tokens: null, output_tokens: null,
         version_info: version?.(item) ?? null,
+        prompt_count: null, total_user_messages: null,
       });
     });
   };
@@ -380,6 +381,7 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
       prompt_tokens: optionalCount(tokenUsage, "prompt_tokens_sum", `${field}.token_usage.prompt_tokens_sum`, SAFE_INT_MAX),
       output_tokens: optionalCount(tokenUsage, "output_tokens_sum", `${field}.token_usage.output_tokens_sum`, SAFE_INT_MAX),
       version_info: version,
+      prompt_count: null, total_user_messages: null,
     });
   };
   addClient("totals_by_cli", "copilot_cli", "last_known_cli_version", "cli_version");
@@ -448,6 +450,7 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
       ai_adoption_phase_number: phase ? toInteger(phase.phase_number) : null,
       ai_adoption_phase: phase ? nonEmptyString(phase.phase) : null,
       extra_json: Object.keys(unknown).length ? JSON.stringify(unknown) : null,
+      ai_adoption_phase_version: null,
     },
     breakdown,
     families,

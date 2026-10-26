@@ -225,6 +225,7 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
         run_id: ctx.runId, artifact_id: artifactId, line_number: lineNumber, item_number: breakdown.length + 1, breakdown_kind: kind,
         key_1: k[0], key_2: k[1], ...c, interaction_count: withInteractions ? c.interaction_count : 0,
         session_count: null, request_count: null, prompt_tokens: null, output_tokens: null, version_info: version ? version(e) : null,
+        prompt_count: null, total_user_messages: null,
       });
     });
   };
@@ -276,6 +277,7 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
       prompt_tokens: optCount(tu, "prompt_tokens_sum", `${field}.token_usage.prompt_tokens_sum`, BIGINT_MAX),
       output_tokens: optCount(tu, "output_tokens_sum", `${field}.token_usage.output_tokens_sum`, BIGINT_MAX),
       version_info: version,
+      prompt_count: null, total_user_messages: null,
     });
   };
   clientObject("totals_by_cli", "copilot_cli", "last_known_cli_version", "cli_version");
@@ -349,6 +351,7 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
     ai_adoption_phase_number: phase ? toInt(phase.phase_number) : null,
     ai_adoption_phase: phase ? str(phase.phase) : null,
     extra_json: unknown.length ? JSON.stringify(extra) : null,
+    ai_adoption_phase_version: null,
   };
   return { loaded: true, daily, breakdown, families, issues };
 }
