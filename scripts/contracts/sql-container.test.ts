@@ -11,6 +11,7 @@ import { TABLE_COLUMNS } from "../../shared/src/rows";
 import { migrate } from "../db/migrate";
 import { splitBatches } from "../db/split-go";
 import { createStagingContext, mapUsersDayLine } from "./reference/staging";
+import "./component-runtime-grants";
 
 const enabled = process.env.RUN_SQL_TESTS === "1";
 const realMigrations = join(__dirname, "..", "..", "db", "migrations");
