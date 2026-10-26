@@ -117,7 +117,10 @@ export class GitHubMetricsProvider {
     }
   }
 
-  private async request(url: string, init: RequestInit, limit: number): Promise<Uint8Array> {
+  private async request(
+    url: string, init: RequestInit, limit: number,
+    validate: (bytes: Uint8Array) => Uint8Array = (bytes) => bytes,
+  ): Promise<Uint8Array> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -135,7 +138,7 @@ export class GitHubMetricsProvider {
                 (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0");
               throw new MetricsAcquisitionError("request_failed", retryable);
             }
-            return readBytes(response, controller.signal, limit);
+            return validate(await readBytes(response, controller.signal, limit));
           })(),
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => {
@@ -147,8 +150,8 @@ export class GitHubMetricsProvider {
       } catch (error) {
         const failure = error instanceof MetricsAcquisitionError
           ? error : new MetricsAcquisitionError("request_failed", true);
-        // Missing/not-ready/partial reports retry on a later run, not as a successful empty day.
-        if (!failure.retryable || failure.code === "report_gap" || failure.code === "incomplete_download" || attempt === 2) {
+        // Missing/not-ready reports retry on a later run, never as a successful empty day.
+        if (!failure.retryable || failure.code === "report_gap" || attempt === 2) {
           throw failure;
         }
       } finally {
@@ -208,17 +211,22 @@ export class GitHubMetricsProvider {
     const parts: Uint8Array[] = [];
     let total = 0;
     for (const url of urls) {
-      let bytes = await this.request(url.toString(), { headers: { accept: "application/x-ndjson" } }, MAX_PART_BYTES);
-      if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-        try {
-          bytes = new Uint8Array(gunzipSync(bytes, { maxOutputLength: MAX_PART_BYTES }));
-        } catch {
-          throw new MetricsAcquisitionError("incomplete_download", true);
-        }
-      }
-      if (bytes.byteLength === 0 || bytes.every((byte) => byte === 9 || byte === 10 || byte === 13 || byte === 32)) {
-        throw new MetricsAcquisitionError("incomplete_download", true);
-      }
+      const bytes = await this.request(
+        url.toString(), { headers: { accept: "application/x-ndjson" } }, MAX_PART_BYTES, (part) => {
+          if (part[0] === 0x1f && part[1] === 0x8b) {
+            try {
+              part = new Uint8Array(gunzipSync(part, { maxOutputLength: MAX_PART_BYTES }));
+            } catch (error) {
+              const exceedsLimit = error instanceof Error && "code" in error && error.code === "ERR_BUFFER_TOO_LARGE";
+              throw new MetricsAcquisitionError("incomplete_download", !exceedsLimit);
+            }
+          }
+          if (part.byteLength === 0 || part.every((byte) => byte === 9 || byte === 10 || byte === 13 || byte === 32)) {
+            throw new MetricsAcquisitionError("incomplete_download", true);
+          }
+          return part;
+        },
+      );
       total += bytes.byteLength + (bytes.at(-1) === 10 ? 0 : 1);
       if (total > MAX_DAY_BYTES) throw new MetricsAcquisitionError("incomplete_download", false);
       parts.push(bytes);

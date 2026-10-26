@@ -21,6 +21,8 @@ rather than receiving a token. Each request has at most three attempts with
 at 128 MiB (including decompressed gzip output), the combined day at 512 MiB, and
 the manifest at 1,000 distinct links. HTTP transfer errors and gzip integrity
 errors reject the day; no first-part-only publication is possible.
+Retryable truncated, gzip-invalid, or empty parts use the same three-attempt
+budget before failing the day; byte-limit violations fail immediately.
 
 Backfill defaults to yesterday (UTC). An explicitly supplied date must be within
 `max(2025-10-10, today - 365 days)` through yesterday, inclusive. Invalid,

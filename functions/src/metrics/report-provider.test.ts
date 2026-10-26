@@ -76,10 +76,35 @@ describe("GitHub App daily report acquisition", () => {
     await expect(h.provider.acquire("fixture-org", day)).rejects.toBeInstanceOf(MetricsAcquisitionError);
   });
 
-  it.each(["", " \n", null])("rejects empty or partial downloaded bytes", async (body) => {
-    const h = harness([...auth(), json(manifest), body === null
-      ? new Response("short", { headers: { "content-length": "999" } }) : new Response(body)]);
-    await expect(h.provider.acquire("fixture-org", day)).rejects.toMatchObject({ code: "incomplete_download" });
+  const incompleteParts = [
+    { name: "empty", response: () => new Response("") },
+    { name: "whitespace", response: () => new Response(" \n") },
+    { name: "content-length mismatch", response: () => new Response("short", { headers: { "content-length": "999" } }) },
+    { name: "truncated gzip", response: () => {
+      const bytes = gzipSync(Buffer.from('{"fixture":1}\n'));
+      return new Response(bytes.subarray(0, bytes.length - 4));
+    } },
+  ];
+
+  it.each(incompleteParts)("retries $name bytes then returns only the complete part", async ({ response }) => {
+    const h = harness([...auth(), json(manifest), response(), new Response('{"complete":1}\n')]);
+    await expect(h.provider.acquire("fixture-org", day)).resolves.toMatchObject({
+      content: new Uint8Array(Buffer.from('{"complete":1}\n')),
+    });
+    expect(h.fetcher).toHaveBeenCalledTimes(5);
+    expect(h.sleep.mock.calls).toEqual([[250]]);
+    for (const [, init] of h.fetcher.mock.calls.slice(3)) {
+      expect(new Headers(init?.headers).has("authorization")).toBe(false);
+    }
+  });
+
+  it.each(incompleteParts)("exhausts exactly three attempts for $name bytes", async ({ response }) => {
+    const h = harness([...auth(), json(manifest), response(), response(), response()]);
+    await expect(h.provider.acquire("fixture-org", day)).rejects.toMatchObject({
+      code: "incomplete_download", retryable: true,
+    });
+    expect(h.fetcher).toHaveBeenCalledTimes(6);
+    expect(h.sleep.mock.calls).toEqual([[250], [500]]);
   });
 
   it("does not return the first part when a later part fails", async () => {
@@ -94,7 +119,8 @@ describe("GitHub App daily report acquisition", () => {
     await expect(complete.provider.acquire("fixture-org", day)).resolves.toMatchObject({
       content: new Uint8Array(Buffer.from('{"fixture":1}\n')),
     });
-    const partial = harness([...auth(), json(manifest), new Response(bytes.subarray(0, bytes.length - 4))]);
+    const partial = harness([...auth(), json(manifest),
+      ...Array.from({ length: 3 }, () => new Response(bytes.subarray(0, bytes.length - 4)))]);
     await expect(partial.provider.acquire("fixture-org", day)).rejects.toMatchObject({ code: "incomplete_download" });
   });
 
@@ -150,6 +176,7 @@ describe("GitHub App daily report acquisition", () => {
     const h = harness([...auth(), new Response(null, { status: 403 })]);
     await expect(h.provider.acquire("fixture-org", day)).rejects.toMatchObject({ retryable: false });
     expect(h.sleep).not.toHaveBeenCalled();
+    expect(h.fetcher).toHaveBeenCalledTimes(3);
     expect(h.fetcher.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
   });
 
