@@ -2,7 +2,7 @@
 
 Status: proposed with the contracts PR. Companion to [decision-record.md](decision-record.md) (§6, §6.5, §13.6). Types are in `shared/src/`, SQL in `db/migrations/`. A change to any contract lands in `shared/` first, in its own PR.
 
-**Architecture boundary (owner revision 2026-10-25, #66):** the new solution runs independently in a separate database; the old solution is untouched during parallel operation. This documentation update does not change executable `shared/` contracts or migrations. Historical v1/v2 budget descriptors below do not require compatibility shadow tables in the new database. #69 owns any executable contract clarification/delta before dependent implementation.
+**Architecture boundary (owner revision 2026-10-25, #66):** the new solution runs independently in a separate database; the old solution is untouched during parallel operation. Historical v1/v2 budget descriptors below do not require compatibility shadow tables in the new database. The live Budget Lookup request/response contract is defined in `shared/src/api.ts` under D-55/#94 and does not use the old database or a SQL fallback.
 
 Verification legend: **V** = verified against a recorded sample or the enterprise docs; **A** = assumption, not verified (listed again in the PR).
 
@@ -26,8 +26,24 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 
 `validateSettings(input, today?)` accepts an injectable UTC calendar date for deterministic validation;
 production callers omit it. `backfillFromSchema` and `DirectoryProviderSchema` are the canonical Zod
-schemas for these additions. Terraform/app-setting wiring of backfill is a dependent implementation,
-not a second configuration source in this contract PR.
+schemas for these additions. The metrics runtime contract reuses `backfillFromSchema`; it does not
+change the existing `validateSettings` or backfill schema behavior.
+
+Metrics ingestion has a separate `MetricsRuntimeSettings` contract in
+`shared/src/metrics-runtime-settings.ts`. It validates `GITHUB_APP_ID` (positive decimal,
+nonsecret), the comma-sourced organization identities, `SQL_SERVER`, `SQL_DATABASE`,
+`AZURE_CLIENT_ID`, `RAW_ARCHIVE_ACCOUNT`, `RAW_ARCHIVE_CONTAINER`, and optional `BACKFILL_FROM`.
+The GitHub App private key is deliberately absent from the shared contract: Terraform binds the
+existing `github-app-private-key` Key Vault secret only to the ingestion app, using that app's
+existing Key Vault reference identity and secret-scoped access. `AUTH_GITHUB_ID` remains the
+separate portal OAuth identifier.
+
+Terraform requires `github_app_id` for every stack, including deployments that reference existing
+SQL or resource groups. Existing deployments must add this nonsecret input to each environment's
+private tfvars before applying the updated stack; new stacks set it in their initial tfvars. The
+stack does not read or set the private-key value. `backfill_from` is omitted unless a historical
+fetch is requested; Terraform validates its static calendar-date form, while runtime validation
+enforces the current API-start and rolling 365-day limits.
 
 ## 2. users-1-day NDJSON → staging/curated (V against a recorded sample)
 
@@ -50,17 +66,47 @@ One JSON object per line; one line = one user, one organization, one day. Fact k
 | `used_copilot_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | `used_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | BIT | no | Absent in some rows → false |
 | `used_copilot_code_review_active` / `_passive` | `used_code_review_active` / `_passive` | BIT | no | Absent/null → false |
 | `ai_credits_used` | `ai_credits_used` | DECIMAL(18,9) | no | Absent/null → exact string `"0"`; numeric JSON tokens preserved losslessly; never rounded |
-| `ai_adoption_phase{phase_number,phase,version}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR | yes | |
+| `ai_adoption_phase{phase_number,phase}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR(64) | yes | Existing mapping |
+| `ai_adoption_phase.version` | `ai_adoption_phase_version` | VARCHAR(64) | yes | Preserved as a validated string in staging and daily facts; absent/null remains NULL; reject values that exceed 64 characters or cannot round-trip losslessly under the target SQL collation |
 | `totals_by_ide[]` | breakdown `ide` (key_1 = ide) | | | `last_known_ide_version` and `last_known_plugin_version` → `version_info` (compact JSON of the documented string fields, NULL when absent) |
 | `totals_by_feature[]` | breakdown `feature` | | | |
 | `totals_by_language_feature[]` | breakdown `language_feature` (key_1 language, key_2 feature) | | | No interaction count in source → 0 |
 | `totals_by_language_model[]` | breakdown `language_model` | | | |
 | `totals_by_model_feature[]` | breakdown `model_feature` | | | |
-| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. A supplied value that is not a valid count is rejected (`negative_count`), an absent one is NULL. `prompt_count` and `avg_tokens_per_request` are not staged |
+| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. Supplied counts are validated (`negative_count`); absent/null counts remain NULL. `avg_tokens_per_request` is not staged |
+| `totals_by_cli.prompt_count`, `totals_by_copilot_app.prompt_count` | breakdown `prompt_count` | INT | yes | Client keys `copilot_cli` / `copilot_app`; validated range 0..2147483647, zero distinct from NULL |
+| `totals_by_vscode_agent.total_user_messages` | breakdown `total_user_messages` | INT | yes | Client key `vscode_agent`; validated range 0..2147483647, zero distinct from NULL |
 | `totals_by_skill`, `_custom_agent`, `_mcp`, `_slash_cmd`, `_plugin` | `fact_usage_family_count` (family, name, count) | | | |
 | any other field | `extra_json` (daily) | | | Warn `unknown_field`, load. `totals_by_client` is not in the pinned upstream types and is not staged |
 
 Language names are normalized with the upstream language normalizer before loading (oracle parity).
+
+### Restoration schema and compatibility boundary (#120)
+
+Migration `20261026010000` adds nullable `ai_adoption_phase_version VARCHAR(64)` to
+`portal.stg_user_daily` and `portal.fact_user_daily_usage`, and nullable `prompt_count INT` and
+`total_user_messages INT` to `portal.stg_user_breakdown` and `portal.fact_usage_breakdown`.
+Version width is 64 bytes, matching the existing phase label's VARCHAR width; no numeric version
+or inferred label is substituted. Both counters use the existing INT activity-count range
+0..2147483647, enforced by SQL type and non-negative checks. No defaults, new indexes, or
+historic updates are added. All six columns permit NULL; existing rows remain unavailable NULL.
+
+Shared staging row properties are **required and nullable**; daily facts inherit the version
+property. The Functions parser and reference mapper validate and preserve supplied source values;
+missing/null remains NULL and measured zero remains zero. Before staging, the loader checks phase
+version strings against the target database collation and rejects values that cannot round-trip
+losslessly through `VARCHAR(64)`. The loader sends staging bulk values by the explicit column
+registries, not JavaScript object insertion order, and publishes these fields to their matching
+fact columns. Exact-credit VARCHAR transport and SQL-server DECIMAL conversion are unchanged.
+
+**#121** implements source extraction and validation, missing/null/zero distinctions,
+staging-to-fact publication, and reference source mapping. Discarded historic values remain unavailable:
+no fabricated zeros, replay, backfill or data migration is authorized. Future API consumption and
+parity remain separate work with #115/#119 owners; neither #120 nor #121 implements API consumption
+or promises historic parity. In particular, #119's feature-backed IDE fix does not recover the
+prompt-only oracle case. Scope approval does not authorize merge, migration application outside
+throwaway local tests, deployment or activation. The existing restore/rollback and deployment gates
+remain in force.
 
 SQL-row `ai_credits_used` is an exact decimal **string** in staging and inherited fact types
 (owner-approved correction to the former `number` contract, issue #45). The reference mapper uses
@@ -175,11 +221,11 @@ Oracle: the pinned upstream aggregation (`portal/upstream/src/domain`, D-14); ou
 | --- | --- | --- |
 | `advanced_users` | Widens relative to the old portal's chart: includes CLI, VS Code agent and coding agent in addition to agent mode. | D-22 adopts upstream; stakeholders are told the figure rises. Not a difference from upstream. |
 | `*_users` over a range | Upstream computes over the loaded file; ours over SQL rows inside the retention window and organization scope. Equal when the fixture covers the range. | Scope |
-| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ours applies the same derivation at load. Upstream also appends a synthetic `copilot_app` IDE total; ours does not (no SQL consumer). | Oracle parity for `app_users` |
+| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ingestion applies the same derivation at load. Upstream appends a synthetic `copilot_app` IDE total from feature interactions or `prompt_count`. The `kind=ide` read model derives App interactions from persisted feature rows at organization/user/day grain, replacing rather than adding to raw App IDE counts, including zero-valued feature rows; raw-only IDE rows remain unchanged. Flag/client-only days without feature or raw IDE rows are not synthesized as zero. Newly ingested App `prompt_count` is now preserved by #121, but this API does not consume it; client session/request/token counts are not substitutes for the upstream fallback. Historic NULLs remain unavailable and #121 includes no replay/backfill. A prompt-only aggregate for one user is below the API's enforced minimum group size, so it cannot be a visible parity assertion. | `app_users` derivation agrees. Feature-backed IDE recovery merged in #123 and is compared separately by the strict five-user oracle; the prompt-only API fallback remains unavailable and is not a visible parity expectation (see `scripts/contracts/oracle/coverage.md` and #119). |
 | `used_coding_agent` | Upstream sets both coding-agent flags from `used_copilot_cloud_agent` only; ours stores the same value in `used_coding_agent` and `used_cloud_agent`, ignoring the source `used_copilot_coding_agent` field. | Oracle parity for `coding_agent_users` |
 | Language | Upstream normalizes language names at parse time; ours normalizes at load. | Same function applied in the loader |
 
-No other difference was found while reading the calculators (only the adoption and AI credits paths were read and are checked by `scripts/contracts/oracle`; the remaining calculators are not yet compared).
+The SQL/upstream oracle coverage and its known limits are tracked in `scripts/contracts/oracle/coverage.md`. It does not claim visible parity for the fixture's one-user prompt-only `copilot_app` fallback; a separate five-user feature-backed comparison remains strict against the SQL reconstruction merged in #123.
 
 ## 5. Identity keys
 
@@ -200,7 +246,7 @@ No other difference was found while reading the calculators (only the adoption a
 | Core usage pages | aggregates by org/day/dimension, suppressed | unchanged |
 | User list / detail | not available (`per_user_detail_disabled`) | rows only within the viewer's scope, paged |
 | AI Credits | aggregates by org/day/model/cost center | per-user rows within scope, paged |
-| Budget Lookup | optional read-only module; own and own-scope records. Read-source/access contract under database separation needs an owner decision before implementation (§6.5 of the decision record) | same |
+| Budget Lookup | optional read-only module; live GitHub budget APIs, keyed by numeric GitHub user ID or cost-center name; no SQL or old-database fallback (D-55) | same |
 | Admin | principals and grants (admin role) | same |
 | Feedback | items per visibility; author shown as display name only to admins | same |
 | Health | status only, no data | same |
@@ -229,7 +275,7 @@ No v1-compatible shadow tables, runtime old-database comparison access or old-sy
 | Hierarchy sync run | `portal.DirectorySyncState` in the new database | Old `HierarchySyncRun` stays with old consumers; never mark a partial new sync successful |
 | Audit log (two writers) | `portal.AuditLog` (portal only) | Old audit table unchanged; copy only portal-originated history during final approved migration |
 | Feedback item, vote, comment | `portal.FeedbackItem`, `FeedbackVote`, `FeedbackComment` | |
-| Budget entity, allocation, membership, failures | Old system unchanged | Automation out of scope; optional Budget Lookup source/access remains a decision, not assumed access (D-34) |
+| Budget entity, allocation, membership, failures | Old system unchanged | Budget Lookup reads GitHub live under D-55; no old-database access or new budget tables. Budget and cost-center writes remain out of scope |
 | Table-storage budget tables | out of scope | Legacy |
 
 Historical mapping concerns: old email/login keys and two-writer audit do not justify reproducing those structures in the separate new database. Stable-ID access/hierarchy and internal single-writer rules remain (D-5, D-34, D-36); legacy `enhanced` files remain ignored (D-28). The mapping is not authority to extract or migrate old data; final migration takes place at the end under a separately approved plan.
@@ -370,3 +416,44 @@ The deployment template and the private environment repository supply these as t
 - Order between grants, directory revocations and unlinks comes from `event_seq` (`AccessGrant`, `GrantRevocation`) and `unlink_seq` (`PrincipalLinkState`), all drawn from the database-wide sequence `portal.seq_access_event`, never from timestamps (which can tie, so they stay `DATETIME2(7)` for display only). `portal.v_active_grant` hides a grant when a revocation or unlink has a higher position; a later re-grant has a higher position again and is visible. An unlink without a sequence is rejected by `CK_PrincipalLinkState_pair`, and the view hides the grant if one ever appears. Writers need UPDATE on the sequence to draw a value.
 - Entra columns of `Principal` are not directly updatable. `portal.usp_link_principal_entra` (EXECUTE for the portal writer) fills a missing Entra ID once (dual-provider linking, decision record §13.1); it never reassigns or clears one.
 - `validateSettings` rejects a non-object root or a supplied non-object section; omitted sections keep defaults.
+
+## 15. Core-view API and DTO contract
+
+The portal-owned TypeScript request and response types live in `shared/src/api.ts`. They describe the approved core-view boundary; they do not by themselves add routes or query behavior. Existing reporting periods remain `last_7_days`, `last_28_days`, `last_90_days`, and a completed `calendar_month`. The existing page-size, error-envelope, correlation-ID, and cache-control conventions remain in force. No arbitrary date range is introduced.
+
+### Scope selection and permitted options
+
+`CoreViewScopeSelection` describes the selectable scopes. `self`, `team`, and `company` carry no caller-provided root or value; `department` and `business_area` carry only a value. A selector is a narrowing request, never an authorization grant. Authorization is resolved on the server from the caller's existing principal and grants (D-5, D-17). Team is the caller's current direct-and-indirect reporting tree (D-16), never a caller-selected root.
+
+The existing usage overview, breakdown, and users-summary requests compose the fixed `UsagePeriodRequest` with an optional `CoreViewScopeSelection` as `ScopedUsagePeriodRequest`. The canonical query encoding is `scope=self`, `scope=team`, or `scope=company` without `value`; `scope=department&value=<value>` or `scope=business_area&value=<value>` carries exactly one non-empty value. `parseCoreViewScopeSelection` rejects a missing or unknown discriminator, a value without a scope, a value for self/team/company, a missing value for department/business_area, and repeated scope or value parameters with `invalid_request`. `serializeCoreViewScopeSelection` emits the discriminator before the optional value, using `URLSearchParams` encoding. An omitted selection emits no scope parameters and preserves existing request behavior. Fixed periods, calendar-month values, and `organizationIds` retain their existing rules.
+
+The option set is derived from current directory values among the SQL `AuthorizedUsers` population, then intersected with current directory options. Per-option population counts come from that same authorized population; `intersectCoreViewScopeOptions` requires those counts, applies the configured minimum (default 5, with the §6 floor), and returns only option values, never counts. It omits values below the minimum and returns an unavailable result with no options if authorization, directory options, or required counts are unavailable or incomplete. A company grant may narrow to a department or business area only by filtering that same authorized population; selecting a value never expands it. Empty available options are distinct from unavailable options. These options are presentation data and must never be used as the SQL authorization predicate.
+
+### Availability and independently disclosive cohorts
+
+`CoreViewMetric<T>` and `CoreViewCohort<T>` distinguish four states:
+
+| `availability` | Meaning | Wire value |
+| --- | --- | --- |
+| `available` | A metric was measured; zero is a valid measured value. | Exact typed value; cohort count is visible only when permitted by §6. |
+| `not_reported` | The source did not report the field or supplied NULL. | `value: null`; never substitute zero. |
+| `unavailable` | Required source data was discarded or is not persisted. | `value: null`, reason `source_discarded`; never infer from another metric. |
+| `suppressed` | The cohort is below the applicable privacy minimum. | `userCount: null`, `value: null`; hide labels and all dependent values. |
+
+Every separately disclosive cohort has its own wrapper and boundary: daily participation and peak-day counts; top-decile subset counts, metrics and shares; each top-N model, client, language, version and phase entry; CLI totals; IDE/CLI overlap; and each feature-adoption count. A top-N key/label is nested inside the cohort value so a suppressed entry does not reveal its label. Apply the configured minimum group size (default 5) consistently, as specified in §6; do not use a visible parent count to expose a smaller child cohort.
+
+Derived values require all their inputs to be available. Suppressed inputs propagate suppression; discarded inputs propagate unavailability; source-not-reported inputs remain not reported. Never recompute a statistic from only the visible subset or infer a value from a hidden total. `deriveCoreViewMetric` applies this dependency rule before invoking the calculation. The same rule applies to peak-day selection, top-decile shares, IDE/CLI overlap percentages and any future derived statistic.
+
+### Metric sources and unavailable fields
+
+The core-view DTOs use curated SQL only (D-11): `portal.fact_user_daily_usage` for daily usage, user-level feature flags and exact AI-credit facts; `portal.fact_usage_breakdown` for feature, model, client, language and IDE cohorts; and current `portal.dim_user` rows for identity attributes and scope values. The source mappings and adoption definitions in §§2 and 4 remain authoritative. Upstream charts and calculators remain read-only presentation/oracle dependencies (D-14, D-15, D-22); do not edit the submodule or derive authorization from upstream data.
+
+`CoreViewMetrics` separates daily participation, peak-day data, top-decile subsets and shares, top-N entries, CLI totals, IDE/CLI overlap and feature-adoption cohorts. Each metric is independently available, not reported, unavailable or suppressed. In particular, `ai_adoption_phase.version`, client `prompt_count`, and VS Code agent `total_user_messages` are unavailable with reason `source_discarded` until their source fields are restored. Do not represent them as measured zero, infer them from another field, or present a missing source as a suppressed cohort.
+
+### Exact AI-credit values and arithmetic
+
+Source-row credits retain the canonical exact `DECIMAL(18,9)` range. SQL aggregate sums use `DECIMAL(38,9)` and may have up to 29 integer digits; the source-row bound does not apply to a grouped sum. Source and aggregate wire values are decimal strings. Never transport credits through a JavaScript `number` or call `Number(...)` before API serialization.
+
+Derived averages and percentages use exact decimal intermediates and round only the final result to scale 9 using half-up rounding. A zero denominator yields `null`. An overflow raises the typed `DecimalOverflowError` (`decimal_overflow`) and the API returns a typed error envelope with no partial data or success-shaped response. `exactDecimal38_9`, `averageDecimal`, and `percentageDecimal` implement the bounded decimal contract; their inputs and outputs are decimal text.
+
+The existing `UserUsageRow.aiCreditsUsed` and `/api/users` response use this same string contract. In `getUserUsage` only, convert `SUM(f.ai_credits_used)` to `VARCHAR(40)` in SQL before the `mssql` driver can round `DECIMAL(38,9)` to a JavaScript number, then return that string unchanged. The existing users table may convert it to a number only in its display formatter, retaining the current `en-US` formatting with at most one fractional digit. This does not change route authorization, periods, paging, filters, response metadata, or the separate `kind=ide` query.

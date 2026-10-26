@@ -7,7 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sql from "mssql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { TABLE_COLUMNS } from "../../shared/src/rows";
 import { migrate } from "../db/migrate";
+import { splitBatches } from "../db/split-go";
 import { createStagingContext, mapUsersDayLine } from "./reference/staging";
 
 const enabled = process.env.RUN_SQL_TESTS === "1";
@@ -85,11 +87,101 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(count?.n).toBe(realFiles.length);
   }, 240_000);
 
+  it("upgrades populated restoration tables without fabrication and accepts nullable bounded storage", async () => {
+    const db = await freshDb();
+    const migration = "20261026010000.do.restoration-nullable-contract.sql";
+    const oldDir = copyMigrations();
+    rmSync(join(oldDir, migration));
+    await migrate({ connectionString: cs(db), dir: oldDir });
+    await query(db, `
+      DECLARE @run UNIQUEIDENTIFIER = '00000000-0000-4000-8000-000000000120';
+      INSERT INTO portal.IngestionRun (run_id, source_kind, scope_key, status, transform_version)
+        VALUES (@run, 'users_1_day', 'fixture', 'staged', '1');
+      INSERT INTO portal.SourceArtifact (run_id, blob_container, blob_path, sha256, size_bytes)
+        VALUES (@run, 'fixture', 'restoration.ndjson', REPLICATE('0', 64), 1);
+      DECLARE @artifact BIGINT = SCOPE_IDENTITY();
+      INSERT INTO portal.dim_user (user_id) VALUES (120);
+      INSERT INTO portal.dim_organization (organization_id, login) VALUES (120, 'fixture');
+      INSERT INTO portal.stg_user_daily
+        (run_id, artifact_id, line_number, organization_id, user_id, usage_day,
+         interaction_count, code_generation_count, code_acceptance_count, loc_suggested_to_add,
+         loc_suggested_to_delete, loc_added, loc_deleted, used_agent, used_chat, used_cli,
+         used_coding_agent, used_cloud_agent, used_copilot_app, used_vscode_agent,
+         used_code_review_active, used_code_review_passive, ai_credits_used)
+        VALUES (@run, @artifact, 1, 120, 120, '2026-03-02', 2, 3, 1, 4, 0, 1, 0,
+          0, 0, 1, 0, 0, 0, 0, 0, 0, 123456789.123456789);
+      INSERT INTO portal.fact_user_daily_usage
+        (organization_id, user_id, usage_day, interaction_count, code_generation_count,
+         code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted,
+         used_agent, used_chat, used_cli, used_coding_agent, used_cloud_agent, used_copilot_app,
+         used_vscode_agent, used_code_review_active, used_code_review_passive, ai_credits_used,
+         run_id, source_artifact_id, transform_version)
+        SELECT organization_id, user_id, usage_day, interaction_count, code_generation_count,
+          code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted,
+          used_agent, used_chat, used_cli, used_coding_agent, used_cloud_agent, used_copilot_app,
+          used_vscode_agent, used_code_review_active, used_code_review_passive, ai_credits_used,
+          run_id, artifact_id, '1' FROM portal.stg_user_daily;
+      INSERT INTO portal.stg_user_breakdown
+        (run_id, artifact_id, line_number, item_number, breakdown_kind, key_1, key_2,
+         interaction_count, code_generation_count, code_acceptance_count, loc_suggested_to_add,
+         loc_suggested_to_delete, loc_added, loc_deleted)
+        VALUES (@run, @artifact, 1, 1, 'client', 'copilot_cli', '', 0, 0, 0, 0, 0, 0, 0);
+      INSERT INTO portal.fact_usage_breakdown
+        (organization_id, user_id, usage_day, breakdown_kind, key_1, key_2,
+         interaction_count, code_generation_count, code_acceptance_count, loc_suggested_to_add,
+         loc_suggested_to_delete, loc_added, loc_deleted, run_id, source_artifact_id, transform_version)
+        VALUES (120, 120, '2026-03-02', 'client', 'copilot_cli', '', 0, 0, 0, 0, 0, 0, 0, @run, @artifact, '1');
+    `);
+    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(1);
+    expect((await migrate({ connectionString: cs(db) })).applied).toEqual([]);
+    for (const batch of splitBatches(readFileSync(join(realMigrations, migration), "utf8"))) await query(db, batch);
+    for (const table of ["stg_user_daily", "fact_user_daily_usage"]) {
+      expect(await query(db, `SELECT ai_adoption_phase_version, interaction_count,
+        CONVERT(VARCHAR(40), ai_credits_used) AS credits FROM portal.${table}`))
+        .toEqual([{ ai_adoption_phase_version: null, interaction_count: 2, credits: "123456789.123456789" }]);
+      await query(db, `UPDATE portal.${table} SET ai_adoption_phase_version = REPLICATE('v', 64)`);
+      expect(await query(db, `SELECT DATALENGTH(ai_adoption_phase_version) AS width FROM portal.${table}`))
+        .toEqual([{ width: 64 }]);
+      await expect(query(db, `UPDATE portal.${table} SET ai_adoption_phase_version = REPLICATE('v', 65)`)).rejects.toThrow();
+      await query(db, `UPDATE portal.${table} SET ai_adoption_phase_version = NULL`);
+    }
+    for (const table of ["stg_user_breakdown", "fact_usage_breakdown"]) {
+      expect(await query(db, `SELECT prompt_count, total_user_messages FROM portal.${table}`))
+        .toEqual([{ prompt_count: null, total_user_messages: null }]);
+      for (const value of [0, 1, 2147483647, null]) {
+        const literal = value === null ? "NULL" : String(value);
+        await query(db, `UPDATE portal.${table} SET prompt_count = ${literal}, total_user_messages = ${literal}`);
+        expect(await query(db, `SELECT prompt_count, total_user_messages FROM portal.${table}`))
+          .toEqual([{ prompt_count: value, total_user_messages: value }]);
+      }
+      for (const column of ["prompt_count", "total_user_messages"]) {
+        await expect(query(db, `UPDATE portal.${table} SET ${column} = -1`)).rejects.toThrow(/CHECK constraint/);
+        await expect(query(db, `UPDATE portal.${table} SET ${column} = 2147483648`)).rejects.toThrow(/overflow/i);
+      }
+    }
+    const columns = await query(db, `
+      SELECT OBJECT_NAME(c.object_id) AS table_name, c.name, TYPE_NAME(c.user_type_id) AS type_name,
+        c.max_length, c.is_nullable, c.default_object_id
+      FROM sys.columns c WHERE c.object_id IN (OBJECT_ID('portal.stg_user_daily'),
+        OBJECT_ID('portal.fact_user_daily_usage'), OBJECT_ID('portal.stg_user_breakdown'),
+        OBJECT_ID('portal.fact_usage_breakdown'))
+        AND c.name IN ('ai_adoption_phase_version', 'prompt_count', 'total_user_messages')`);
+    expect(columns).toHaveLength(6);
+    for (const column of columns) {
+      expect(column).toMatchObject({
+        type_name: column.name === "ai_adoption_phase_version" ? "varchar" : "int",
+        max_length: column.name === "ai_adoption_phase_version" ? 64 : 4,
+        is_nullable: true, default_object_id: 0,
+      });
+    }
+  }, 240_000);
+
   it("keeps delimiter-containing billing keys distinct across staging, facts and aggregates", async () => {
     const db = await freshDb();
     const migration = "20261026001200.do.billing-key-framing.sql";
     const oldDir = copyMigrations();
-    rmSync(join(oldDir, migration));
+    const pendingFiles = realFiles.filter((file) => file >= migration);
+    for (const file of pendingFiles) rmSync(join(oldDir, file));
     await migrate({ connectionString: cs(db), dir: oldDir });
     await query(db, `
       DECLARE @run UNIQUEIDENTIFIER = '00000000-0000-4000-8000-000000000045';
@@ -111,7 +203,7 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
         VALUES ('2026-03-02', N'org', N'model', N'', 1, 5, 1, 1, 1, @run, '1');
     `);
     const oldHashes = await query<{ natural_key: Buffer }>(db, "SELECT natural_key FROM portal.stg_ai_credit_line");
-    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(1);
+    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(pendingFiles.length);
     const newHashes = await query<{ natural_key: Buffer }>(db, "SELECT natural_key FROM portal.stg_ai_credit_line");
     expect(newHashes[0]!.natural_key.equals(oldHashes[0]!.natural_key)).toBe(false);
     await query(db, readFileSync(join(realMigrations, migration), "utf8"));
@@ -219,6 +311,70 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     await migrate({ connectionString: cs(db) });
     const [dbo] = await query<{ n: number }>(db, "SELECT COUNT(*) AS n FROM sys.tables WHERE schema_id = SCHEMA_ID('dbo')");
     expect(dbo?.n).toBe(0);
+  }, 240_000);
+
+  it("reuses the directory contract tables after two applies and isolates ingestion writes from portal ownership", async () => {
+    const db = await freshDb();
+    await migrate({ connectionString: cs(db) });
+    expect((await migrate({ connectionString: cs(db) })).applied).toEqual([]);
+    const tables = [
+      "portal.dim_user", "portal.dim_user_login_history", "portal.DirectorySyncState",
+      "portal.PrincipalLinkState", "portal.GrantRevocation", "portal.IngestionAuditEvent",
+    ] as const;
+    const columns = await query<{ table_name: string; column_name: string; type_name: string; max_length: number }>(db, `
+      SELECT SCHEMA_NAME(t.schema_id) + '.' + t.name AS table_name, c.name AS column_name,
+        TYPE_NAME(c.user_type_id) AS type_name, c.max_length
+      FROM sys.tables t JOIN sys.columns c ON c.object_id = t.object_id
+      WHERE t.schema_id = SCHEMA_ID('portal') ORDER BY c.column_id`);
+    for (const table of tables) {
+      expect(columns.filter((c) => c.table_name === table).map((c) => c.column_name)).toEqual([...TABLE_COLUMNS[table]]);
+    }
+    for (const [column, type, length] of [
+      ["user_id", "bigint", 8], ["entra_object_id", "uniqueidentifier", 16],
+      ["login", "nvarchar", 510], ["email", "nvarchar", 640], ["display_name", "nvarchar", 510],
+      ["manager_entra_object_id", "uniqueidentifier", 16], ["manager_email", "nvarchar", 640],
+      ["department", "nvarchar", 200], ["business_area", "nvarchar", 100],
+    ] as const) {
+      expect(columns.find((c) => c.table_name === "portal.dim_user" && c.column_name === column))
+        .toMatchObject({ type_name: type, max_length: length });
+    }
+    await query(db, "CREATE USER directory_inventory_ingest WITHOUT LOGIN; ALTER ROLE portal_ingest ADD MEMBER directory_inventory_ingest");
+    await query(db, `
+      EXECUTE AS USER = 'directory_inventory_ingest';
+      INSERT INTO portal.dim_user (user_id, login, entra_object_id, manager_entra_object_id, manager_email, department, business_area)
+        VALUES (7001, N'directory-fixture', 'aaaaaaaa-0000-0000-0000-000000007001',
+          'aaaaaaaa-0000-0000-0000-000000007002', N'manager@example.test', N'department', N'area');
+      INSERT INTO portal.dim_user_login_history (user_id, login, first_seen_day, last_seen_day)
+        VALUES (7001, N'directory-fixture', '2026-03-02', '2026-03-02');
+      INSERT INTO portal.DirectorySyncState (source, last_attempt_at, last_error_code)
+        VALUES ('csv', SYSUTCDATETIME(), 'invalid_row');
+      INSERT INTO portal.PrincipalLinkState (entra_tenant_id, entra_object_id, github_user_id)
+        VALUES ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000007001', 7001);
+      UPDATE portal.PrincipalLinkState SET unlinked_at = SYSUTCDATETIME(),
+        unlink_seq = NEXT VALUE FOR portal.seq_access_event, unlink_reason = 'entra_disabled' WHERE github_user_id = 7001;
+      INSERT INTO portal.GrantRevocation (entra_tenant_id, entra_object_id, reason)
+        VALUES ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000007001', 'entra_disabled');
+      INSERT INTO portal.IngestionAuditEvent (action, outcome)
+        VALUES ('principal.unlinked_by_directory_sync', 'success');
+      REVERT`);
+    const [state] = await query<{ last_success_at: Date | null; last_error_code: string }>(db,
+      "SELECT last_success_at, last_error_code FROM portal.DirectorySyncState WHERE source = 'csv'");
+    expect(state).toEqual({ last_success_at: null, last_error_code: "invalid_row" });
+    for (const statement of [
+      "INSERT INTO portal.AccessGrant DEFAULT VALUES",
+      "UPDATE portal.AccessGrant SET revoked_at = SYSUTCDATETIME() WHERE 1 = 0",
+      "DELETE FROM portal.AccessGrant WHERE 1 = 0",
+      "INSERT INTO portal.Principal DEFAULT VALUES",
+      "UPDATE portal.Principal SET entra_object_id = NULL WHERE 1 = 0",
+      "DELETE FROM portal.Principal WHERE 1 = 0",
+      "INSERT INTO portal.PrincipalIdentity DEFAULT VALUES",
+      "UPDATE portal.PrincipalIdentity SET subject_id = N'not-allowed' WHERE 1 = 0",
+      "DELETE FROM portal.PrincipalIdentity WHERE 1 = 0",
+      "INSERT INTO portal.AuditLog DEFAULT VALUES",
+    ]) {
+      await expect(query(db, `EXECUTE AS USER = 'directory_inventory_ingest'; ${statement}; REVERT`))
+        .rejects.toThrow(/permission was denied|permission denied/i);
+    }
   }, 240_000);
 
   it("refuses when an applied migration's checksum changed and applies nothing new", async () => {

@@ -13,6 +13,12 @@ export const test = base.extend<{
       if (message.type() === "error") errors.push(message.text());
     });
     page.on("pageerror", (error) => errors.push(error.message));
+    page.on("requestfailed", (request) => {
+      const failure = request.failure()?.errorText;
+      if (failure !== "net::ERR_ABORTED") {
+        errors.push(`${request.method()} ${request.url()}: ${failure ?? "request failed"}`);
+      }
+    });
     await use(errors);
   },
   signInAs: async ({ page }, use) => {
@@ -27,13 +33,16 @@ export const test = base.extend<{
 
 export { expect };
 
-// Upstream chart canvas has no accessible name and upstream cannot be edited (D-14); tracked in issue #1.
-const KNOWN_UPSTREAM_AXE_RULES = ["role-img-alt"];
-
 export async function expectNoAxeViolations(page: Page) {
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa"])
-    .disableRules(KNOWN_UPSTREAM_AXE_RULES)
     .analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.length})`)).toEqual([]);
+  expect(results.violations.map((violation) => ({
+    id: violation.id,
+    help: violation.help,
+    nodes: violation.nodes.map((node) => ({
+      target: node.target,
+      failureSummary: node.failureSummary,
+    })),
+  }))).toEqual([]);
 }

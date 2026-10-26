@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { signOut } from "@/auth/config";
 import { getAccess } from "@/authz/server";
 import { readAccessSettings } from "@/auth/settings";
@@ -13,6 +14,7 @@ export default async function NoAccessPage() {
     <main className="mx-auto max-w-xl p-6">
       <h1 className="text-2xl font-semibold">No access</h1>
       <p className="mt-2">{settings.noAccessMessage}</p>
+      <p className="mt-4"><Link className="underline" href="/help#why-do-i-see-no-access">Help / FAQ: Why do I see No access?</Link></p>
       {settings.requestUrl && <p className="mt-4"><a className="underline" href={settings.requestUrl}>Request access</a></p>}
       {settings.contact && <p className="mt-4">Contact: {settings.contact}</p>}
       <form className="mt-4" action={async () => { "use server"; await signOut({ redirectTo: "/sign-in" }); }}>

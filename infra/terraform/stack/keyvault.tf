@@ -8,15 +8,15 @@ locals {
     )
     ingestion = concat(
       ["github-app-private-key"],
-      # Directory sync runs inside the ingestion Functions app; only its identity can read the PAT, not the portal.
-      ["github-directory-pat"],
       var.modules.ai_credits ? ["ai-credits-token"] : [],
     )
+    directory = ["github-directory-pat"]
   }
 
   secret_names = concat(
     local.secret_names_by_component.portal,
     local.secret_names_by_component.ingestion,
+    local.secret_names_by_component.directory,
   )
 
   secret_identity_by_name = merge([

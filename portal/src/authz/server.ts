@@ -1,50 +1,17 @@
 import { randomUUID } from "node:crypto";
-import sql from "mssql";
 import { auth } from "../auth/config";
 import { readAccessSettings } from "../auth/settings";
-import { testSqlConnection } from "../auth/test-sql";
-import { resolveAccess, type AccessRepository } from "./access";
+import { resolveAccess, type AccessRepository, type AccessScopedUser, type AccessResult } from "./access";
 import { SqlAccessRepository } from "./sql-access";
 import { isGuid, validateGrantRequest, type GrantRequestInput } from "../../../shared/src/access";
+import { getPortalSqlPool } from "../db/pool";
 
-let poolPromise: Promise<sql.ConnectionPool> | undefined;
-
-async function openPool(): Promise<sql.ConnectionPool> {
-  if (!poolPromise) {
-    const local = testSqlConnection();
-    if (local) {
-      poolPromise = new sql.ConnectionPool(local).connect().catch((error: unknown) => {
-        poolPromise = undefined;
-        throw error;
-      });
-      return poolPromise;
-    }
-    const server = process.env.SQL_SERVER;
-    const database = process.env.SQL_DATABASE;
-    if (!server || !database) throw new Error("SQL_SERVER and SQL_DATABASE are required");
-    poolPromise = new sql.ConnectionPool({
-      server, database,
-      authentication: {
-        type: "azure-active-directory-default",
-        options: { clientId: process.env.AZURE_CLIENT_ID },
-      },
-      options: { encrypt: true, trustServerCertificate: false },
-      connectionTimeout: 5000, requestTimeout: 10000,
-    }).connect().catch((error: unknown) => {
-      poolPromise = undefined;
-      throw error;
-    });
-  }
-  return poolPromise;
-}
-
-export async function getAccess() {
+export async function getAccess(correlationId: string = randomUUID()) {
   const session = await auth();
-  const correlationId = randomUUID();
   const repository: AccessRepository = {
     async read(identity) {
       try {
-        return await new SqlAccessRepository(await openPool()).read(identity);
+        return await new SqlAccessRepository(await getPortalSqlPool()).read(identity);
       } catch (error) {
         process.stderr.write(`${JSON.stringify({ level: "error", event: "access.permissions_unavailable", correlationId })}\n`);
         throw error;
@@ -55,12 +22,25 @@ export async function getAccess() {
   return resolveAccess(session?.identity ?? null, repository, readAccessSettings());
 }
 
+export async function getAuthorizedScopeUsers(
+  access: Extract<AccessResult, { state: "authorized" }>,
+): Promise<AccessScopedUser[]> {
+  const objectId = access.principal.entra_object_id;
+  if (!objectId) throw new Error("Authorized principal is missing its Entra object ID");
+  try {
+    return await new SqlAccessRepository(await getPortalSqlPool()).readScopedUsers(objectId, access.grants);
+  } catch (error) {
+    process.stderr.write(`${JSON.stringify({ level: "error", event: "access.scope_users_unavailable", correlationId: randomUUID() })}\n`);
+    throw error;
+  }
+}
+
 // Admin routes supply only the requested grant; directory facts and link state never come from HTTP input.
 export async function validateServerGrant(request: GrantRequestInput) {
   const settings = readAccessSettings();
   if (!isGuid(request.principalEntraObjectId)) return { ok: false, code: "principal_not_linked" } as const;
   const tenant = process.env.ENTRA_TENANT_ID;
   if (!tenant || !isGuid(tenant)) throw new Error("ENTRA_TENANT_ID is required");
-  const repository = new SqlAccessRepository(await openPool());
+  const repository = new SqlAccessRepository(await getPortalSqlPool());
   return validateGrantRequest(request, await repository.grantValidationContext(tenant, request.principalEntraObjectId, settings));
 }

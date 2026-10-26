@@ -10,6 +10,98 @@ const ART = 7;
 const lines = (f: string) => readFileSync(join(dir, f), "utf8").split("\n").filter(Boolean);
 
 describe("users-1-day → staging shape", () => {
+  it("extracts phase version and independent client-specific source counts", () => {
+    const result = mapUsersDayLine(JSON.stringify({
+      day: WINDOW.start, organization_id: 1, user_id: 1,
+      user_initiated_interaction_count: 2, code_generation_activity_count: 1, code_acceptance_activity_count: 0,
+      loc_added_sum: 1, loc_deleted_sum: 0, loc_suggested_to_add_sum: 3, loc_suggested_to_delete_sum: 0,
+      ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "v1" },
+      totals_by_feature: [{ feature: "code_completion", code_generation_activity_count: 1 }],
+      totals_by_cli: { session_count: 3, request_count: 4, prompt_count: 5 },
+      totals_by_copilot_app: { session_count: 6, prompt_count: 7 },
+      totals_by_vscode_agent: { total_user_messages: 8, token_usage: { prompt_tokens_sum: 9 } },
+    }), 1, createStagingContext(RUN, WINDOW), ART);
+    expect(result.issues).toEqual([]);
+    expect(result.loaded).toBe(true);
+    expect(result.daily).toMatchObject({
+      ai_adoption_phase_version: "v1", ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
+      interaction_count: 2, code_generation_count: 1, loc_added: 1,
+    });
+    expect(result.breakdown).toHaveLength(4);
+    expect(result.breakdown.find((row) => row.key_1 === "copilot_cli"))
+      .toMatchObject({ session_count: 3, request_count: 4 });
+    expect(result.breakdown.find((row) => row.key_1 === "copilot_cli"))
+      .toMatchObject({ prompt_count: 5, total_user_messages: null });
+    expect(result.breakdown.find((row) => row.key_1 === "copilot_app"))
+      .toMatchObject({ prompt_count: 7, total_user_messages: null });
+    expect(result.breakdown.find((row) => row.key_1 === "vscode_agent"))
+      .toMatchObject({ prompt_tokens: 9, prompt_count: null, total_user_messages: 8 });
+  });
+
+  it.each([
+    ["CLI prompt_count", "totals_by_cli", "prompt_count", "copilot_cli"],
+    ["Copilot App prompt_count", "totals_by_copilot_app", "prompt_count", "copilot_app"],
+    ["VS Code total_user_messages", "totals_by_vscode_agent", "total_user_messages", "vscode_agent"],
+  ])("preserves zero and missing/null for %s", (_label, sourceField, sourceCount, client) => {
+    const base = JSON.parse(lines("users-1-day.ndjson")[0]!) as Record<string, unknown>;
+    for (const sourceValue of [0, undefined, null]) {
+      const clientSource = sourceValue === undefined ? {} : { [sourceCount]: sourceValue };
+      const result = mapUsersDayLine(JSON.stringify({ ...base, [sourceField]: clientSource }), 1, createStagingContext(RUN, WINDOW), ART);
+      expect(result.issues).toEqual([]);
+      const row = result.breakdown.find((candidate) => candidate.breakdown_kind === "client" && candidate.key_1 === client)!;
+      expect(row[sourceCount === "prompt_count" ? "prompt_count" : "total_user_messages"]).toBe(sourceValue ?? null);
+    }
+  });
+
+  it.each([
+    ["CLI prompt_count", "totals_by_cli", "prompt_count"],
+    ["Copilot App prompt_count", "totals_by_copilot_app", "prompt_count"],
+    ["VS Code total_user_messages", "totals_by_vscode_agent", "total_user_messages"],
+  ])("rejects invalid supplied %s values", (_label, sourceField, sourceCount) => {
+    const base = JSON.parse(lines("users-1-day.ndjson")[0]!) as Record<string, unknown>;
+    for (const value of ["5", -1, 1.5, 2_147_483_648]) {
+      const result = mapUsersDayLine(
+        JSON.stringify({ ...base, [sourceField]: { [sourceCount]: value } }), 1, createStagingContext(RUN, WINDOW), ART,
+      );
+      expect(result.loaded).toBe(false);
+      expect(result.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ error_code: "negative_count", field_path: `${sourceField}.${sourceCount}` }),
+      ]));
+    }
+  });
+
+  it.each([true, false])("keeps duplicate ordering when a client counter is invalid (invalid first: %s)", (invalidFirst) => {
+    const base = JSON.parse(lines("users-1-day.ndjson")[0]!) as Record<string, unknown>;
+    const invalid = { ...base, totals_by_cli: { prompt_count: "5" } };
+    const ctx = createStagingContext(RUN, WINDOW);
+    const orderedResults = (invalidFirst ? [invalid, base] : [base, invalid]).map((row, index) =>
+      mapUsersDayLine(JSON.stringify(row), index + 1, ctx, ART),
+    );
+    expect(orderedResults.map((result) => result.loaded)).toEqual(invalidFirst ? [false, false] : [true, false]);
+    const errorCodes = orderedResults.flatMap((result) => result.issues.map((issue) => issue.error_code));
+    expect(errorCodes).toEqual(expect.arrayContaining(["negative_count", "duplicate_key"]));
+  });
+
+  it("preserves version strings through the VARCHAR(64) boundary and rejects invalid versions", () => {
+    const base = JSON.parse(lines("users-1-day.ndjson")[0]!) as Record<string, unknown>;
+    const mapVersion = (version: unknown) => mapUsersDayLine(
+      JSON.stringify({ ...base, ai_adoption_phase: { phase_number: 2, phase: "Agent first", version } }),
+      1, createStagingContext(RUN, WINDOW), ART,
+    );
+    expect(mapVersion("v".repeat(64)).daily?.ai_adoption_phase_version).toBe("v".repeat(64));
+    expect(mapVersion("é".repeat(64)).daily?.ai_adoption_phase_version).toBe("é".repeat(64));
+    expect(mapVersion("v1").daily?.ai_adoption_phase_version).toBe("v1");
+    expect(mapVersion(null).daily?.ai_adoption_phase_version).toBeNull();
+    expect(mapVersion(undefined).daily?.ai_adoption_phase_version).toBeNull();
+    for (const version of [1, {}, "v".repeat(65)]) {
+      const result = mapVersion(version);
+      expect(result.loaded).toBe(false);
+      expect(result.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ error_code: "unsupported_schema", field_path: "ai_adoption_phase.version" }),
+      ]));
+    }
+  });
+
   it("loads every valid fixture line with typed columns and no rejects", () => {
     const ctx = createStagingContext(RUN, WINDOW);
     const results = lines("users-1-day.ndjson").map((l, i) => mapUsersDayLine(l, i + 1, ctx, ART));

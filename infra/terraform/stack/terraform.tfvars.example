@@ -15,6 +15,11 @@ organization = {
   entra_tenant_id    = "00000000-0000-0000-0000-000000000000"
 }
 
+# Nonsecret GitHub App identifier used only by metrics ingestion. The private key stays in Key Vault.
+github_app_id = "123456"
+# Optional inclusive metrics backfill start (YYYY-MM-DD); omit to request no historical fetch.
+# backfill_from = "2025-10-10"
+
 # Sign-in identifiers are placeholders. OAuth secrets are created in Key Vault using the secret_names output.
 auth_trust_host                    = false
 trusted_forwarding_ingress         = false

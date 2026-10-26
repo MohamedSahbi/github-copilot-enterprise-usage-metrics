@@ -36,13 +36,59 @@ mock_provider "azapi" {}
 run "demo_example" {
   command = plan
 
+  override_module {
+    target = module.key_vault
+
+    outputs = {
+      uri         = "https://kv-example.vault.azure.net/"
+      resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.KeyVault/vaults/kv-example"
+    }
+  }
+
+  override_module {
+    target = module.identity["ingestion"]
+
+    outputs = {
+      client_id    = "00000000-0000-0000-0000-000000000001"
+      principal_id = "00000000-0000-0000-0000-000000000002"
+      resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-example-ingestion"
+    }
+  }
+
   assert {
     condition = alltrue([
+      local.ingestion_app_settings.GITHUB_APP_ID == "123456",
+      local.ingestion_app_settings.GITHUB_APP_PRIVATE_KEY == format(
+        "@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)",
+        trimsuffix(module.key_vault.uri, "/"),
+      ),
+      local.ingestion_app_settings.AZURE_CLIENT_ID == "00000000-0000-0000-0000-000000000001",
+      contains(keys(local.ingestion_app_settings), "AZURE_CLIENT_ID"),
+      contains(keys(local.ingestion_app_settings), "SQL_SERVER"),
+      local.ingestion_app_settings.SQL_DATABASE == local.sql_database_name,
+      contains(keys(local.ingestion_app_settings), "RAW_ARCHIVE_ACCOUNT"),
+      local.ingestion_app_settings.RAW_ARCHIVE_CONTAINER == "raw",
+      local.ingestion_key_vault_reference_identity == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-example-ingestion",
+      !contains(keys(local.ingestion_app_settings), "BACKFILL_FROM"),
+      !contains(keys(local.ingestion_app_settings), "AUTH_GITHUB_ID"),
       contains(output.secret_names, "auth-secret"),
       contains(output.secret_names, "auth-microsoft-entra-id-secret"),
       contains(output.secret_names, "auth-github-secret"),
+      contains(output.secret_names, "github-directory-pat"),
     ])
-    error_message = "The portal sign-in secret names must be included in secret_names."
+    error_message = "The ingestion app must receive the GitHub App reference and its existing runtime settings; portal sign-in remains isolated."
+  }
+
+  assert {
+    condition = alltrue([
+      local.portal_app_settings.AUTH_GITHUB_ID == "REPLACE_WITH_CLIENT_ID",
+      !contains(keys(local.portal_app_settings), "GITHUB_APP_ID"),
+      !contains(keys(local.portal_app_settings), "GITHUB_APP_PRIVATE_KEY"),
+      !contains(keys(local.directory_app_settings), "GITHUB_APP_ID"),
+      !contains(keys(local.directory_app_settings), "GITHUB_APP_PRIVATE_KEY"),
+      !contains(keys(local.directory_app_settings), "BACKFILL_FROM"),
+    ])
+    error_message = "GitHub App ingestion settings must not leak into portal OAuth or directory runtime configuration."
   }
 
   assert {
@@ -52,9 +98,43 @@ run "demo_example" {
       "auth-microsoft-entra-id-secret" = "portal"
       "auth-github-secret"             = "portal"
       "github-app-private-key"         = "ingestion"
-      "github-directory-pat"           = "ingestion"
+      "github-directory-pat"           = "directory"
     }
     error_message = "Each default Key Vault secret must be granted only to its owning component identity."
+  }
+
+  assert {
+    condition = alltrue([
+      local.raw_archive_identity_key == "ingestion",
+      toset(keys(local.raw_archive_role_assignments)) == toset(["ingestion_blob", "ingestion_queue", "ingestion_table"]),
+    ])
+    error_message = "Only the ingestion identity may access the metrics raw archive and its host storage."
+  }
+
+  assert {
+    condition = alltrue([
+      local.directory_host_storage_identity_key == "directory",
+      toset(keys(local.directory_host_storage_role_assignments)) == toset(["directory_blob", "directory_queue", "directory_table"]),
+      local.directory_host_storage_prefix != local.raw_archive_storage_prefix,
+    ])
+    error_message = "Directory host storage must be separate from the raw archive and accessible only to the directory identity."
+  }
+
+  assert {
+    condition = alltrue([
+      local.directory_platform_state.enabled == false,
+      local.directory_platform_state.scm_site_also_stopped == true,
+      nonsensitive(module.directory.resource).body.properties.enabled == false,
+      nonsensitive(module.directory.resource).body.properties.scmSiteAlsoStopped == true,
+      contains(keys(local.directory_app_settings), "GITHUB_DIRECTORY_PAT"),
+      local.directory_app_settings.SQL_DATABASE == local.sql_database_name,
+      contains(keys(local.directory_app_settings), "SQL_SERVER"),
+      local.directory_app_settings.AzureWebJobsStorage__credential == "managedidentity",
+      contains(keys(local.directory_app_settings), "AzureWebJobsStorage__accountName"),
+      contains(keys(local.directory_app_settings), "AzureWebJobsStorage__clientId"),
+      !contains(keys(local.directory_app_settings), "AzureWebJobsStorage"),
+    ])
+    error_message = "The directory Function must stay natively disabled with its own PAT, identity, host storage, and new-solution database reference."
   }
 
   assert {
@@ -84,8 +164,24 @@ run "enterprise_existing_resources" {
       contains(output.secret_names, "auth-secret"),
       contains(output.secret_names, "auth-microsoft-entra-id-secret"),
       contains(output.secret_names, "auth-github-secret"),
+      local.ingestion_app_settings.GITHUB_APP_ID == "123456",
+      !contains(keys(local.ingestion_app_settings), "BACKFILL_FROM"),
+      output.directory_runtime.sql_database_name == "portal",
     ])
-    error_message = "The portal sign-in secret names must be included in secret_names."
+    error_message = "Existing-resource plans must preserve portal secrets while referencing the new-solution database and separate directory host storage."
+  }
+}
+
+run "optional_metrics_backfill" {
+  command = plan
+
+  variables {
+    backfill_from = "2025-10-10"
+  }
+
+  assert {
+    condition     = local.ingestion_app_settings.BACKFILL_FROM == "2025-10-10"
+    error_message = "A configured backfill date must be set only on the metrics ingestion app."
   }
 }
 
@@ -104,8 +200,23 @@ run "optional_module_secret_ownership" {
     condition = alltrue([
       local.secret_identity_by_name["ai-credits-token"] == "ingestion",
       local.secret_identity_by_name["budget-lookup-key"] == "portal",
+      local.secret_identity_by_name["github-directory-pat"] == "directory",
     ])
     error_message = "Optional module secrets must be granted only to the module's owning component identity."
+  }
+}
+
+run "directory_runtime_cannot_be_enabled_by_tfvars" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      local.directory_platform_state.enabled == false,
+      local.directory_platform_state.scm_site_also_stopped == true,
+      nonsensitive(module.directory.resource).body.properties.enabled == false,
+      nonsensitive(module.directory.resource).body.properties.scmSiteAlsoStopped == true,
+    ])
+    error_message = "The actual planned ARM body must keep the directory Function disabled and its SCM site stopped; no Terraform input may activate it."
   }
 }
 

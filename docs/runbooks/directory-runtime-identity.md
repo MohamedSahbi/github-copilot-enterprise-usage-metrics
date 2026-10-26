@@ -1,0 +1,122 @@
+# Runbook: directory runtime identity boundary
+
+This runbook records the owner-approved target boundary for directory sync and
+the operator checks required before any Graph permission is granted. It is
+human-readable guidance only; it does not configure or grant access.
+
+## Current source configuration and approved target
+
+The owner approved a dedicated directory-sync Function App with its own managed
+identity. Its directory credential path must be isolated from the GitHub App
+path used by metrics and AI Credits ingestion. Graph application-permission
+consent is a manual operator/admin action outside Terraform, and only for
+permissions verified as necessary. No consent, deployment, role assignment, or
+secret creation is authorized by this runbook.
+
+**Slice A source configuration is not deployed isolation.** The Terraform
+source now assigns the `github-directory-pat` Key Vault reference to the
+directory identity, creates a separate keyless directory host-storage account,
+and keeps the directory Function App natively disabled with its SCM site
+stopped. The directory identity has no role on the metrics raw-archive account
+and no SQL principal or role. Its app settings carry the new-solution SQL
+server/database reference only; that reference does not grant database access.
+Terraform's `secret_names` inventory includes the PAT name but never reads or
+manages its value.
+
+This is a source-configuration fact, not evidence of the deployed state. No
+apply, package deployment, or runtime verification was performed in Slice A;
+the environment's live identity assignments and app state remain unverified.
+Do not claim deployed isolation until a separately authorized deployment is
+performed and its target state is verified.
+
+The target continues to use the new solution's separate database (D-29, D-34).
+The identity split is not permission to create a second logical writer:
+`portal.dim_user`, login history, and `portal.DirectorySyncState` retain the
+single logical `ingestion` writer. Directory sync owns the directory
+attributes, hierarchy, link/revocation lifecycle, and sync-state updates
+through that writer. Slice A grants the directory identity no SQL access; the
+component writer/access design and any grants require a separately approved
+change. A partial or failed run must not advance
+`DirectorySyncState.last_success_at`; preserve its existing `scim`, `graph`,
+`csv`, and `seats` source values.
+
+## Writer, reader, and credential matrix
+
+| Runtime component / identity | SQL and storage boundary | External credentials and access |
+| --- | --- | --- |
+| Portal managed identity | Portal read path uses `portal_reader`; portal-owned writes use `portal_writer`. No directory or ingestion writer access. | Portal sign-in OAuth credential and, when enabled, a separate read-only Budget Lookup credential. No ingestion GitHub App key, directory PAT, or Graph permission. |
+| Metrics and AI Credits ingestion | Ingestion-owned SQL writes use `portal_ingest`; raw archive access uses managed identity/RBAC with storage keys disabled. Must not write directory-owned user attributes or sync state as a second writer. | GitHub App credential for metrics/AI Credits. No directory PAT or directory Graph application permission. If the separate metrics endpoint fact check (#64) requires another credential, it must not reuse the directory PAT. |
+| Directory-sync Function App and dedicated managed identity | Slice A source configuration keeps the app disabled and SCM stopped. Its identity uses a separate keyless host-storage account and has no raw-archive role or SQL principal/role. Any later directory writes remain within the one logical `ingestion` writer and new database, subject to the separately approved writer/access design. No old-database access. | Source configuration references the classic PAT only for directory sync, per D-37; its value remains operator-managed in Key Vault. No Graph grant/consent is part of Slice A. Graph access remains gated on verified app-only endpoint support and separate operator/admin consent. |
+| Deployment identity | Deployment-time provisioning and migration operations only; never a runtime identity. Runtime identities are not SQL administrators or `db_owner`. | Deployment authentication only. No runtime GitHub or Graph credentials. |
+
+The PAT's existing D-37 scope description (`read:org` and `admin:enterprise`)
+is recorded here as an architecture reference, not a new permission grant or a
+claim that those scopes have been revalidated. Do not add scopes or change
+secret values in this task.
+
+## Microsoft Graph permission prerequisite
+
+The Graph endpoint and permission references below were checked on
+2026-10-25:
+
+| Directory read | Endpoint | Verified application-permission prerequisite |
+| --- | --- | --- |
+| User collection and selected user attributes | `GET /users` (use `$select` for only the configured attributes) | Microsoft Graph lists `User.Read.All` as the least-privileged application permission for listing users. Verify each configured attribute against its property-specific requirements before requesting consent. |
+| Direct manager relationship | `GET /users/{id}/manager` | The Microsoft Graph “List manager” permission table says `Application: Not supported.` Do not use this endpoint for an app-only request based on this reference. |
+| Manager expansion on the users collection | `GET /users?$expand=manager` | The “List manager” reference documents this request, while “List users” separately lists `User.Read.All` as the least-privileged application permission for `GET /users` and supports `$expand` generally. The references do not explicitly confirm that this application permission authorizes manager expansion. Treat app-only support and the exact permission for this expanded request as **unverified**; do not infer them from the list-users permission row. |
+
+Sources:
+
+- [List users — permissions and `$select`](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0)
+- [List manager — endpoints and permissions](https://learn.microsoft.com/en-us/graph/api/user-list-manager?view=graph-rest-1.0)
+- [Microsoft Graph permissions overview — application permissions and consent](https://learn.microsoft.com/en-us/graph/permissions-overview)
+
+Do **not** substitute `Directory.Read.All` or another broader permission to
+work around the unverified manager-read prerequisite. Before any Graph
+consent, obtain endpoint-specific authoritative evidence for app-only manager
+reads and the exact least-privileged application permission. Until that is
+verified, do not grant a manager-read application permission or claim that the
+expanded users request works app-only. The dedicated Function App and managed
+identity remain the approved target; this verification gate does not authorize
+a different authentication model, code change, or deployment.
+
+Issue #67 remains open. Reverse traversal through `directReports` is an
+unapproved candidate, not an approved replacement algorithm. Incomplete
+coverage must never be interpreted as absence or trigger revocation.
+
+Once the endpoint and exact application permission(s) are verified, consent is
+a separate manual operator/admin step outside Terraform. Application
+permissions require administrator consent; Terraform must not grant consent or
+create a secret to represent Graph access. Record the approved permission,
+target identity, and consent evidence in the private deployment record, not in
+this public runbook. Never record tenant-specific identifiers or secret values
+here.
+
+## Preconditions before an authorized deployment
+
+1. Keep the Function App and SCM site disabled. #73/#117 has merged, which
+   releases only the packaging work's merge prerequisite; it does not provide
+   the directory artifact/build-routing implementation. That work still needs
+   separate approval, implementation, and review. The SQL writer/access design
+   also requires approval, with grants separately implemented and tested.
+   Slice A does not create a runnable package or SQL principal.
+2. Resolve #67's manager-read app-only limitation above before granting Graph
+   application permissions. Do not treat incomplete coverage as absence or
+   revocation.
+3. Keep the #55 restore/rollback and #56 non-production SQL identity gates,
+   required maintenance window, human review, and explicit owner deployment
+   authorization. A Terraform plan or this source configuration is not
+   deployment authorization.
+4. Keep the GitHub App and directory PAT on separate access paths. Operators
+   manage secret values directly in Key Vault using the configured secret
+   names; Terraform carries names and references only.
+5. Before a separately authorized deployment, verify the exact plan outputs:
+   directory PAT access is limited to the directory identity; directory host
+   storage is separate and keyless; the directory identity has no raw-archive
+   role or SQL access in A. Verify the directory app remains disabled.
+6. Only after the future activation gates pass, verify a complete directory
+   sync updates the existing `DirectorySyncState` source row and a
+   partial/failed run does not advance `last_success_at`.
+
+No deployment, Graph consent, role change, or secret creation was performed
+while preparing this runbook.

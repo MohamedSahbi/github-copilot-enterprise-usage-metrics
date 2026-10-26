@@ -17,6 +17,7 @@ export type ApiErrorCode =
   | "forbidden"
   | "not_found"
   | "per_user_detail_disabled"
+  | "decimal_overflow"
   | "permissions_unavailable"
   | "module_disabled"
   | "rate_limited"
@@ -58,6 +59,49 @@ export interface PageInfo {
 
 export interface ScopedRangeRequest extends DateRange {
   organizationIds?: number[];
+}
+
+export type UsagePeriodRequest =
+  | { period: "last_7_days"; organizationIds?: number[] }
+  | { period: "last_28_days"; organizationIds?: number[] }
+  | { period: "last_90_days"; organizationIds?: number[] }
+  | { period: "calendar_month"; month: string; organizationIds?: number[] };
+
+export type ScopedUsagePeriodRequest = UsagePeriodRequest & {
+  scope?: CoreViewScopeSelection;
+};
+
+export type UsagePeriodValidation =
+  | { ok: true; range: DateRange }
+  | { ok: false; code: "invalid_request" };
+
+export function validateUsagePeriod(
+  request: UsagePeriodRequest,
+  latestCompleteDay: IsoDate,
+): UsagePeriodValidation {
+  if (!validateDateRange({ from: latestCompleteDay, to: latestCompleteDay }).ok) {
+    return { ok: false, code: "invalid_request" };
+  }
+
+  if (request.period === "calendar_month") {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(request.month)) {
+      return { ok: false, code: "invalid_request" };
+    }
+    const [year, month] = request.month.split("-").map(Number);
+    const from = `${request.month}-01`;
+    const to = new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
+    if (to > latestCompleteDay) return { ok: false, code: "invalid_request" };
+    return { ok: true, range: { from, to } };
+  }
+
+  const days = {
+    last_7_days: 7,
+    last_28_days: 28,
+    last_90_days: 90,
+  }[request.period];
+  const to = new Date(`${latestCompleteDay}T00:00:00.000Z`);
+  const from = new Date(to.getTime() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  return { ok: true, range: { from, to: latestCompleteDay } };
 }
 
 export interface Suppressible<T> {
@@ -145,15 +189,15 @@ export interface UsageBreakdownRow {
   userCount: number;
 }
 
-export type UsageOverviewRequest = ScopedRangeRequest;
+export type UsageOverviewRequest = ScopedUsagePeriodRequest;
 export type UsageOverviewResponse = ApiResponse<{
   series: Suppressible<UsageSeriesPoint>[];
   adoption: Suppressible<AdoptionSummary>;
 }>;
 
-export interface UsageBreakdownRequest extends ScopedRangeRequest, PageRequest {
+export type UsageBreakdownRequest = ScopedUsagePeriodRequest & PageRequest & {
   kind: UsageBreakdownRow["kind"];
-}
+};
 export type UsageBreakdownResponse = PagedResponse<Suppressible<UsageBreakdownRow>>;
 
 // Per-user rows exist only when the deployment allows named users, only within the viewer's grants, and always paged.
@@ -162,10 +206,194 @@ export interface UserUsageRow {
   login: string | null;
   daysActive: number;
   interactions: number;
-  aiCreditsUsed: number;
+  aiCreditsUsed: string;
 }
-export type UserUsageRequest = ScopedRangeRequest & PageRequest;
+export type UserUsageRequest = ScopedUsagePeriodRequest & PageRequest;
 export type UserUsageResponse = PagedResponse<UserUsageRow>;
+
+export type CoreViewMetric<T> =
+  | { availability: "available"; value: T }
+  | { availability: "not_reported"; value: null }
+  | { availability: "unavailable"; reason: "source_discarded"; value: null }
+  | { availability: "suppressed"; value: null };
+
+export type CoreViewCohort<T> =
+  | { availability: "available"; userCount: number; value: T }
+  | { availability: "not_reported"; userCount: null; value: null }
+  | { availability: "unavailable"; reason: "source_discarded"; userCount: null; value: null }
+  | { availability: "suppressed"; userCount: null; value: null };
+
+export type CoreViewScopeSelection =
+  | { scope: "self" }
+  | { scope: "team" }
+  | { scope: "company" }
+  | { scope: "department"; value: string }
+  | { scope: "business_area"; value: string };
+
+export type CoreViewScopeSelectionValidation =
+  | { ok: true; selection?: CoreViewScopeSelection }
+  | { ok: false; code: "invalid_request" };
+
+export function parseCoreViewScopeSelection(params: URLSearchParams): CoreViewScopeSelectionValidation {
+  const scopes = params.getAll("scope");
+  const values = params.getAll("value");
+  if (scopes.length === 0) {
+    return values.length === 0 ? { ok: true } : { ok: false, code: "invalid_request" };
+  }
+  if (scopes.length !== 1 || values.length > 1) return { ok: false, code: "invalid_request" };
+
+  const scope = scopes[0];
+  if (scope === "self" || scope === "team" || scope === "company") {
+    return values.length === 0
+      ? { ok: true, selection: { scope } }
+      : { ok: false, code: "invalid_request" };
+  }
+  if (scope === "department" || scope === "business_area") {
+    const value = values[0];
+    return value !== undefined && value.length > 0
+      ? { ok: true, selection: { scope, value } }
+      : { ok: false, code: "invalid_request" };
+  }
+  return { ok: false, code: "invalid_request" };
+}
+
+export function serializeCoreViewScopeSelection(selection?: CoreViewScopeSelection): URLSearchParams {
+  const params = new URLSearchParams();
+  if (selection === undefined) return params;
+
+  params.set("scope", selection.scope);
+  if ("value" in selection) params.set("value", selection.value);
+  return params;
+}
+
+export interface CoreViewScopeOptions {
+  departments: string[];
+  businessAreas: string[];
+}
+
+export interface CoreViewScopeOptionPopulationCounts {
+  departments: Readonly<Record<string, number>>;
+  businessAreas: Readonly<Record<string, number>>;
+}
+
+export type CoreViewScopeOptionsResult =
+  | { availability: "available"; options: CoreViewScopeOptions }
+  | {
+      availability: "unavailable";
+      reason: "authorization_unavailable" | "option_data_unavailable";
+      options: null;
+    };
+
+export function intersectCoreViewScopeOptions(
+  authorizedOptions: CoreViewScopeOptions | null | undefined,
+  directoryOptions: CoreViewScopeOptions | null | undefined,
+  populationCounts: CoreViewScopeOptionPopulationCounts | null | undefined,
+  minGroupSize = DEFAULT_MIN_GROUP_SIZE,
+): CoreViewScopeOptionsResult {
+  if (authorizedOptions === null || authorizedOptions === undefined) {
+    return { availability: "unavailable", reason: "authorization_unavailable", options: null };
+  }
+  if (directoryOptions === null || directoryOptions === undefined
+    || populationCounts === null || populationCounts === undefined) {
+    return { availability: "unavailable", reason: "option_data_unavailable", options: null };
+  }
+  const intersect = (kind: keyof CoreViewScopeOptions): string[] | null => {
+    const authorized = authorizedOptions[kind];
+    const directory = directoryOptions[kind];
+    const counts = populationCounts[kind];
+    if (!Array.isArray(authorized) || !Array.isArray(directory) || !counts || typeof counts !== "object") return null;
+    const permitted = new Set(authorized);
+    const candidates = [...new Set(directory.filter((value) => permitted.has(value)))].sort();
+    const visible: string[] = [];
+    for (const value of candidates) {
+      const userCount = counts[value];
+      if (typeof userCount !== "number" || !Number.isSafeInteger(userCount) || userCount < 0) return null;
+      if (!suppress(userCount, minGroupSize, value, false).suppressed) visible.push(value);
+    }
+    return visible;
+  };
+  const departments = intersect("departments");
+  const businessAreas = intersect("businessAreas");
+  if (departments === null || businessAreas === null) {
+    return { availability: "unavailable", reason: "option_data_unavailable", options: null };
+  }
+  return {
+    availability: "available",
+    options: {
+      departments,
+      businessAreas,
+    },
+  };
+}
+
+export function deriveCoreViewMetric<T>(
+  dependencies: readonly CoreViewMetric<unknown>[],
+  calculate: () => T,
+): CoreViewMetric<T> {
+  if (dependencies.some(({ availability }) => availability === "suppressed")) {
+    return { availability: "suppressed", value: null };
+  }
+  if (dependencies.some(({ availability }) => availability === "unavailable")) {
+    return { availability: "unavailable", reason: "source_discarded", value: null };
+  }
+  if (dependencies.some(({ availability }) => availability === "not_reported")) {
+    return { availability: "not_reported", value: null };
+  }
+  return { availability: "available", value: calculate() };
+}
+
+export interface CoreViewDailyParticipation {
+  day: IsoDate;
+  activeUsers: CoreViewCohort<number>;
+}
+
+export interface CoreViewPeakDay {
+  day: CoreViewMetric<IsoDate>;
+  activeUsers: CoreViewCohort<number>;
+}
+
+export interface CoreViewTopDecile {
+  subsetUsers: CoreViewCohort<number>;
+  subsetMetric: CoreViewCohort<number>;
+  share: CoreViewMetric<string>;
+}
+
+export interface CoreViewTopNEntry {
+  cohort: CoreViewCohort<{ key: string; metric: number }>;
+}
+
+export interface CoreViewCliTotals {
+  users: CoreViewCohort<number>;
+  sessions: CoreViewCohort<number>;
+  requests: CoreViewCohort<number>;
+  promptTokens: CoreViewCohort<number>;
+  outputTokens: CoreViewCohort<number>;
+}
+
+export type CoreViewFeatureAdoption = {
+  [Metric in keyof AdoptionSummary]: CoreViewCohort<number>;
+};
+
+export interface CoreViewMetrics {
+  dailyParticipation: CoreViewDailyParticipation[];
+  peakDay: CoreViewPeakDay;
+  topDecile: CoreViewTopDecile;
+  topModels: CoreViewTopNEntry[];
+  topClients: CoreViewTopNEntry[];
+  topLanguages: CoreViewTopNEntry[];
+  topVersions: CoreViewTopNEntry[];
+  topPhases: CoreViewTopNEntry[];
+  cli: CoreViewCliTotals;
+  ideCliOverlap: { users: CoreViewCohort<number>; share: CoreViewMetric<string> };
+  featureAdoption: CoreViewFeatureAdoption;
+  sourceFields: {
+    aiAdoptionPhaseVersion: CoreViewMetric<string>;
+    clientPromptCount: CoreViewMetric<number>;
+    vscodeAgentTotalUserMessages: CoreViewMetric<number>;
+  };
+}
+
+export type CoreViewResponse = ApiResponse<CoreViewMetrics>;
 
 // ---- AI Credits module ------------------------------------------------------------------------------------------
 
@@ -186,17 +414,168 @@ export type AiCreditsResponse = PagedResponse<Suppressible<AiCreditsDailyRow>>;
 
 // ---- Budget Lookup (read-only) ----------------------------------------------------------------------------------
 
-export interface BudgetLookupRequest {
-  // Identifies a person by numeric GitHub user ID; email and login are never accepted as lookup keys.
-  userId: number;
+/**
+ * Callers provide an immutable numeric GitHub user ID, never a login or email. For user lookups,
+ * resolve that ID to the current login from the portal's identity data, then call
+ * `GET /enterprises/{enterprise}/settings/billing/budgets?scope=user&user=<current login>&per_page=100`.
+ * Then query `scope=multi_user_customer` and `scope=multi_user_cost_center` with the same user and
+ * page size. The list's `user` parameter filters consumed-amount details, not necessarily budget
+ * records or cost-center membership. There is no cost-center query parameter: page each scope
+ * once, then select applicable budgets from returned scope/entity, the resolved user identity,
+ * and known cost-center membership. Exclude unmatched records; ambiguous mappings fail visibly.
+ * Never treat repeated identical requests as selecting different centers.
+ * Page until `has_next_page` is false and verify `total_count`.
+ * `GET .../budgets/{budget_id}` (a budget GUID) and
+ * `GET .../budgets/{budget_id}/user-states?user=<current login>&per_page=100` are follow-ups;
+ * match returned state logins against the resolved current login, and map response logins back to
+ * numeric IDs through portal identity data. Never infer an ID for an unmapped login; return
+ * `userId: null`. Any failed or truncated page sequence must fail visibly rather than return
+ * partial data.
+ */
+export type BudgetLookupRequest =
+  | { userId: number; costCenterName?: never }
+  | { userId?: never; costCenterName: string };
+
+export type BudgetLookupRequestValidation =
+  | { ok: true; request: BudgetLookupRequest }
+  | { ok: false; code: "invalid_request" };
+
+export function validateBudgetLookupRequest(request: unknown): BudgetLookupRequestValidation {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+    return { ok: false, code: "invalid_request" };
+  }
+
+  const input = request as Record<string, unknown>;
+  const keys = Object.keys(input);
+  if (keys.length !== 1) return { ok: false, code: "invalid_request" };
+
+  if (keys[0] === "userId") {
+    const userId = input.userId;
+    if (typeof userId !== "number" || !Number.isSafeInteger(userId) || userId <= 0) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { userId } };
+  }
+
+  if (keys[0] === "costCenterName") {
+    const costCenterName = input.costCenterName;
+    if (typeof costCenterName !== "string" || costCenterName.trim().length === 0) {
+      return { ok: false, code: "invalid_request" };
+    }
+    const normalizedName = costCenterName.trim();
+    if (Array.from(normalizedName).length > 255) {
+      return { ok: false, code: "invalid_request" };
+    }
+    return { ok: true, request: { costCenterName: normalizedName } };
+  }
+
+  return { ok: false, code: "invalid_request" };
 }
-export type BudgetLookupResponse = ApiResponse<{
-  entityType: string;
+
+// Raw values preserve documented GitHub scopes without expanding which scopes callers may request.
+export type BudgetLookupScope =
+  | { type: "universal"; githubScope: "multi_user_customer" | "multi_user_cost_center" }
+  | { type: "individual"; githubScope: "user" }
+  | { type: "cost_center"; githubScope: "cost_center" }
+  | { type: "raw"; githubScope: string };
+
+export interface BudgetLookupAlerting {
+  willAlert: boolean;
+  alertRecipients: string[];
+}
+
+export interface BudgetLookupBudget {
+  id: string;
+  scope: BudgetLookupScope;
   entityName: string | null;
-  amount: string | null;
-  currency: string | null;
-  effectiveFrom: IsoDate | null;
-}[]>;
+  budgetType: "SkuPricing" | "ProductPricing" | "BundlePricing";
+  // Wrap singular budget_product_sku in an array; preserve every plural budget_product_skus entry.
+  budgetProductSkus: string[];
+  // Preserve JSON number tokens as text, then canonicalize with exactDecimal18_9; never parse through Number.
+  amount: string;
+  preventFurtherUsage: boolean;
+  budgetAlerting: BudgetLookupAlerting;
+  consumedAmount: string | null;
+  // Listed as `expires_at` by the enterprise budgets list endpoint; not every budget has one.
+  expiresAt: IsoDate | null;
+}
+
+export interface BudgetLookupEffectiveBudget {
+  id: string;
+  amount: string;
+  consumedAmount: string;
+}
+
+export interface BudgetLookupCostCenterMembership {
+  id: string;
+  name: string;
+  state: "active" | "deleted";
+}
+
+/**
+ * Normalized `user-states` row. GitHub's login is used transiently for exact identity matching and
+ * omitted from this portal response; numeric identity comes only from the portal's identity data.
+ */
+export interface BudgetLookupUserState {
+  budgetId: string;
+  /** Resolved by exact current-login match in portal identity data; null when no mapping exists. */
+  userId: number | null;
+  // Numeric tokens use the same lossless text conversion and exactDecimal18_9 validation as budgets.
+  consumedAmount: string;
+  targetAmount: string;
+  /** GitHub omits this field when there is no override. */
+  overrideBudgetId: string | null;
+}
+
+/**
+ * Internal adapter input for GitHub's login-keyed user-states response. The login is transient
+ * matching data only and must not be returned to callers or used as a permission key. The adapter
+ * losslessly decodes the numeric JSON tokens into decimal strings before constructing this shape.
+ */
+export interface GitHubBudgetUserStatesPage {
+  user_states: GitHubBudgetUserState[];
+  has_next_page: boolean;
+  total_count: number;
+}
+
+export interface GitHubBudgetUserState {
+  user: string;
+  consumed_amount: string;
+  target_amount: string;
+  override_budget_id?: string;
+}
+
+export interface BudgetLookupCostCenterMember {
+  // Member data is scope-sensitive; consumers must authorize server-side under D-17 before returning it.
+  resourceType: string;
+  // GitHub resource name/login, descriptive only; never a lookup or permission key.
+  resourceName: string;
+  // Resolved from the current login in portal identity data; null when no exact mapping exists.
+  userId: number | null;
+  consumedAmount: string | null;
+  targetAmount: string | null;
+  overrideBudgetId: string | null;
+}
+
+/** Per-user budget data is scope-sensitive and must be authorized server-side under D-17. */
+export interface BudgetLookupUserData {
+  /** Portal identity for the requested numeric user; null if GitHub response identity cannot be mapped. */
+  userId: number | null;
+  budgets: BudgetLookupBudget[];
+  effectiveBudget: BudgetLookupEffectiveBudget | null;
+  userStates: BudgetLookupUserState[];
+  costCenterMemberships: BudgetLookupCostCenterMembership[];
+}
+
+/** Member-level detail must be authorized server-side under D-17 before it is returned. */
+export interface BudgetLookupCostCenterData {
+  costCenterName: string;
+  state: "active" | "deleted";
+  budget: BudgetLookupBudget | null;
+  members: BudgetLookupCostCenterMember[];
+}
+
+export type BudgetLookupResponse = ApiResponse<BudgetLookupUserData | BudgetLookupCostCenterData>;
 
 // ---- Admin ------------------------------------------------------------------------------------------------------
 
