@@ -24,12 +24,6 @@ export function createDirectorySqlWriter(createTransaction: () => sql.Transactio
         const lockResult = lock.recordset[0]?.result;
         if (lockResult === undefined || lockResult < 0) throw new DirectoryWriteError("directory_write_failed");
         await transaction.request()
-          .input("startedAt", sql.DateTime2, run.started_at)
-          .query(`
-            IF EXISTS (SELECT 1 FROM portal.DirectorySyncState WITH (UPDLOCK, HOLDLOCK)
-                       WHERE last_attempt_at > CONVERT(datetime2(0), @startedAt))
-              THROW 51000, 'DIRECTORY_STALE_SNAPSHOT', 1`);
-        await transaction.request()
           .input("runId", sql.UniqueIdentifier, run.run_id)
           .input("scope", sql.NVarChar(100), run.scope_key)
           .input("status", sql.VarChar(16), run.status)
@@ -53,14 +47,20 @@ export function createDirectorySqlWriter(createTransaction: () => sql.Transactio
             .input("lastSuccess", sql.DateTime2, state.last_success_at)
             .input("lastAttempt", sql.DateTime2, state.last_attempt_at)
             .input("errorCode", sql.VarChar(64), state.last_error_code)
+            .input("startedAt", sql.DateTime2, run.started_at)
             .query(`
               UPDATE portal.DirectorySyncState WITH (UPDLOCK, HOLDLOCK)
               SET last_success_at = COALESCE(@lastSuccess, last_success_at),
                   last_attempt_at = @lastAttempt, last_error_code = @errorCode
-              WHERE source = @source;
+              WHERE source = @source
+                AND (last_attempt_at IS NULL OR last_attempt_at < CONVERT(datetime2(0), @startedAt));
               IF @@ROWCOUNT = 0
+              BEGIN
+                IF EXISTS (SELECT 1 FROM portal.DirectorySyncState WITH (UPDLOCK, HOLDLOCK) WHERE source = @source)
+                  THROW 51000, 'DIRECTORY_STALE_SNAPSHOT', 1;
                 INSERT INTO portal.DirectorySyncState (source, last_success_at, last_attempt_at, last_error_code)
-                VALUES (@source, @lastSuccess, @lastAttempt, @errorCode)`);
+                VALUES (@source, @lastSuccess, @lastAttempt, @errorCode);
+              END`);
         }
         await transaction.commit();
       } catch {

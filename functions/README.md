@@ -46,6 +46,12 @@ Incomplete runs retain previous successful source timestamps and never perform
 principal linking, unlinking or grant revocation; those lifecycle changes belong
 to #76.
 
+The state update condition rejects snapshots whose start falls in the same
+second as, or before, an existing attempt. Existing SQL timestamps have
+second precision, so equal-second ordering is deliberately fail-closed. The
+conditional state update and all row writes share the directory application
+lock and transaction; a rejected snapshot rolls back and fails the invocation.
+
 Unresolved licensed seats produce a structured aggregate warning with the fixed
 `unmapped_licensed_profiles` code and count. SCIM profiles without seats do not
 produce that warning solely because they lack a seat. Logs contain correlation

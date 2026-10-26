@@ -79,4 +79,14 @@ describe("directory SQL transaction", () => {
     expect(fake.rollback).toHaveBeenCalledOnce();
     if (stage !== "commit") expect(fake.commit).not.toHaveBeenCalled();
   });
+
+  it("rejects equal-second snapshot ordering because existing freshness timestamps lose subsecond order", async () => {
+    const fake = setup();
+    await fake.writer.commit(command);
+    expect(fake.statements[0]).toContain("@LockOwner = 'Transaction'");
+    const stateWrite = fake.statements.find((text) => text.includes("UPDATE portal.DirectorySyncState"));
+    expect(stateWrite).toContain("last_attempt_at < CONVERT(datetime2(0), @startedAt)");
+    expect(stateWrite).toContain("DIRECTORY_STALE_SNAPSHOT");
+    expect(fake.statements.some((text) => text.includes("IF EXISTS") && !text.includes("UPDATE"))).toBe(false);
+  });
 });
