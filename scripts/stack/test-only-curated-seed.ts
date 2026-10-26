@@ -380,14 +380,15 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
         request_count: row.request_count,
         prompt_tokens: row.prompt_tokens,
         output_tokens: row.output_tokens,
+        prompt_count: row.prompt_count,
         version_info: row.version_info,
         run_id: usageArtifact.runId,
         source_artifact_id: usageArtifact.artifactId,
         transform_version: TRANSFORM_VERSION,
       }));
       await insertJsonRows(tx, "fact_usage_breakdown",
-        "organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count, code_generation_count, code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted, session_count, request_count, prompt_tokens, output_tokens, version_info, run_id, source_artifact_id, transform_version",
-        "organization_id BIGINT, user_id BIGINT, usage_day DATE, breakdown_kind VARCHAR(24), key_1 NVARCHAR(128), key_2 NVARCHAR(128), interaction_count INT, code_generation_count INT, code_acceptance_count INT, loc_suggested_to_add BIGINT, loc_suggested_to_delete BIGINT, loc_added BIGINT, loc_deleted BIGINT, session_count INT, request_count INT, prompt_tokens BIGINT, output_tokens BIGINT, version_info NVARCHAR(1000), run_id UNIQUEIDENTIFIER, source_artifact_id BIGINT, transform_version VARCHAR(32)",
+        "organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count, code_generation_count, code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted, session_count, request_count, prompt_tokens, output_tokens, prompt_count, version_info, run_id, source_artifact_id, transform_version",
+        "organization_id BIGINT, user_id BIGINT, usage_day DATE, breakdown_kind VARCHAR(24), key_1 NVARCHAR(128), key_2 NVARCHAR(128), interaction_count INT, code_generation_count INT, code_acceptance_count INT, loc_suggested_to_add BIGINT, loc_suggested_to_delete BIGINT, loc_added BIGINT, loc_deleted BIGINT, session_count INT, request_count INT, prompt_tokens BIGINT, output_tokens BIGINT, prompt_count INT, version_info NVARCHAR(1000), run_id UNIQUEIDENTIFIER, source_artifact_id BIGINT, transform_version VARCHAR(32)",
         breakdownFactRows);
 
       const familyFactRows = familyRows.map((row) => ({

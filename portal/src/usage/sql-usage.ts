@@ -320,25 +320,10 @@ export async function getUsageBreakdown(
     WHERE breakdown_kind = 'client' AND key_1 = N'copilot_app'
     GROUP BY organization_id, usage_day, user_id
   ),
-  AppActivations AS (
-    SELECT f.organization_id, f.usage_day, f.user_id
-    FROM portal.fact_user_daily_usage AS f
-    INNER JOIN AuthorizedUsers AS au ON au.user_id = f.user_id
-    WHERE f.usage_day BETWEEN @fromDay AND @toDay
-      AND f.used_copilot_app = 1
-      AND ${organizationFilter("f")}
-  ),
   AppFallbacks AS (
-    SELECT organization_id, usage_day, user_id, ISNULL(prompt_count, 0) AS interaction_count
+    SELECT organization_id, usage_day, user_id, prompt_count AS interaction_count
     FROM AppClients
-    UNION ALL
-    SELECT f.organization_id, f.usage_day, f.user_id, 0 AS interaction_count
-    FROM AppActivations AS f
-    WHERE NOT EXISTS (
-      SELECT 1 FROM AppClients AS c
-      WHERE c.organization_id = f.organization_id AND c.usage_day = f.usage_day
-        AND c.user_id = f.user_id
-    )
+    WHERE prompt_count IS NOT NULL
   ),
   IdeRows AS (
     SELECT b.key_1, b.user_id,
