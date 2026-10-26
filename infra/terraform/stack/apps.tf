@@ -93,10 +93,7 @@ module "portal" {
   key_vault_reference_identity           = module.identity["portal"].resource_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["portal"].resource_id] }
-  depends_on = [
-    terraform_data.required_key_vault_secrets,
-    azurerm_role_assignment.secret_readers,
-  ]
+  depends_on         = [azurerm_role_assignment.secret_readers]
 
   site_config = {
     application_stack = { node = { node_version = "22-lts" } }
@@ -129,10 +126,7 @@ module "ingestion" {
   storage_user_assigned_identity_client_id = module.identity["ingestion"].client_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["ingestion"].resource_id] }
-  depends_on = [
-    terraform_data.required_key_vault_secrets,
-    azurerm_role_assignment.secret_readers,
-  ]
+  depends_on         = [azurerm_role_assignment.secret_readers]
 
   site_config = {
     application_stack = { node = { node_version = "22" } }
@@ -168,7 +162,6 @@ module "directory" {
 
   managed_identities = { user_assigned_resource_ids = [module.identity["directory"].resource_id] }
   depends_on = [
-    terraform_data.required_key_vault_secrets,
     azurerm_role_assignment.secret_readers,
     module.directory_host_storage,
   ]

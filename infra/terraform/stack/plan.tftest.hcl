@@ -5,31 +5,12 @@ mock_provider "azurerm" {
     }
   }
 
-  mock_data "azurerm_client_config" {
-    defaults = {
-      subscription_id = "00000000-0000-0000-0000-000000000000"
-    }
-  }
   mock_data "azurerm_resource_group" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example"
     }
   }
 
-  mock_data "azurerm_key_vault_secrets" {
-    defaults = {
-      names = [
-        "github-oauth-client-secret",
-        "auth-secret",
-        "auth-microsoft-entra-id-secret",
-        "auth-github-secret",
-        "github-app-private-key",
-        "github-directory-pat",
-        "ai-credits-token",
-        "budget-lookup-key",
-      ]
-    }
-  }
 }
 mock_provider "azapi" {}
 
@@ -75,8 +56,15 @@ run "demo_example" {
       contains(output.secret_names, "auth-microsoft-entra-id-secret"),
       contains(output.secret_names, "auth-github-secret"),
       contains(output.secret_names, "github-directory-pat"),
+      local.key_vault_network_acls == {
+        bypass                     = "None"
+        default_action             = "Deny"
+        ip_rules                   = ["192.0.2.10/32"]
+        virtual_network_subnet_ids = []
+      },
+      local.key_vault_public_network_access_enabled,
     ])
-    error_message = "The ingestion app must receive the GitHub App reference and its existing runtime settings; portal sign-in remains isolated."
+    error_message = "The plan must retain component settings and allow only the explicit synthetic IPv4 rule under a deny-by-default vault firewall."
   }
 
   assert {
@@ -152,8 +140,9 @@ run "enterprise_existing_resources" {
       server_id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.Sql/servers/sql-example"
       database_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.Sql/servers/sql-example/databases/portal"
     }
-    sql_admin                 = null
-    private_endpoints_enabled = false
+    sql_admin                        = null
+    private_endpoints_enabled        = false
+    key_vault_allowed_ipv4_addresses = ["198.51.100.12"]
     network = {
       mode = "existing"
     }
@@ -167,8 +156,35 @@ run "enterprise_existing_resources" {
       local.ingestion_app_settings.GITHUB_APP_ID == "123456",
       !contains(keys(local.ingestion_app_settings), "BACKFILL_FROM"),
       output.directory_runtime.sql_database_name == "portal",
+      local.key_vault_network_acls.ip_rules == ["198.51.100.12/32"],
     ])
     error_message = "Existing-resource plans must preserve portal secrets while referencing the new-solution database and separate directory host storage."
+  }
+}
+
+run "private_endpoint_keeps_public_key_vault_access_disabled" {
+  command = plan
+
+  variables {
+    private_endpoints_enabled        = true
+    key_vault_allowed_ipv4_addresses = []
+    network = {
+      mode      = "existing"
+      subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.Network/virtualNetworks/vnet-example/subnets/private-endpoints"
+    }
+  }
+
+  assert {
+    condition = alltrue([
+      !local.key_vault_public_network_access_enabled,
+      local.key_vault_network_acls == {
+        bypass                     = "None"
+        default_action             = "Deny"
+        ip_rules                   = []
+        virtual_network_subnet_ids = []
+      },
+    ])
+    error_message = "Private-endpoint environments must keep public Key Vault access disabled and the firewall deny-by-default."
   }
 }
 
@@ -232,25 +248,4 @@ run "trusted_forwarding_ingress_enabled" {
     condition     = try(local.portal_auth_trust_host_setting.AUTH_TRUST_HOST, "") == "true"
     error_message = "Auth.js host trust must be enabled only with an explicit trusted-ingress assertion."
   }
-}
-
-run "missing_secret_names_fail" {
-  command = plan
-
-  variables {
-    existing_resource_group_name = "rg-example-enterprise"
-    private_endpoints_enabled    = false
-    network = {
-      mode = "existing"
-    }
-  }
-
-  override_data {
-    target = data.azurerm_key_vault_secrets.existing
-    values = {
-      names = ["github-oauth-client-secret"]
-    }
-  }
-
-  expect_failures = [terraform_data.required_key_vault_secrets]
 }

@@ -26,6 +26,7 @@ sql_admin = {
   object_id = "00000000-0000-0000-0000-000000000000"
 }
 private_endpoints_enabled = false
+key_vault_allowed_ipv4_addresses = ["192.0.2.10"]
 network = { mode = "create" }
 EOF
 
@@ -66,6 +67,7 @@ expect_valid -var access_break_glass_group_id=00000000-0000-0000-0000-0000000000
 expect_valid -var directory_department_attribute=department
 expect_valid -var directory_business_area_attribute=onPremisesExtensionAttributes.extensionAttribute1
 expect_valid -var backfill_from=2024-02-29
+expect_valid -var 'key_vault_allowed_ipv4_addresses=["192.0.2.11","198.51.100.12"]'
 expect_valid -var auth_trust_host=true -var trusted_forwarding_ingress=true
 expect_valid -var 'organization={ enterprise_slug = "example-enterprise", organizations = ["example-org"], login_suffix = "_example", directory_provider = "csv", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }'
 expect_valid -var 'organization={ enterprise_slug = "example-enterprise", organizations = ["example-org", "example-team"], login_suffix = "_example", directory_provider = "entra", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }'
@@ -90,5 +92,10 @@ expect_invalid organization '{ enterprise_slug = "example-enterprise", organizat
 expect_invalid organization '{ enterprise_slug = "example-enterprise", organizations = ["Example-Org", "example-org"], login_suffix = "_example", directory_provider = "entra", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }' "organization.organizations must be unique valid GitHub logins."
 expect_invalid backfill_from "" "backfill_from must be a valid calendar date in YYYY-MM-DD format or omitted."
 expect_invalid backfill_from 2026-02-30 "backfill_from must be a valid calendar date in YYYY-MM-DD format or omitted."
+expect_invalid key_vault_allowed_ipv4_addresses '["999.0.0.1"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
+expect_invalid key_vault_allowed_ipv4_addresses '["2001:db8::1"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
+expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11/24"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
+expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11","192.0.2.11"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
+expect_invalid key_vault_allowed_ipv4_addresses '[]' "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
 
-printf 'Terraform variable validation: 11 valid and 20 invalid cases passed.\n'
+printf 'Terraform variable validation: 12 valid and 25 invalid cases passed.\n'
