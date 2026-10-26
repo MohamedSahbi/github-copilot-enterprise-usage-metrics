@@ -25,7 +25,9 @@ test("FAQ is public, sectioned, and has working answer and Why links", async ({ 
     "href",
     "https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/blob/main/docs/architecture/decision-record.md#131-security",
   );
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await runHelpAuditWhenTitleReady(page, async () => {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
   await page.screenshot({ path: "test-results/screenshots/faq-public.png", fullPage: true });
   expect(consoleErrors).toEqual([]);
 });
@@ -84,7 +86,9 @@ for (const persona of ["admin", "manager", "member", "no-access"] as const) {
     await link.click();
     await expect(page).toHaveURL(persona === "no-access" ? /\/help#why-do-i-see-no-access$/ : /\/help$/);
     await expect(page.getByRole("heading", { name: "Why do I see No access?", exact: true })).toBeVisible();
-    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await runHelpAuditWhenTitleReady(page, async () => {
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    });
     expect(consoleErrors).toEqual([]);
   });
 }

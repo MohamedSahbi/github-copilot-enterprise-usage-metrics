@@ -8,15 +8,11 @@ export default function PortalShell({
   viewer,
   pageSlug,
   selection,
-  userCount,
-  suppressed,
   children,
 }: {
   viewer: PortalViewer;
   pageSlug: string;
   selection: PortalScopeSelection;
-  userCount: number | null;
-  suppressed: boolean;
   children: ReactNode;
 }) {
   const pages = visibleCorePages(viewer);
@@ -86,11 +82,7 @@ export default function PortalShell({
         <main className="min-w-0">
           <h1 className="sr-only">{pages.find(({ slug }) => slug === pageSlug)?.title ?? "Copilot usage metrics"}</h1>
           <p className="mb-5 text-sm text-muted">
-            {suppressed
-              ? "Metrics are hidden because this scope is smaller than the minimum group size."
-              : userCount === null
-                ? "Usage metrics for the selected scope."
-                : `${userCount} observed users in the selected scope.`}
+            Metrics may be limited by the deployment&apos;s minimum-group privacy controls.
           </p>
           {children}
         </main>
