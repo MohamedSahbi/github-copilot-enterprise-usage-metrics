@@ -67,6 +67,10 @@ export type UsagePeriodRequest =
   | { period: "last_90_days"; organizationIds?: number[] }
   | { period: "calendar_month"; month: string; organizationIds?: number[] };
 
+export type ScopedUsagePeriodRequest = UsagePeriodRequest & {
+  scope?: CoreViewScopeSelection;
+};
+
 export type UsagePeriodValidation =
   | { ok: true; range: DateRange }
   | { ok: false; code: "invalid_request" };
@@ -185,13 +189,13 @@ export interface UsageBreakdownRow {
   userCount: number;
 }
 
-export type UsageOverviewRequest = UsagePeriodRequest;
+export type UsageOverviewRequest = ScopedUsagePeriodRequest;
 export type UsageOverviewResponse = ApiResponse<{
   series: Suppressible<UsageSeriesPoint>[];
   adoption: Suppressible<AdoptionSummary>;
 }>;
 
-export type UsageBreakdownRequest = UsagePeriodRequest & PageRequest & {
+export type UsageBreakdownRequest = ScopedUsagePeriodRequest & PageRequest & {
   kind: UsageBreakdownRow["kind"];
 };
 export type UsageBreakdownResponse = PagedResponse<Suppressible<UsageBreakdownRow>>;
@@ -204,7 +208,7 @@ export interface UserUsageRow {
   interactions: number;
   aiCreditsUsed: string;
 }
-export type UserUsageRequest = UsagePeriodRequest & PageRequest;
+export type UserUsageRequest = ScopedUsagePeriodRequest & PageRequest;
 export type UserUsageResponse = PagedResponse<UserUsageRow>;
 
 export type CoreViewMetric<T> =
@@ -225,6 +229,42 @@ export type CoreViewScopeSelection =
   | { scope: "company" }
   | { scope: "department"; value: string }
   | { scope: "business_area"; value: string };
+
+export type CoreViewScopeSelectionValidation =
+  | { ok: true; selection?: CoreViewScopeSelection }
+  | { ok: false; code: "invalid_request" };
+
+export function parseCoreViewScopeSelection(params: URLSearchParams): CoreViewScopeSelectionValidation {
+  const scopes = params.getAll("scope");
+  const values = params.getAll("value");
+  if (scopes.length === 0) {
+    return values.length === 0 ? { ok: true } : { ok: false, code: "invalid_request" };
+  }
+  if (scopes.length !== 1 || values.length > 1) return { ok: false, code: "invalid_request" };
+
+  const scope = scopes[0];
+  if (scope === "self" || scope === "team" || scope === "company") {
+    return values.length === 0
+      ? { ok: true, selection: { scope } }
+      : { ok: false, code: "invalid_request" };
+  }
+  if (scope === "department" || scope === "business_area") {
+    const value = values[0];
+    return value !== undefined && value.length > 0
+      ? { ok: true, selection: { scope, value } }
+      : { ok: false, code: "invalid_request" };
+  }
+  return { ok: false, code: "invalid_request" };
+}
+
+export function serializeCoreViewScopeSelection(selection?: CoreViewScopeSelection): URLSearchParams {
+  const params = new URLSearchParams();
+  if (selection === undefined) return params;
+
+  params.set("scope", selection.scope);
+  if ("value" in selection) params.set("value", selection.value);
+  return params;
+}
 
 export interface CoreViewScopeOptions {
   departments: string[];
