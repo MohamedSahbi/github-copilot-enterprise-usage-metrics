@@ -65,6 +65,7 @@ process.once("SIGTERM", interrupt);
 const deadline = setTimeout(interrupt, 12 * 60_000);
 async function main(): Promise<void> {
   try {
+    console.info(`component_runner_node_exec_path=${process.execPath} component_runner_node_version=${process.version} component_runner_argv=${JSON.stringify(process.argv)}`);
     child = spawn(process.execPath, [
       join("node_modules", "vitest", "vitest.mjs"), "run", "--project", "unit",
       "scripts/contracts/sql-container.test.ts", "-t", "component runtime grants", "--maxWorkers", "1", "--pool", "threads",

@@ -11,6 +11,7 @@ import { createDirectorySqlWriter } from "../../functions/src/directory/sql-writ
 import type { DirectoryCommit } from "../../functions/src/directory/sync";
 import { dailyTable, loadMetricsDay } from "../../functions/src/metrics/day-loader";
 import { parseMetricsDay } from "../../functions/src/metrics/day-parser";
+import { createMetricsRunStore } from "../../functions/src/metrics/run-store";
 import { migrate } from "../db/migrate";
 import { splitBatches } from "../db/split-go";
 
@@ -71,7 +72,7 @@ function guardPool(pool: sql.ConnectionPool): void {
   guard(target);
 }
 
-async function rolePool(user: "directory_fixture" | "metrics_fixture"): Promise<sql.ConnectionPool> {
+async function rolePool(user: "directory_fixture" | "metrics_fixture" | "reader_fixture"): Promise<sql.ConnectionPool> {
   return connect(config(user));
 }
 
@@ -105,6 +106,7 @@ function metricsContent(ids: number[]): Uint8Array {
 
 describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (isolated SQL Server)", { timeout: 30_000 }, () => {
   beforeAll(async () => {
+    console.info(`component_test_node_exec_path=${process.execPath} component_test_node_version=${process.version} component_test_argv=${JSON.stringify(process.argv)}`);
     expect(spawnSync("docker", ["info"], { stdio: "ignore" }).status).toBe(0);
     if (!/^[a-f0-9]{16}$/.test(owner)) throw new Error("invalid_component_grants_owner");
     if (docker("ps", "-aq", "--filter", `name=^/${containerName}$`).trim() !== "") {
@@ -137,7 +139,7 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
       }
     }
     expect(ready).toBe(true);
-    for (const user of ["directory_fixture", "metrics_fixture"]) {
+    for (const user of ["directory_fixture", "metrics_fixture", "reader_fixture"]) {
       await query(`CREATE LOGIN [${user}] WITH PASSWORD = '${password}', CHECK_POLICY = OFF`, "sa", "master");
     }
   }, 240_000);
@@ -153,6 +155,7 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
     expect((await migrate({ connectionString })).applied).toEqual([]);
     for (const [user, role] of [
       ["directory_fixture", "portal_directory_ingest"], ["metrics_fixture", "portal_metrics_ingest"],
+      ["reader_fixture", "portal_reader"],
     ] as const) {
       await query(`CREATE USER [${user}] FOR LOGIN [${user}]; ALTER ROLE [${role}] ADD MEMBER [${user}]`);
     }
@@ -275,7 +278,7 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
     }
   });
 
-  it("permits actual metrics bulk/OUTPUT/publication/replacement/quarantine and run-store queries", async () => {
+  it("permits the actual metrics loader and scoped run-store API operations", async () => {
     const transportRequests: string[] = [];
     const container = new ContainerClient("https://fixture.invalid/raw", newPipeline(undefined, {
       httpClient: {
@@ -297,7 +300,9 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
     const getBlob = vi.spyOn(container, "getBlockBlobClient").mockReturnValue(block);
     const logger = { info: vi.fn(), error: vi.fn() };
     const runs: string[] = [];
+    const metricsRunStore = createMetricsRunStore(config("metrics_fixture"));
     try {
+      expect(await metricsRunStore.isComplete(72, "2026-03-02")).toBe(false);
       const load = async (ids: number[]) => {
         const runId = randomUUID();
         runs.push(runId);
@@ -310,23 +315,74 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
       };
       const first = await load([7202, 7203]);
       expect(first.status).toBe("published");
+      expect(await metricsRunStore.isComplete(72, "2026-03-02")).toBe(true);
       expect((await load([7202, 7203])).status).toBe("published");
       expect((await load([7202])).status).toBe("quarantined");
+      expect(await metricsRunStore.isComplete(72, "2026-03-02")).toBe(true);
       expect(upload).toHaveBeenCalledTimes(3);
       expect(transportRequests).toHaveLength(3);
       expect(getBlob.mock.calls).toEqual(runs.map((id) => [`raw/users_1_day/fixture-org/2026/03/02/${id}.ndjson`]));
-      // Exact run-store completion predicate, scoped to the fixture organization/day.
-      expect((await query(`
-        SELECT 1 AS complete FROM portal.IngestionRun
-        WHERE source_kind = 'users_1_day' AND scope_key = '72' AND report_day = '2026-03-02'
-          AND is_current = 1 AND status = 'published'
-          AND rows_read > 0 AND rows_read = rows_loaded AND rows_quarantined = 0`, "metrics_fixture")).recordset)
-        .toEqual([{ complete: 1 }]);
-      await query(`
-        INSERT INTO portal.IngestionRun (run_id, source_kind, scope_key, report_day, status,
-          transform_version, error_code, correlation_id, completed_at)
-        VALUES ('${randomUUID()}', 'users_1_day', '72', '2026-03-03', 'failed', '1',
-          'source_read_failed', '${randomUUID()}', SYSUTCDATETIME())`, "metrics_fixture");
+      const failureRunId = randomUUID();
+      const failureCorrelationId = randomUUID();
+      expect(await metricsRunStore.isComplete(72, "2026-03-03")).toBe(false);
+      await metricsRunStore.recordFailure({
+        runId: failureRunId,
+        correlationId: failureCorrelationId,
+        organizationId: 72,
+        organizationLogin: "fixture-org",
+        reportDay: "2026-03-03",
+        errorCode: "request_failed",
+      });
+      const persistedFailurePool = await connect(config());
+      try {
+        guardPool(persistedFailurePool);
+        const persistedFailure = await persistedFailurePool.request()
+          .input("runId", sql.UniqueIdentifier, failureRunId)
+          .query<{
+            source_kind: string;
+            scope_key: string;
+            report_day: string;
+            status: string;
+            is_current: boolean;
+            error_code: string;
+            correlation_id: string;
+            rows_read: number | null;
+            rows_loaded: number | null;
+            rows_quarantined: number | null;
+          }>(`
+        SELECT source_kind, scope_key, CONVERT(varchar(10), report_day, 23) AS report_day,
+          status, is_current, error_code, correlation_id, rows_read, rows_loaded, rows_quarantined
+        FROM portal.IngestionRun WHERE run_id = @runId`);
+        expect(persistedFailure.recordset).toEqual([{
+          source_kind: "users_1_day", scope_key: "72", report_day: "2026-03-03",
+          status: "failed", is_current: false, error_code: "request_failed",
+          correlation_id: failureCorrelationId, rows_read: null, rows_loaded: null, rows_quarantined: null,
+        }]);
+      } finally {
+        await persistedFailurePool.close();
+      }
+      expect(await metricsRunStore.isComplete(72, "2026-03-03")).toBe(false);
+
+      const deniedFailureRunId = randomUUID();
+      const readerRunStore = createMetricsRunStore(config("reader_fixture"));
+      await expect(readerRunStore.recordFailure({
+        runId: deniedFailureRunId,
+        correlationId: randomUUID(),
+        organizationId: 72,
+        organizationLogin: "fixture-org",
+        reportDay: "2026-03-03",
+        errorCode: "request_failed",
+      })).rejects.toMatchObject({ number: 229 });
+      const deniedFailurePool = await connect(config());
+      try {
+        guardPool(deniedFailurePool);
+        const deniedFailure = await deniedFailurePool.request()
+          .input("runId", sql.UniqueIdentifier, deniedFailureRunId)
+          .query("SELECT run_id FROM portal.IngestionRun WHERE run_id = @runId");
+        expect(deniedFailure.recordset).toEqual([]);
+      } finally {
+        await deniedFailurePool.close();
+      }
       for (const table of ["fact_usage_breakdown", "fact_usage_family_count"]) {
         expect((await query(`SELECT COUNT(*) AS count FROM portal.${table} WHERE run_id = '${runs[0]}'`)).recordset)
           .toEqual([{ count: 0 }]);
@@ -387,6 +443,8 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
     await expect(query("UPDATE portal.IngestionRun SET status = 'failed' WHERE 1 = 0", "directory_fixture"))
       .rejects.toMatchObject({ number: 229 });
     await expect(query("SELECT * FROM portal.IngestionRun", "directory_fixture")).rejects.toMatchObject({ number: 229 });
+    await expect(createMetricsRunStore(config("directory_fixture")).isComplete(72, "2026-03-02"))
+      .rejects.toMatchObject({ number: 229 });
     await expect(query("DELETE FROM portal.dim_user WHERE user_id = 7201", "directory_fixture")).rejects.toMatchObject({ number: 229 });
   });
 
