@@ -174,4 +174,41 @@ describe("scoped usage API route gates", () => {
     expect(response.headers.get("X-Correlation-ID")).toBe(body.meta.correlationId);
     expect(body.meta.minGroupSize).toBe(5);
   });
+
+  it("serializes exact user credit aggregate text unchanged in the /api/users response", async () => {
+    const access = {
+      state: "authorized",
+      breakGlass: false,
+      principal: { principal_id: "p", entra_tenant_id: "t", entra_object_id: "o", github_user_id: null, status: "active" },
+      grants: [{ role: "user", scope: "self", scope_value: "" }],
+      namesVisible: true,
+    };
+    getAccess.mockResolvedValue(access);
+    const pool = {};
+    getPortalSqlPool.mockResolvedValue(pool);
+    getUserUsage.mockResolvedValue({
+      rows: [{
+        userId: 42,
+        login: "{login}",
+        daysActive: 2,
+        interactions: 7,
+        aiCreditsUsed: "1999999999.999999998",
+      }],
+      totalItems: 1,
+    });
+
+    const response = await users(new NextRequest("http://localhost/api/users?period=last_7_days"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(resolveUsageRange).toHaveBeenCalledWith(pool, { ok: true, period: "last_7_days" });
+    expect(getUserUsage).toHaveBeenCalledWith(
+      pool,
+      access,
+      { from: "2026-02-24", to: "2026-03-02", page: 1, pageSize: 50 },
+      expect.any(String),
+    );
+    expect(body.data[0].aiCreditsUsed).toBe("1999999999.999999998");
+    expect(typeof body.data[0].aiCreditsUsed).toBe("string");
+  });
 });

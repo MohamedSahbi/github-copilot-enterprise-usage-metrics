@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { UserUsageResponse } from "../shared/src/api";
 import { expect, expectNoAxeViolations, test } from "./fixtures";
 
 const aggregatePages = [
@@ -132,3 +133,39 @@ test("aggregate-only mode hides per-user pages and details", async ({
   expect(userDetailsResponse.status()).toBe(404);
   expect(consoleErrors).toEqual([]);
 });
+
+for (const persona of ["admin", "manager"] as const) {
+  test(`${persona} sees exact credit API text formatted in the scoped Users table`, async ({
+    page,
+    signInAs,
+    consoleErrors,
+  }) => {
+    test.skip(process.env.E2E_PER_USER_DETAIL_ENABLED !== "1", "run in the scoped user-detail E2E configuration");
+    test.setTimeout(60_000);
+    await signInAs(persona);
+
+    const usersResponse = await page.request.get("/api/users?period=last_7_days");
+    expect(usersResponse.status()).toBe(200);
+    const users = await usersResponse.json() as UserUsageResponse;
+    expect(users.data.length).toBeGreaterThan(0);
+    expect(users.data.every(({ aiCreditsUsed }) => typeof aiCreditsUsed === "string")).toBe(true);
+
+    await page.goto("/users");
+    await expect(page.getByRole("heading", { name: "Users", exact: true }).last()).toBeVisible();
+    const firstUser = users.data[0];
+    if (!firstUser) throw new Error("The authorized users response was empty");
+    const userRow = page.getByRole("row").filter({
+      has: page.getByRole("rowheader", { name: firstUser.login ?? `User ${firstUser.userId}`, exact: true }),
+    });
+    const displayedCredits = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
+      .format(Number(firstUser.aiCreditsUsed));
+    await expect(userRow.getByRole("cell").last()).toHaveText(displayedCredits);
+    await expectNoAxeViolations(page);
+    await mkdir("test-results/screenshots", { recursive: true });
+    await page.screenshot({
+      path: `test-results/screenshots/${persona}-users-exact-credits.png`,
+      fullPage: true,
+    });
+    expect(consoleErrors).toEqual([]);
+  });
+}

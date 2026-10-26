@@ -3,6 +3,7 @@ import type { UsageBreakdownRow, UsageSeriesPoint, UserUsageRow } from "../../..
 import { toFeatureAdoptionData } from "@/adapters/featureAdoption";
 import AccessibleUpstreamCharts from "@/components/AccessibleUpstreamCharts";
 import type { ApiCorePageData } from "@/data/portalDataSource";
+import { formatUserCredits } from "./userCredits";
 import OverviewSummary from "./OverviewSummary";
 
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -120,7 +121,7 @@ function UsersTable({ rows }: { rows: UserUsageRow[] }) {
               <th className="p-2 font-normal" scope="row">{row.login ?? `User ${row.userId}`}</th>
               <td className="p-2">{formatNumber(row.daysActive)}</td>
               <td className="p-2">{formatNumber(row.interactions)}</td>
-              <td className="p-2">{formatNumber(row.aiCreditsUsed)}</td>
+              <td className="p-2">{formatUserCredits(row.aiCreditsUsed)}</td>
             </tr>
           ))}
         </tbody>

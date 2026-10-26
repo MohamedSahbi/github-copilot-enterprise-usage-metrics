@@ -463,7 +463,9 @@ describe("upstream metrics oracle against curated SQL API aggregates", () => {
         aiCreditsUsed,
       }))
       .sort((a, b) => a.userId - b.userId);
-    const usersWithoutCredits = (users: typeof actualUsers) =>
+    const usersWithoutCredits = (
+      users: readonly Pick<(typeof actualUsers)[number], "userId" | "daysActive" | "interactions">[],
+    ) =>
       users.map(({ userId, daysActive, interactions }) => ({ userId, daysActive, interactions }));
     expect(apiUsers.totalItems).toBe(expectedUsers.length);
     expect(usersWithoutCredits(actualUsers)).toStrictEqual(usersWithoutCredits(expectedUsers));

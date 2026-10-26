@@ -12,6 +12,8 @@ const TENANT_ID = "00000000-0000-4000-8000-000000000087";
 const RUN_ID = "00000000-0000-4000-8000-000000000087";
 const CORRELATION_ID = RUN_ID;
 const DAY = "2026-03-02";
+const PREVIOUS_DAY = "2026-03-01";
+const MAX_SOURCE_CREDITS = "999999999.999999999";
 const RANGE = { from: DAY, to: DAY, organizationIds: [ORGANIZATION_ID] };
 
 let pool: sql.ConnectionPool;
@@ -83,12 +85,13 @@ async function seed(): Promise<void> {
       .input("day", sql.Date, new Date(`${DAY}T00:00:00Z`))
       .input("runId", sql.UniqueIdentifier, RUN_ID)
       .input("artifactId", sql.BigInt, artifactId)
+      .input("aiCreditsUsed", sql.VarChar(40), index === 0 ? MAX_SOURCE_CREDITS : "0.5")
       .query(`INSERT INTO portal.fact_user_daily_usage (
           organization_id, user_id, usage_day, interaction_count, code_generation_count, code_acceptance_count,
           loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted, used_agent, used_chat, used_cli,
           used_coding_agent, used_cloud_agent, used_copilot_app, used_vscode_agent, used_code_review_active,
           used_code_review_passive, ai_credits_used, run_id, source_artifact_id, transform_version
-        ) VALUES (@organizationId, @userId, @day, 2, 1, 1, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5,
+        ) VALUES (@organizationId, @userId, @day, 2, 1, 1, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, CAST(@aiCreditsUsed AS DECIMAL(18,9)),
           @runId, @artifactId, '1')`);
     await pool.request().input("organizationId", sql.BigInt, ORGANIZATION_ID)
       .input("userId", sql.BigInt, userId)
@@ -115,6 +118,21 @@ async function seed(): Promise<void> {
             0, 0, @runId, @artifactId, '1')`);
     }
   }
+
+  const previousDay = new Date(`${PREVIOUS_DAY}T00:00:00Z`);
+  await pool.request().input("organizationId", sql.BigInt, ORGANIZATION_ID)
+    .input("userId", sql.BigInt, USER_IDS[0]!)
+    .input("day", sql.Date, previousDay)
+    .input("runId", sql.UniqueIdentifier, RUN_ID)
+    .input("artifactId", sql.BigInt, artifactId)
+    .input("aiCreditsUsed", sql.VarChar(40), MAX_SOURCE_CREDITS)
+    .query(`INSERT INTO portal.fact_user_daily_usage (
+      organization_id, user_id, usage_day, interaction_count, code_generation_count, code_acceptance_count,
+      loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted, used_agent, used_chat, used_cli,
+      used_coding_agent, used_cloud_agent, used_copilot_app, used_vscode_agent, used_code_review_active,
+      used_code_review_passive, ai_credits_used, run_id, source_artifact_id, transform_version
+    ) VALUES (@organizationId, @userId, @day, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, CAST(@aiCreditsUsed AS DECIMAL(18,9)),
+      @runId, @artifactId, '1')`);
 }
 
 describe("scoped usage API SQL (curated integration)", () => {
@@ -226,5 +244,32 @@ describe("scoped usage API SQL (curated integration)", () => {
     expect(users.totalItems).toBe(4);
     const emptyUsersPage = await getUserUsage(pool, teamAccess, { ...RANGE, page: 10, pageSize: 2 }, CORRELATION_ID);
     expect(emptyUsersPage).toMatchObject({ rows: [], totalItems: 4 });
+  });
+
+  it("preserves an actual SQL DECIMAL(38,9) user sum as exact text through the mssql driver", async () => {
+    const driverProbe = await pool.request().query<{ aggregate: number; exactText: string }>(`
+      WITH Input(v) AS (
+        SELECT CAST(999999999.999999999 AS DECIMAL(18,9))
+        UNION ALL
+        SELECT CAST(999999999.999999999 AS DECIMAL(18,9))
+      )
+      SELECT SUM(v) AS aggregate,
+        CONVERT(VARCHAR(40), SUM(v)) AS exactText
+      FROM Input
+    `);
+    expect(driverProbe.recordset[0]?.aggregate).toBe(2_000_000_000);
+    expect(driverProbe.recordset[0]?.exactText).toBe("1999999999.999999998");
+
+    const usage = await getUserUsage(pool, accessFor(OBJECT_IDS[0]!, [
+      { role: "user", scope: "self", scope_value: "" },
+    ]), {
+      from: PREVIOUS_DAY,
+      to: DAY,
+      organizationIds: [ORGANIZATION_ID],
+      page: 1,
+      pageSize: 10,
+    }, CORRELATION_ID);
+    expect(usage.rows[0]?.aiCreditsUsed).toBe("1999999999.999999998");
+    expect(typeof usage.rows[0]?.aiCreditsUsed).toBe("string");
   });
 });

@@ -401,3 +401,42 @@ The deployment template and the private environment repository supply these as t
 - Order between grants, directory revocations and unlinks comes from `event_seq` (`AccessGrant`, `GrantRevocation`) and `unlink_seq` (`PrincipalLinkState`), all drawn from the database-wide sequence `portal.seq_access_event`, never from timestamps (which can tie, so they stay `DATETIME2(7)` for display only). `portal.v_active_grant` hides a grant when a revocation or unlink has a higher position; a later re-grant has a higher position again and is visible. An unlink without a sequence is rejected by `CK_PrincipalLinkState_pair`, and the view hides the grant if one ever appears. Writers need UPDATE on the sequence to draw a value.
 - Entra columns of `Principal` are not directly updatable. `portal.usp_link_principal_entra` (EXECUTE for the portal writer) fills a missing Entra ID once (dual-provider linking, decision record §13.1); it never reassigns or clears one.
 - `validateSettings` rejects a non-object root or a supplied non-object section; omitted sections keep defaults.
+
+## 15. Core-view API and DTO contract
+
+The portal-owned TypeScript request and response types live in `shared/src/api.ts`. They describe the approved core-view boundary; they do not by themselves add routes or query behavior. Existing reporting periods remain `last_7_days`, `last_28_days`, `last_90_days`, and a completed `calendar_month`. The existing page-size, error-envelope, correlation-ID, and cache-control conventions remain in force. No arbitrary date range is introduced.
+
+### Scope selection and permitted options
+
+`CoreViewScopeSelection` describes the selectable scopes. `self`, `team`, and `company` carry no caller-provided root or value; `department` and `business_area` carry only a value. A selector is a narrowing request, never an authorization grant. Authorization is resolved on the server from the caller's existing principal and grants (D-5, D-17). Team is the caller's current direct-and-indirect reporting tree (D-16), never a caller-selected root.
+
+The option set is derived from current directory values among the SQL `AuthorizedUsers` population, then intersected with current directory options. Per-option population counts come from that same authorized population; `intersectCoreViewScopeOptions` requires those counts, applies the configured minimum (default 5, with the §6 floor), and returns only option values, never counts. It omits values below the minimum and returns an unavailable result with no options if authorization, directory options, or required counts are unavailable or incomplete. A company grant may narrow to a department or business area only by filtering that same authorized population; selecting a value never expands it. Empty available options are distinct from unavailable options. These options are presentation data and must never be used as the SQL authorization predicate.
+
+### Availability and independently disclosive cohorts
+
+`CoreViewMetric<T>` and `CoreViewCohort<T>` distinguish four states:
+
+| `availability` | Meaning | Wire value |
+| --- | --- | --- |
+| `available` | A metric was measured; zero is a valid measured value. | Exact typed value; cohort count is visible only when permitted by §6. |
+| `not_reported` | The source did not report the field or supplied NULL. | `value: null`; never substitute zero. |
+| `unavailable` | Required source data was discarded or is not persisted. | `value: null`, reason `source_discarded`; never infer from another metric. |
+| `suppressed` | The cohort is below the applicable privacy minimum. | `userCount: null`, `value: null`; hide labels and all dependent values. |
+
+Every separately disclosive cohort has its own wrapper and boundary: daily participation and peak-day counts; top-decile subset counts, metrics and shares; each top-N model, client, language, version and phase entry; CLI totals; IDE/CLI overlap; and each feature-adoption count. A top-N key/label is nested inside the cohort value so a suppressed entry does not reveal its label. Apply the configured minimum group size (default 5) consistently, as specified in §6; do not use a visible parent count to expose a smaller child cohort.
+
+Derived values require all their inputs to be available. Suppressed inputs propagate suppression; discarded inputs propagate unavailability; source-not-reported inputs remain not reported. Never recompute a statistic from only the visible subset or infer a value from a hidden total. `deriveCoreViewMetric` applies this dependency rule before invoking the calculation. The same rule applies to peak-day selection, top-decile shares, IDE/CLI overlap percentages and any future derived statistic.
+
+### Metric sources and unavailable fields
+
+The core-view DTOs use curated SQL only (D-11): `portal.fact_user_daily_usage` for daily usage, user-level feature flags and exact AI-credit facts; `portal.fact_usage_breakdown` for feature, model, client, language and IDE cohorts; and current `portal.dim_user` rows for identity attributes and scope values. The source mappings and adoption definitions in §§2 and 4 remain authoritative. Upstream charts and calculators remain read-only presentation/oracle dependencies (D-14, D-15, D-22); do not edit the submodule or derive authorization from upstream data.
+
+`CoreViewMetrics` separates daily participation, peak-day data, top-decile subsets and shares, top-N entries, CLI totals, IDE/CLI overlap and feature-adoption cohorts. Each metric is independently available, not reported, unavailable or suppressed. In particular, `ai_adoption_phase.version`, client `prompt_count`, and VS Code agent `total_user_messages` are unavailable with reason `source_discarded` until their source fields are restored. Do not represent them as measured zero, infer them from another field, or present a missing source as a suppressed cohort.
+
+### Exact AI-credit values and arithmetic
+
+Source-row credits retain the canonical exact `DECIMAL(18,9)` range. SQL aggregate sums use `DECIMAL(38,9)` and may have up to 29 integer digits; the source-row bound does not apply to a grouped sum. Source and aggregate wire values are decimal strings. Never transport credits through a JavaScript `number` or call `Number(...)` before API serialization.
+
+Derived averages and percentages use exact decimal intermediates and round only the final result to scale 9 using half-up rounding. A zero denominator yields `null`. An overflow raises the typed `DecimalOverflowError` (`decimal_overflow`) and the API returns a typed error envelope with no partial data or success-shaped response. `exactDecimal38_9`, `averageDecimal`, and `percentageDecimal` implement the bounded decimal contract; their inputs and outputs are decimal text.
+
+The existing `UserUsageRow.aiCreditsUsed` and `/api/users` response use this same string contract. In `getUserUsage` only, convert `SUM(f.ai_credits_used)` to `VARCHAR(40)` in SQL before the `mssql` driver can round `DECIMAL(38,9)` to a JavaScript number, then return that string unchanged. The existing users table may convert it to a number only in its display formatter, retaining the current `en-US` formatting with at most one fractional digit. This does not change route authorization, periods, paging, filters, response metadata, or the separate `kind=ide` query.
