@@ -17,6 +17,7 @@ organization = {
   directory_provider = "entra"
   entra_tenant_id = "00000000-0000-0000-0000-000000000000"
 }
+directory_sync_schedule = "0 0 2 * * *"
 auth_trust_host = false
 auth_microsoft_entra_id_id = "00000000-0000-0000-0000-000000000000"
 auth_github_id = "REPLACE_WITH_CLIENT_ID"
@@ -27,8 +28,12 @@ sql_admin = {
 private_endpoints_enabled = false
 network = { mode = "create" }
 EOF
+sed '/^directory_sync_schedule = /d' "$test_root/valid.tfvars" >"$test_root/missing-schedule.tfvars"
 
 terraform -chdir="$test_root" init -backend=false -input=false -no-color >/dev/null
+
+valid_cases=0
+invalid_cases=0
 
 plan() {
   terraform -chdir="$test_root" plan -refresh=false -input=false -no-color \
@@ -40,6 +45,7 @@ expect_valid() {
     cat "$test_root/output" >&2
     exit 1
   fi
+  valid_cases=$((valid_cases + 1))
 }
 
 expect_invalid() {
@@ -55,11 +61,25 @@ expect_invalid() {
     printf 'Expected validation message not found: %s\n' "$expected" >&2
     exit 1
   fi
+  invalid_cases=$((invalid_cases + 1))
 }
 
 plan
+if terraform -chdir="$test_root" plan -refresh=false -input=false -no-color \
+  -var-file="$test_root/missing-schedule.tfvars" >"$test_root/output" 2>&1; then
+  printf 'Expected directory_sync_schedule to be required.\n' >&2
+  exit 1
+fi
+if ! grep -Fq "No value for required variable" "$test_root/output"; then
+  cat "$test_root/output" >&2
+  exit 1
+fi
 expect_valid -var access_permission_freshness_minutes=1
 expect_valid -var access_permission_freshness_minutes=60
+expect_valid -var 'directory_sync_schedule=0 0 * * * *'
+expect_valid -var 'directory_sync_schedule=0 0 2 * * *'
+expect_valid -var 'directory_sync_schedule=0 0 2 * * 1'
+expect_valid -var 'directory_sync_schedule=59 59 23 31 12 6'
 expect_valid -var 'access_request_url=https://example.com/request'
 expect_valid -var access_break_glass_group_id=00000000-0000-0000-0000-000000000001
 expect_valid -var directory_department_attribute=department
@@ -79,7 +99,19 @@ expect_invalid access_request_url "https://example.com/request access" "access_r
 expect_invalid directory_department_attribute "not a path" "directory_department_attribute must be empty or an Entra attribute path."
 expect_invalid directory_business_area_attribute "not a path" "directory_business_area_attribute must be empty or an Entra attribute path."
 expect_invalid stale_data_threshold_hours 1.5 "stale_data_threshold_hours must be a positive whole number."
+expect_invalid directory_sync_schedule "0 0 2 * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 2 * * monday" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 ? * * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 2 */0 * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "60 0 2 * * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 60 2 * * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 24 * * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 2 32 * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 2 * 13 *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "0 0 2 * * 7" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+expect_invalid directory_sync_schedule "30-10 0 2 * * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
 expect_invalid organization '{ enterprise_slug = "example-enterprise", organizations = ["example-org"], login_suffix = "_example", directory_provider = "other", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }' "organization.directory_provider must be entra or csv (D-4)."
 expect_invalid organization '{ enterprise_slug = "example-enterprise", organizations = ["example-org"], login_suffix = "_example", directory_provider = "entra", entra_tenant_id = "not-a-guid" }' "organization.entra_tenant_id must be a GUID."
 
-printf 'Terraform variable validation: 9 valid and 14 invalid cases passed.\n'
+printf 'Terraform variable validation: %s valid and %s invalid cases passed.\n' "$valid_cases" "$invalid_cases"

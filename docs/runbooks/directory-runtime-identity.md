@@ -24,10 +24,22 @@ Terraform's `secret_names` inventory includes the PAT name but never reads or
 manages its value.
 
 This is a source-configuration fact, not evidence of the deployed state. No
-apply, package deployment, or runtime verification was performed in Slice A;
-the environment's live identity assignments and app state remain unverified.
-Do not claim deployed isolation until a separately authorized deployment is
-performed and its target state is verified.
+apply, package deployment, or runtime verification has been performed; the
+environment's live identity assignments and app state remain unverified. A
+directory-only Functions v4 timer artifact is now buildable, but no artifact
+has been deployed. Do not claim deployed isolation until a separately
+authorized deployment is performed and its target state is verified.
+
+The timer uses the required `DIRECTORY_SYNC_SCHEDULE` deployment setting,
+expressed as a six-field UTC NCRONTAB expression. Terraform has no default for
+this input and validates its syntax and numeric field ranges. Operators must
+set a cadence when preparing deployment configuration; examples are hourly
+`0 0 * * * *`, daily `0 0 2 * * *`, and weekly `0 0 2 * * 1`. If a missing or
+invalid setting bypasses Terraform, the Functions host cannot resolve or parse
+the timer schedule and will fail to index/start the timer listener; no
+frequency is substituted.
+The timer remains unavailable while the Function App is disabled regardless
+of a valid schedule.
 
 The target continues to use the new solution's separate database (D-29, D-34).
 The identity split is not permission to create a second logical writer:
@@ -94,12 +106,11 @@ here.
 
 ## Preconditions before an authorized deployment
 
-1. Keep the Function App and SCM site disabled. #73/#117 has merged, which
-   releases only the packaging work's merge prerequisite; it does not provide
-   the directory artifact/build-routing implementation. That work still needs
-   separate approval, implementation, and review. The SQL writer/access design
-   also requires approval, with grants separately implemented and tested.
-   Slice A does not create a runnable package or SQL principal.
+1. Keep the Function App and SCM site disabled. A real Functions v4 timer
+   registration and directory-only emitting artifact are available as source,
+   but are not deployed or routed by an authorized deployment. The SQL
+   writer/access design and grants still require separate approval and tests.
+   Slice A did not create a SQL principal.
 2. Resolve #67's manager-read app-only limitation above before granting Graph
    application permissions. Do not treat incomplete coverage as absence or
    revocation.
@@ -119,4 +130,4 @@ here.
    partial/failed run does not advance `last_success_at`.
 
 No deployment, Graph consent, role change, or secret creation was performed
-while preparing this runbook.
+while preparing this runbook or building the local artifact.
