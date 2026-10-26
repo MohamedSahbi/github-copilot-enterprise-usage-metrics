@@ -1,6 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { validateBudgetLookupRequest } from "./api";
-import type { BudgetLookupBudget, BudgetLookupRequest, BudgetLookupResponse, GitHubBudgetUserStatesPage } from "./api";
+import { describe, expect, it, vi } from "vitest";
+import {
+  deriveCoreViewMetric,
+  intersectCoreViewScopeOptions,
+  validateBudgetLookupRequest,
+} from "./api";
+import type {
+  BudgetLookupBudget,
+  BudgetLookupRequest,
+  BudgetLookupResponse,
+  CoreViewCohort,
+  CoreViewMetric,
+  CoreViewScopeOptions,
+  GitHubBudgetUserStatesPage,
+} from "./api";
 import { exactDecimal18_9 } from "./decimal";
 
 describe("Budget Lookup contract", () => {
@@ -27,6 +39,123 @@ describe("Budget Lookup contract", () => {
       expect(normalized.budgetType).toBe(source.budget_type);
       expect(normalized.budgetProductSkus).toEqual(source.budget_product_skus ?? [source.budget_product_sku]);
     }
+  });
+
+  describe("core-view contract availability and scope options", () => {
+    it("distinguishes measured zero, source-not-reported, discarded source, and suppression", () => {
+      const measuredZero: CoreViewCohort<number> = {
+        availability: "available",
+        userCount: 8,
+        value: 0,
+      };
+      const notReported: CoreViewMetric<number> = {
+        availability: "not_reported",
+        value: null,
+      };
+      const discarded: CoreViewMetric<number> = {
+        availability: "unavailable",
+        reason: "source_discarded",
+        value: null,
+      };
+      const suppressed: CoreViewCohort<number> = {
+        availability: "suppressed",
+        userCount: null,
+        value: null,
+      };
+
+      expect([measuredZero, notReported, discarded, suppressed].map(({ availability }) => availability))
+        .toEqual(["available", "not_reported", "unavailable", "suppressed"]);
+      expect(measuredZero.value).toBe(0);
+    });
+
+    it("intersects option values with the server-authorized population and fails closed on missing inputs", () => {
+      const authorized = {
+        departments: ["department-a", "department-c"],
+        businessAreas: ["area-a"],
+      } satisfies CoreViewScopeOptions;
+      const directory = {
+        departments: ["department-a", "department-b", "department-c"],
+        businessAreas: ["area-a", "area-b"],
+      } satisfies CoreViewScopeOptions;
+      const populationCounts = {
+        departments: { "department-a": 5, "department-c": 6 },
+        businessAreas: { "area-a": 5 },
+      };
+
+      expect(intersectCoreViewScopeOptions(authorized, directory, populationCounts)).toEqual({
+        availability: "available",
+        options: { departments: ["department-a", "department-c"], businessAreas: ["area-a"] },
+      });
+      expect(intersectCoreViewScopeOptions(null, directory, populationCounts)).toEqual({
+        availability: "unavailable",
+        reason: "authorization_unavailable",
+        options: null,
+      });
+      expect(intersectCoreViewScopeOptions(authorized, null, populationCounts)).toEqual({
+        availability: "unavailable",
+        reason: "option_data_unavailable",
+        options: null,
+      });
+      expect(intersectCoreViewScopeOptions(authorized, directory, null)).toEqual({
+        availability: "unavailable",
+        reason: "option_data_unavailable",
+        options: null,
+      });
+    });
+
+    it("suppresses undersized scope options and fails closed when population counts are unavailable", () => {
+      const options = {
+        departments: ["department-four", "department-five"],
+        businessAreas: ["area-four", "area-five"],
+      };
+      const counts = {
+        departments: { "department-four": 4, "department-five": 5 },
+        businessAreas: { "area-four": 4, "area-five": 5 },
+      };
+
+      expect(intersectCoreViewScopeOptions(options, options, counts)).toEqual({
+        availability: "available",
+        options: { departments: ["department-five"], businessAreas: ["area-five"] },
+      });
+      expect(intersectCoreViewScopeOptions(options, options, counts, 6)).toEqual({
+        availability: "available",
+        options: { departments: [], businessAreas: [] },
+      });
+      expect(intersectCoreViewScopeOptions(options, options, null)).toEqual({
+        availability: "unavailable",
+        reason: "option_data_unavailable",
+        options: null,
+      });
+      expect(intersectCoreViewScopeOptions(options, options, {
+        departments: { "department-four": 4 },
+        businessAreas: { "area-four": 4, "area-five": 5 },
+      })).toEqual({
+        availability: "unavailable",
+        reason: "option_data_unavailable",
+        options: null,
+      });
+    });
+
+    it("does not derive a nested metric from suppressed or unavailable inputs", () => {
+      const suppressed: CoreViewCohort<number> = { availability: "suppressed", userCount: null, value: null };
+      const unavailable: CoreViewMetric<number> = {
+        availability: "unavailable",
+        reason: "source_discarded",
+        value: null,
+      };
+      const calculate = vi.fn(() => 42);
+
+      expect(deriveCoreViewMetric([suppressed], calculate)).toEqual({
+        availability: "suppressed",
+        value: null,
+      });
+      expect(deriveCoreViewMetric([unavailable], calculate)).toEqual({
+        availability: "unavailable",
+        reason: "source_discarded",
+        value: null,
+      });
+      expect(calculate).not.toHaveBeenCalled();
+    });
   });
 
   it("accepts numeric GitHub user IDs and cost-center names as distinct lookup keys", () => {

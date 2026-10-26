@@ -17,6 +17,7 @@ export type ApiErrorCode =
   | "forbidden"
   | "not_found"
   | "per_user_detail_disabled"
+  | "decimal_overflow"
   | "permissions_unavailable"
   | "module_disabled"
   | "rate_limited"
@@ -201,10 +202,158 @@ export interface UserUsageRow {
   login: string | null;
   daysActive: number;
   interactions: number;
-  aiCreditsUsed: number;
+  aiCreditsUsed: string;
 }
 export type UserUsageRequest = UsagePeriodRequest & PageRequest;
 export type UserUsageResponse = PagedResponse<UserUsageRow>;
+
+export type CoreViewMetric<T> =
+  | { availability: "available"; value: T }
+  | { availability: "not_reported"; value: null }
+  | { availability: "unavailable"; reason: "source_discarded"; value: null }
+  | { availability: "suppressed"; value: null };
+
+export type CoreViewCohort<T> =
+  | { availability: "available"; userCount: number; value: T }
+  | { availability: "not_reported"; userCount: null; value: null }
+  | { availability: "unavailable"; reason: "source_discarded"; userCount: null; value: null }
+  | { availability: "suppressed"; userCount: null; value: null };
+
+export type CoreViewScopeSelection =
+  | { scope: "self" }
+  | { scope: "team" }
+  | { scope: "company" }
+  | { scope: "department"; value: string }
+  | { scope: "business_area"; value: string };
+
+export interface CoreViewScopeOptions {
+  departments: string[];
+  businessAreas: string[];
+}
+
+export interface CoreViewScopeOptionPopulationCounts {
+  departments: Readonly<Record<string, number>>;
+  businessAreas: Readonly<Record<string, number>>;
+}
+
+export type CoreViewScopeOptionsResult =
+  | { availability: "available"; options: CoreViewScopeOptions }
+  | {
+      availability: "unavailable";
+      reason: "authorization_unavailable" | "option_data_unavailable";
+      options: null;
+    };
+
+export function intersectCoreViewScopeOptions(
+  authorizedOptions: CoreViewScopeOptions | null | undefined,
+  directoryOptions: CoreViewScopeOptions | null | undefined,
+  populationCounts: CoreViewScopeOptionPopulationCounts | null | undefined,
+  minGroupSize = DEFAULT_MIN_GROUP_SIZE,
+): CoreViewScopeOptionsResult {
+  if (authorizedOptions === null || authorizedOptions === undefined) {
+    return { availability: "unavailable", reason: "authorization_unavailable", options: null };
+  }
+  if (directoryOptions === null || directoryOptions === undefined
+    || populationCounts === null || populationCounts === undefined) {
+    return { availability: "unavailable", reason: "option_data_unavailable", options: null };
+  }
+  const intersect = (kind: keyof CoreViewScopeOptions): string[] | null => {
+    const authorized = authorizedOptions[kind];
+    const directory = directoryOptions[kind];
+    const counts = populationCounts[kind];
+    if (!Array.isArray(authorized) || !Array.isArray(directory) || !counts || typeof counts !== "object") return null;
+    const permitted = new Set(authorized);
+    const candidates = [...new Set(directory.filter((value) => permitted.has(value)))].sort();
+    const visible: string[] = [];
+    for (const value of candidates) {
+      const userCount = counts[value];
+      if (typeof userCount !== "number" || !Number.isSafeInteger(userCount) || userCount < 0) return null;
+      if (!suppress(userCount, minGroupSize, value, false).suppressed) visible.push(value);
+    }
+    return visible;
+  };
+  const departments = intersect("departments");
+  const businessAreas = intersect("businessAreas");
+  if (departments === null || businessAreas === null) {
+    return { availability: "unavailable", reason: "option_data_unavailable", options: null };
+  }
+  return {
+    availability: "available",
+    options: {
+      departments,
+      businessAreas,
+    },
+  };
+}
+
+export function deriveCoreViewMetric<T>(
+  dependencies: readonly CoreViewMetric<unknown>[],
+  calculate: () => T,
+): CoreViewMetric<T> {
+  if (dependencies.some(({ availability }) => availability === "suppressed")) {
+    return { availability: "suppressed", value: null };
+  }
+  if (dependencies.some(({ availability }) => availability === "unavailable")) {
+    return { availability: "unavailable", reason: "source_discarded", value: null };
+  }
+  if (dependencies.some(({ availability }) => availability === "not_reported")) {
+    return { availability: "not_reported", value: null };
+  }
+  return { availability: "available", value: calculate() };
+}
+
+export interface CoreViewDailyParticipation {
+  day: IsoDate;
+  activeUsers: CoreViewCohort<number>;
+}
+
+export interface CoreViewPeakDay {
+  day: CoreViewMetric<IsoDate>;
+  activeUsers: CoreViewCohort<number>;
+}
+
+export interface CoreViewTopDecile {
+  subsetUsers: CoreViewCohort<number>;
+  subsetMetric: CoreViewCohort<number>;
+  share: CoreViewMetric<string>;
+}
+
+export interface CoreViewTopNEntry {
+  cohort: CoreViewCohort<{ key: string; metric: number }>;
+}
+
+export interface CoreViewCliTotals {
+  users: CoreViewCohort<number>;
+  sessions: CoreViewCohort<number>;
+  requests: CoreViewCohort<number>;
+  promptTokens: CoreViewCohort<number>;
+  outputTokens: CoreViewCohort<number>;
+}
+
+export type CoreViewFeatureAdoption = {
+  [Metric in keyof AdoptionSummary]: CoreViewCohort<number>;
+};
+
+export interface CoreViewMetrics {
+  dailyParticipation: CoreViewDailyParticipation[];
+  peakDay: CoreViewPeakDay;
+  topDecile: CoreViewTopDecile;
+  topModels: CoreViewTopNEntry[];
+  topClients: CoreViewTopNEntry[];
+  topLanguages: CoreViewTopNEntry[];
+  topVersions: CoreViewTopNEntry[];
+  topPhases: CoreViewTopNEntry[];
+  cli: CoreViewCliTotals;
+  ideCliOverlap: { users: CoreViewCohort<number>; share: CoreViewMetric<string> };
+  featureAdoption: CoreViewFeatureAdoption;
+  sourceFields: {
+    aiAdoptionPhaseVersion: CoreViewMetric<string>;
+    clientPromptCount: CoreViewMetric<number>;
+    vscodeAgentTotalUserMessages: CoreViewMetric<number>;
+  };
+}
+
+export type CoreViewResponse = ApiResponse<CoreViewMetrics>;
 
 // ---- AI Credits module ------------------------------------------------------------------------------------------
 

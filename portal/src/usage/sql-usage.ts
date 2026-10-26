@@ -387,12 +387,13 @@ export async function getUserUsage(
     login: string | null;
     daysActive: number;
     interactions: number;
-    aiCreditsUsed: number | string;
+    aiCreditsUsed: string;
     totalItems: number;
   }>(`${scoped.cte},
     UserUsage AS (
       SELECT f.user_id AS userId, u.login, COUNT(DISTINCT f.usage_day) AS daysActive,
-        SUM(f.interaction_count) AS interactions, SUM(f.ai_credits_used) AS aiCreditsUsed
+        SUM(f.interaction_count) AS interactions,
+        CONVERT(VARCHAR(40), SUM(f.ai_credits_used)) AS aiCreditsUsed
       FROM portal.fact_user_daily_usage AS f
       INNER JOIN AuthorizedUsers AS au ON au.user_id = f.user_id
       INNER JOIN portal.dim_user AS u ON u.user_id = f.user_id
@@ -428,7 +429,7 @@ export async function getUserUsage(
       login: row.login,
       daysActive: number(row.daysActive),
       interactions: number(row.interactions),
-      aiCreditsUsed: number(row.aiCreditsUsed),
+      aiCreditsUsed: row.aiCreditsUsed,
     })),
     totalItems,
   };

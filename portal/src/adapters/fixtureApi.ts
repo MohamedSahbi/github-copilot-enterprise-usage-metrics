@@ -145,7 +145,7 @@ export function toFixtureCoreData(input: FixtureApiInput): FixtureCoreData {
         login: user.user_login,
         daysActive: user.days_active,
         interactions: user.total_user_initiated_interactions,
-        aiCreditsUsed: user.total_ai_credits_used,
+        aiCreditsUsed: String(user.total_ai_credits_used),
       }))
     : [];
   const userResponse: UserUsageResponse | null = perUserDetailEnabled ? {
