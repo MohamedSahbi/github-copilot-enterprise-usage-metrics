@@ -55,50 +55,38 @@ function uniqueUsers(users: readonly AccessScopedUser[]): number[] {
   return [...new Set(users.map(({ user_id }) => user_id).filter((id) => Number.isSafeInteger(id) && id > 0))].sort((a, b) => a - b);
 }
 
-function dimensionOptions(
-  kind: "business_area" | "department",
-  users: readonly AccessScopedUser[],
-): PortalScopeOption[] {
-  const column = kind === "business_area" ? "business_area" : "department";
-  const grouped = new Map<string, number[]>();
-  for (const user of users) {
-    const value = user[column]?.trim().toLowerCase();
-    if (!value) continue;
-    grouped.set(value, [...(grouped.get(value) ?? []), user.user_id]);
-  }
-  return [...grouped].map(([value, userIds]) => ({ kind, value, label: labelFor(value), userIds: uniqueUsers(users.filter(({ user_id }) => userIds.includes(user_id))) }));
+function uniqueUserIds(userIds: readonly number[]): number[] {
+  return [...new Set(userIds.filter((id) => Number.isSafeInteger(id) && id > 0))].sort((a, b) => a - b);
 }
 
-function teamOptions(users: readonly AccessScopedUser[]): PortalScopeOption[] {
-  const byObjectId = new Map(users.flatMap((user) => user.entra_object_id ? [[user.entra_object_id.toLowerCase(), user] as const] : []));
+function teamUserIds(users: readonly AccessScopedUser[], managerObjectId: string): number[] {
   const children = new Map<string, AccessScopedUser[]>();
   for (const user of users) {
     const manager = user.manager_entra_object_id?.toLowerCase();
-    if (manager && byObjectId.has(manager)) children.set(manager, [...(children.get(manager) ?? []), user]);
+    if (manager) children.set(manager, [...(children.get(manager) ?? []), user]);
   }
 
-  const teams: PortalScopeOption[] = [];
-  for (const manager of users) {
-    if (!manager.entra_object_id) continue;
-    const userIds = new Set<number>([manager.user_id]);
-    const pending = [...(children.get(manager.entra_object_id.toLowerCase()) ?? [])];
-    while (pending.length) {
-      const member = pending.pop()!;
-      if (userIds.has(member.user_id)) continue;
+  const userIds = new Set<number>();
+  const visitedManagers = new Set<string>([managerObjectId.toLowerCase()]);
+  const pending = [managerObjectId.toLowerCase()];
+  while (pending.length > 0) {
+    const manager = pending.pop()!;
+    for (const member of children.get(manager) ?? []) {
       userIds.add(member.user_id);
-      if (member.entra_object_id) pending.push(...(children.get(member.entra_object_id.toLowerCase()) ?? []));
-    }
-    if (userIds.size > 1) {
-      const number = teams.length + 1;
-      teams.push({ kind: "team", value: `team-${number}`, label: `Team ${number}`, userIds: [...userIds].sort((a, b) => a - b) });
+      const objectId = member.entra_object_id?.toLowerCase();
+      if (objectId && !visitedManagers.has(objectId)) {
+        visitedManagers.add(objectId);
+        pending.push(objectId);
+      }
     }
   }
-  return teams;
+  return [...userIds].sort((a, b) => a - b);
 }
 
 function scopeOptionsFor(
   access: Extract<AccessResult, { state: "authorized" }>,
   users: readonly AccessScopedUser[],
+  principalObjectId: string,
 ): PortalScopeOption[] {
   const allowedUserIds = uniqueUsers(users);
   const options = new Map<string, PortalScopeOption>();
@@ -106,34 +94,44 @@ function scopeOptionsFor(
     const key = `${option.kind}:${option.value}`;
     const existing = options.get(key);
     options.set(key, existing
-      ? { ...existing, userIds: uniqueUsers([...users.filter(({ user_id }) => existing.userIds.includes(user_id)), ...users.filter(({ user_id }) => option.userIds.includes(user_id))]) }
+      ? { ...existing, userIds: uniqueUserIds([...existing.userIds, ...option.userIds]) }
       : { ...option, userIds: option.userIds.filter((id) => allowedUserIds.includes(id)) });
   };
 
+  const normalizedPrincipalObjectId = principalObjectId.toLowerCase();
   for (const grant of access.grants) {
-    if (grant.scope === "company") add({ kind: "all", value: "all", label: "All available data", userIds: allowedUserIds });
-    if (grant.scope === "team") add({ kind: "team", value: "team", label: "My reports", userIds: allowedUserIds });
-    if (grant.scope === "self") add({ kind: "self", value: "self", label: "Self", userIds: allowedUserIds });
-    if (grant.scope === "department" || grant.scope === "business_area") {
+    if (grant.scope === "company") {
+      add({ kind: "all", value: "all", label: "All available data", userIds: allowedUserIds });
+    } else if (grant.scope === "team") {
+      add({
+        kind: "team",
+        value: "team",
+        label: "My reports",
+        userIds: teamUserIds(users, normalizedPrincipalObjectId),
+      });
+    } else if (grant.scope === "self") {
+      add({
+        kind: "self",
+        value: "self",
+        label: "Self",
+        userIds: users
+          .filter(({ entra_object_id }) => entra_object_id?.toLowerCase() === normalizedPrincipalObjectId)
+          .map(({ user_id }) => user_id),
+      });
+    } else if (grant.scope === "department" || grant.scope === "business_area") {
       const kind = grant.scope;
+      const value = grant.scope_value.trim().toLowerCase();
+      if (!value) continue;
+      const attribute = kind === "department" ? "department" : "business_area";
       add({
         kind,
-        value: grant.scope_value.trim().toLowerCase(),
-        label: labelFor(grant.scope_value.trim().toLowerCase()),
-        userIds: allowedUserIds,
+        value,
+        label: labelFor(value),
+        userIds: users
+          .filter((user) => user[attribute]?.trim().toLowerCase() === value)
+          .map(({ user_id }) => user_id),
       });
     }
-  }
-
-  const canNarrow = access.grants.some(({ scope }) =>
-    scope === "company" || scope === "team" || scope === "department" || scope === "business_area",
-  );
-  if (canNarrow) {
-    for (const option of dimensionOptions("business_area", users)) add(option);
-    for (const option of dimensionOptions("department", users)) add(option);
-  }
-  if (access.grants.some(({ scope }) => scope === "company")) {
-    for (const option of teamOptions(users)) add(option);
   }
   return [...options.values()];
 }
@@ -152,14 +150,15 @@ export function portalViewerFromAccess(
       return deniedViewer("unavailable");
     case "authorized": {
       const role = roleForAccess(access);
-      if (!role || !access.grants.length) return deniedViewer("unavailable");
+      const principalObjectId = access.principal.entra_object_id;
+      if (!role || !access.grants.length || !principalObjectId) return deniedViewer("unavailable");
       return {
         ...EMPTY_VIEWER,
         accessState: "authorized",
         role,
         authenticated: true,
         perUserDetailEnabled: access.namesVisible,
-        scopeOptions: scopeOptionsFor(access, users),
+        scopeOptions: scopeOptionsFor(access, users, principalObjectId),
         allowedUserIds: uniqueUsers(users),
       };
     }
@@ -170,17 +169,22 @@ export function portalViewerFromAccess(
 
 export function resolvePortalScope(
   viewer: PortalViewer,
-  requestedKind?: string,
-  requestedValue?: string,
+  requestedScope?: string | string[],
 ): PortalScopeSelection | null {
   if (viewer.accessState !== "authorized") return null;
-  const selected = viewer.scopeOptions.find(
-    ({ kind, value }) => kind === requestedKind && value === requestedValue,
-  );
-  const defaultSelection = viewer.role === "admin"
-    ? viewer.scopeOptions.find(({ kind }) => kind === "all")
-    : viewer.scopeOptions[0];
-  const option = selected ?? defaultSelection;
+  let option: PortalScopeOption | undefined;
+  if (requestedScope === undefined) {
+    option = viewer.role === "admin"
+      ? viewer.scopeOptions.find(({ kind }) => kind === "all")
+      : viewer.scopeOptions[0];
+  } else {
+    if (typeof requestedScope !== "string" || requestedScope.length === 0) return null;
+    const separator = requestedScope.indexOf(":");
+    if (separator <= 0 || separator === requestedScope.length - 1) return null;
+    const kind = requestedScope.slice(0, separator);
+    const value = requestedScope.slice(separator + 1);
+    option = viewer.scopeOptions.find((scope) => scope.kind === kind && scope.value === value);
+  }
   if (!option) return null;
 
   const allowed = new Set(viewer.allowedUserIds);

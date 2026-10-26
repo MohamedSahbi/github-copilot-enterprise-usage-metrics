@@ -39,12 +39,39 @@ locals {
     AUTH_TRUST_HOST = "true"
   } : {}
 
+  ingestion_key_vault_reference_identity = module.identity["ingestion"].resource_id
+
   directory_app_settings = merge(local.common_app_settings, {
     AZURE_CLIENT_ID                  = module.identity["directory"].client_id
     AzureWebJobsStorage__accountName = module.directory_host_storage.name
     AzureWebJobsStorage__credential  = "managedidentity"
     AzureWebJobsStorage__clientId    = module.identity["directory"].client_id
     GITHUB_DIRECTORY_PAT             = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-directory-pat)", trimsuffix(module.key_vault.uri, "/"))
+  })
+
+  portal_app_settings = merge(local.common_app_settings, {
+    AZURE_CLIENT_ID                     = module.identity["portal"].client_id
+    AUTH_MICROSOFT_ENTRA_ID_ID          = var.auth_microsoft_entra_id_id
+    AUTH_MICROSOFT_ENTRA_ID_SECRET      = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-microsoft-entra-id-secret)", trimsuffix(module.key_vault.uri, "/"))
+    AUTH_GITHUB_ID                      = var.auth_github_id
+    AUTH_GITHUB_SECRET                  = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-github-secret)", trimsuffix(module.key_vault.uri, "/"))
+    AUTH_SECRET                         = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-secret)", trimsuffix(module.key_vault.uri, "/"))
+    ACCESS_BREAK_GLASS_GROUP_ID         = var.access_break_glass_group_id
+    ACCESS_PERMISSION_FRESHNESS_MINUTES = tostring(var.access_permission_freshness_minutes)
+    ACCESS_NO_ACCESS_MESSAGE            = var.access_no_access_message
+    ACCESS_REQUEST_URL                  = var.access_request_url
+    ACCESS_CONTACT                      = var.access_contact
+    PER_USER_DETAIL_ENABLED             = tostring(var.per_user_detail_enabled)
+  }, local.portal_auth_trust_host_setting)
+
+  ingestion_app_settings = merge(local.common_app_settings, {
+    AZURE_CLIENT_ID        = module.identity["ingestion"].client_id
+    GITHUB_APP_ID          = var.github_app_id
+    GITHUB_APP_PRIVATE_KEY = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)", trimsuffix(module.key_vault.uri, "/"))
+    RAW_ARCHIVE_ACCOUNT    = module.storage.name
+    RAW_ARCHIVE_CONTAINER  = "raw"
+    }, var.backfill_from == null ? {} : {
+    BACKFILL_FROM = var.backfill_from
   })
 }
 
@@ -75,20 +102,7 @@ module "portal" {
     application_stack = { node = { node_version = "22-lts" } }
   }
 
-  app_settings = merge(local.common_app_settings, {
-    AZURE_CLIENT_ID                     = module.identity["portal"].client_id
-    AUTH_MICROSOFT_ENTRA_ID_ID          = var.auth_microsoft_entra_id_id
-    AUTH_MICROSOFT_ENTRA_ID_SECRET      = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-microsoft-entra-id-secret)", trimsuffix(module.key_vault.uri, "/"))
-    AUTH_GITHUB_ID                      = var.auth_github_id
-    AUTH_GITHUB_SECRET                  = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-github-secret)", trimsuffix(module.key_vault.uri, "/"))
-    AUTH_SECRET                         = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-secret)", trimsuffix(module.key_vault.uri, "/"))
-    ACCESS_BREAK_GLASS_GROUP_ID         = var.access_break_glass_group_id
-    ACCESS_PERMISSION_FRESHNESS_MINUTES = tostring(var.access_permission_freshness_minutes)
-    ACCESS_NO_ACCESS_MESSAGE            = var.access_no_access_message
-    ACCESS_REQUEST_URL                  = var.access_request_url
-    ACCESS_CONTACT                      = var.access_contact
-    PER_USER_DETAIL_ENABLED             = tostring(var.per_user_detail_enabled)
-  }, local.portal_auth_trust_host_setting)
+  app_settings = local.portal_app_settings
 
   enable_telemetry = false
 }
@@ -108,7 +122,7 @@ module "ingestion" {
   https_only                             = true
   virtual_network_subnet_id              = var.network.integration_subnet_id
   application_insights_connection_string = local.application_insights_connection_string
-  key_vault_reference_identity           = module.identity["ingestion"].resource_id
+  key_vault_reference_identity           = local.ingestion_key_vault_reference_identity
 
   storage_account_name                     = module.storage.name
   storage_uses_managed_identity            = true
@@ -124,11 +138,7 @@ module "ingestion" {
     application_stack = { node = { node_version = "22" } }
   }
 
-  app_settings = merge(local.common_app_settings, {
-    AZURE_CLIENT_ID       = module.identity["ingestion"].client_id
-    RAW_ARCHIVE_ACCOUNT   = module.storage.name
-    RAW_ARCHIVE_CONTAINER = "raw"
-  })
+  app_settings = local.ingestion_app_settings
 
   enable_telemetry = false
 }
