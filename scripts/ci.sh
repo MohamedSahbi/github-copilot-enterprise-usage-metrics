@@ -14,4 +14,5 @@ export SQL_CONNECTION_STRING
 trap 'npm run stack:down' EXIT
 npm run stack:up
 npm run test:e2e
-E2E_PORT=3101 E2E_PER_USER_DETAIL_ENABLED=1 npm run test:e2e -- --grep "per-user detail URLs remain unavailable regardless of deployment detail access"
+# Mitigate reload churn in the serial secondary phase without changing primary development.
+E2E_DEV_BUNDLER=webpack E2E_PORT=3101 E2E_PER_USER_DETAIL_ENABLED=1 npm run test:e2e -- --grep "per-user detail URLs remain unavailable regardless of deployment detail access"
