@@ -10,6 +10,7 @@ const database = `metrics_loader_${process.pid}`;
 const testConnection = localConnectionString(process.env, database);
 const orgId = 800_000_000 + process.pid;
 const userIds = [1_000_000_000 + process.pid * 10 + 1, 1_000_000_000 + process.pid * 10 + 2];
+const sourceUserIds = [userIds[0]!, userIds[1]!, userIds[1]! + 1, userIds[1]! + 2];
 const orgLogin = "example-metrics-org";
 const scopeKey = String(orgId);
 const reportDay = "2026-03-02";
@@ -82,11 +83,13 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
         .input("organizationId", sql.BigInt, orgId)
         .input("user1", sql.BigInt, userIds[0])
         .input("user2", sql.BigInt, userIds[1])
+        .input("user3", sql.BigInt, sourceUserIds[2])
+        .input("user4", sql.BigInt, sourceUserIds[3])
         .query(`
         DELETE FROM portal.agg_daily_usage WHERE organization_id = @organizationId;
         DELETE FROM portal.fact_user_daily_usage WHERE organization_id = @organizationId;
-        DELETE FROM portal.dim_user_login_history WHERE user_id IN (@user1, @user2);
-        DELETE FROM portal.dim_user WHERE user_id IN (@user1, @user2);
+        DELETE FROM portal.dim_user_login_history WHERE user_id IN (@user1, @user2, @user3, @user4);
+        DELETE FROM portal.dim_user WHERE user_id IN (@user1, @user2, @user3, @user4);
         DELETE FROM portal.dim_organization WHERE organization_id = @organizationId`);
       await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
         .query("DELETE FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey");
@@ -179,43 +182,135 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
     },
   );
 
-  it("keeps restoration source fields null in staging and facts without changing existing metrics", async () => {
-    const payload = ndjson([userIds[0]!], {
-      ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "v1" },
-      totals_by_cli: { session_count: 3, request_count: 4, prompt_count: 5 },
-      totals_by_copilot_app: { session_count: 6, prompt_count: 7 },
-      totals_by_vscode_agent: { total_user_messages: 8, token_usage: { prompt_tokens_sum: 9, output_tokens_sum: 10 } },
-    });
-    const line = Buffer.from(payload).toString("utf8").trimEnd();
-    const input = newInput(Buffer.from(`${line.slice(0, -1)},"ai_credits_used":123456789.123456789}\n`));
+  it("round-trips source metrics independently through staging and curated facts", async () => {
+    const sourceRows = [
+      { version: "v".repeat(64), cli: 5, app: 7, vscode: 8 },
+      { version: "v2", cli: 0, app: 0, vscode: 0 },
+      { version: undefined, cli: undefined, app: undefined, vscode: undefined },
+      { version: null, cli: null, app: null, vscode: null },
+    ];
+    const payload = Buffer.from(`${sourceRows.map((source, index) => {
+      const line = JSON.stringify({
+        day: reportDay,
+        organization_id: String(orgId),
+        user_id: sourceUserIds[index],
+        user_login: `example-user-${sourceUserIds[index]}`,
+        user_initiated_interaction_count: 2,
+        code_generation_activity_count: 1,
+        code_acceptance_activity_count: 0,
+        loc_suggested_to_add_sum: 3,
+        loc_suggested_to_delete_sum: 0,
+        loc_added_sum: 1,
+        loc_deleted_sum: 0,
+        used_cli: true,
+        ai_credits_used: 0,
+        ai_adoption_phase: { phase_number: 2, phase: "Agent first", ...(source.version === undefined ? {} : { version: source.version }) },
+        totals_by_feature: [{ feature: "code_completion", code_generation_activity_count: 1 }],
+        totals_by_cli: { session_count: 3, request_count: 4, ...(source.cli === undefined ? {} : { prompt_count: source.cli }) },
+        totals_by_copilot_app: { session_count: 6, ...(source.app === undefined ? {} : { prompt_count: source.app }) },
+        totals_by_vscode_agent: {
+          ...(source.vscode === undefined ? {} : { total_user_messages: source.vscode }),
+          token_usage: { prompt_tokens_sum: 9, output_tokens_sum: 10 },
+        },
+      });
+      return index === 0 ? line.replace('"ai_credits_used":0', '"ai_credits_used":123456789.123456789') : line;
+    }).join("\n")}\n`, "utf8");
+    const input = newInput(payload);
     const result = await loadMetricsDay(input, { sqlConfig, blobContainer });
     expect(result.status).toBe("published");
     for (const table of ["stg_user_daily", "fact_user_daily_usage"] as const) {
       const stored = await pool.request().input("runId", sql.UniqueIdentifier, input.runId).query(`
-        SELECT ai_adoption_phase_version, ai_adoption_phase_number, ai_adoption_phase,
+        SELECT user_id, ai_adoption_phase_version, ai_adoption_phase_number, ai_adoption_phase,
           interaction_count, code_generation_count, loc_added, CONVERT(VARCHAR(40), ai_credits_used) AS credits
-        FROM portal.${table} WHERE run_id = @runId`);
-      expect(stored.recordset).toEqual([{
-        ai_adoption_phase_version: null, ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
-        interaction_count: 2, code_generation_count: 1, loc_added: "1", credits: "123456789.123456789",
-      }]);
+        FROM portal.${table} WHERE run_id = @runId ORDER BY user_id`);
+      expect(stored.recordset).toEqual(sourceRows.map((source, index) => ({
+        user_id: String(sourceUserIds[index]),
+        ai_adoption_phase_version: source.version ?? null, ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
+        interaction_count: 2, code_generation_count: 1, loc_added: "1",
+        credits: index === 0 ? "123456789.123456789" : "0.000000000",
+      })));
     }
     for (const table of ["stg_user_breakdown", "fact_usage_breakdown"] as const) {
+      const userColumn = table === "stg_user_breakdown" ? "d.user_id" : "b.user_id";
+      const dailyJoin = table === "stg_user_breakdown"
+        ? `JOIN portal.stg_user_daily AS d
+             ON d.run_id = b.run_id AND d.artifact_id = b.artifact_id AND d.line_number = b.line_number`
+        : "";
       const stored = await pool.request().input("runId", sql.UniqueIdentifier, input.runId).query(`
-        SELECT key_1, prompt_count, total_user_messages, session_count, request_count, prompt_tokens, output_tokens,
-          code_generation_count
-        FROM portal.${table} WHERE run_id = @runId ORDER BY key_1`);
-      expect(stored.recordset).toEqual([
-        { key_1: "code_completion", prompt_count: null, total_user_messages: null, session_count: null, request_count: null,
-          prompt_tokens: null, output_tokens: null, code_generation_count: 1 },
-        { key_1: "copilot_app", prompt_count: null, total_user_messages: null, session_count: 6, request_count: null,
-          prompt_tokens: null, output_tokens: null, code_generation_count: 0 },
-        { key_1: "copilot_cli", prompt_count: null, total_user_messages: null, session_count: 3, request_count: 4,
-          prompt_tokens: null, output_tokens: null, code_generation_count: 0 },
-        { key_1: "vscode_agent", prompt_count: null, total_user_messages: null, session_count: null, request_count: null,
-          prompt_tokens: "9", output_tokens: "10", code_generation_count: 0 },
-      ]);
+        SELECT ${userColumn} AS user_id, b.key_1, b.prompt_count, b.total_user_messages, b.session_count, b.request_count,
+          b.prompt_tokens, b.output_tokens, b.code_generation_count
+        FROM portal.${table} AS b
+        ${dailyJoin}
+        WHERE b.run_id = @runId AND b.breakdown_kind = 'client' ORDER BY user_id, b.key_1`);
+      expect(stored.recordset).toEqual(sourceRows.flatMap((source, index) => [
+        {
+          user_id: String(sourceUserIds[index]), key_1: "copilot_app", prompt_count: source.app ?? null, total_user_messages: null,
+          session_count: 6, request_count: null, prompt_tokens: null, output_tokens: null, code_generation_count: 0,
+        },
+        {
+          user_id: String(sourceUserIds[index]), key_1: "copilot_cli", prompt_count: source.cli ?? null, total_user_messages: null,
+          session_count: 3, request_count: 4, prompt_tokens: null, output_tokens: null, code_generation_count: 0,
+        },
+        {
+          user_id: String(sourceUserIds[index]), key_1: "vscode_agent", prompt_count: null, total_user_messages: source.vscode ?? null,
+          session_count: null, request_count: null, prompt_tokens: "9", output_tokens: "10", code_generation_count: 0,
+        },
+      ]));
     }
+  });
+
+  it("rejects phase versions the target VARCHAR collation cannot round-trip", async () => {
+    const valid = newInput(ndjson([userIds[0]!], {
+      ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "café" },
+    }));
+    expect((await loadMetricsDay(valid, { sqlConfig, blobContainer })).status).toBe("published");
+    const validStored = await pool.request().input("runId", sql.UniqueIdentifier, valid.runId).query(`
+      SELECT ai_adoption_phase_version FROM portal.fact_user_daily_usage WHERE run_id = @runId`);
+    expect(validStored.recordset).toEqual([{ ai_adoption_phase_version: "café" }]);
+
+    const invalid = newInput(ndjson([userIds[0]!], {
+      ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "A😀B" },
+    }));
+    const result = await loadMetricsDay(invalid, { sqlConfig, blobContainer });
+    expect(result.status).toBe("quarantined");
+    const issue = (await pool.request().input("runId", sql.UniqueIdentifier, invalid.runId).query(`
+      SELECT severity, error_code, field_path
+      FROM portal.ValidationIssue WHERE run_id = @runId`)).recordset[0];
+    expect(issue).toEqual({
+      severity: "fatal", error_code: "unsupported_schema", field_path: "ai_adoption_phase.version",
+    });
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM portal.stg_user_daily WHERE run_id = @runId",
+      "runId", sql.UniqueIdentifier, invalid.runId,
+    )).toBe(0);
+    const fact = (await pool.request()
+      .input("organizationId", sql.BigInt, orgId)
+      .input("userId", sql.BigInt, userIds[0])
+      .input("reportDay", sql.Date, reportDay)
+      .query(`
+      SELECT ai_adoption_phase_version FROM portal.fact_user_daily_usage
+      WHERE organization_id = @organizationId AND user_id = @userId AND usage_day = @reportDay`)).recordset[0];
+    expect(fact).toEqual({ ai_adoption_phase_version: "café" });
+  });
+
+  it("quarantines invalid source counters without replacing facts or advancing the checkpoint", async () => {
+    const baseline = newInput(ndjson(userIds));
+    expect((await loadMetricsDay(baseline, { sqlConfig, blobContainer })).status).toBe("published");
+    const malformed = newInput(ndjson([userIds[0]!], { totals_by_cli: { prompt_count: "5" } }));
+    const result = await loadMetricsDay(malformed, { sqlConfig, blobContainer });
+
+    expect(result.status).toBe("quarantined");
+    const issue = (await pool.request().input("runId", sql.UniqueIdentifier, malformed.runId).query(`
+      SELECT severity, error_code, field_path
+      FROM portal.ValidationIssue WHERE run_id = @runId`)).recordset[0];
+    expect(issue).toEqual({ severity: "reject", error_code: "negative_count", field_path: "totals_by_cli.prompt_count" });
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE organization_id = @organizationId",
+      "organizationId", sql.BigInt, orgId,
+    )).toBe(userIds.length);
+    const checkpoint = (await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
+      .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey")).recordset[0];
+    expect(checkpoint?.last_run_id?.toLowerCase()).toBe(baseline.runId);
   });
 
   it("publishes with the portal_ingest role's SourceArtifact permissions", async () => {
@@ -279,6 +374,23 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
     expect(result.status).toBe("quarantined");
     expect(await count("SELECT COUNT(*) AS count FROM portal.stg_user_daily WHERE run_id = @value", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(0);
     expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE run_id = @value", "value", sql.UniqueIdentifier, original.runId)).toBe(1);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE run_id = @value", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(0);
+    expect(await count("SELECT COUNT(*) AS count FROM portal.ValidationIssue WHERE run_id = @value AND error_code = 'duplicate_file'", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(1);
+    const checkpoint = (await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
+      .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey")).recordset[0];
+    expect(checkpoint?.last_run_id?.toLowerCase()).toBe(original.runId);
+  });
+
+  it.each([true, false])("quarantines duplicate identities with an invalid client counter first: %s", async (invalidFirst) => {
+    const original = newInput(ndjson([userIds[0]!]));
+    await loadMetricsDay(original, { sqlConfig, blobContainer });
+    const valid = ndjson([userIds[1]!], { totals_by_cli: { prompt_count: 5 } });
+    const invalid = ndjson([userIds[1]!], { totals_by_cli: { prompt_count: "5" } });
+    const duplicate = newInput(Buffer.concat(invalidFirst ? [invalid, valid] : [valid, invalid]));
+    const result = await loadMetricsDay(duplicate, { sqlConfig, blobContainer });
+
+    expect(result.status).toBe("quarantined");
+    expect(await count("SELECT COUNT(*) AS count FROM portal.stg_user_daily WHERE run_id = @value", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(0);
     expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE run_id = @value", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(0);
     expect(await count("SELECT COUNT(*) AS count FROM portal.ValidationIssue WHERE run_id = @value AND error_code = 'duplicate_file'", "value", sql.UniqueIdentifier, duplicate.runId)).toBe(1);
     const checkpoint = (await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)

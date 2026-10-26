@@ -280,6 +280,17 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
     addIssue("negative_count", "ai_credits_used", "value must be an exact non-negative DECIMAL(18,9) number");
   }
 
+  const phase = isObject(source.ai_adoption_phase) ? source.ai_adoption_phase : null;
+  const phaseVersion = phase?.version;
+  if (
+    phaseVersion !== undefined &&
+    phaseVersion !== null &&
+    (typeof phaseVersion !== "string" || phaseVersion.length > 64)
+  ) {
+    addIssue("unsupported_schema", "ai_adoption_phase.version", "version must be a string that fits VARCHAR(64)");
+    return reject();
+  }
+
   const breakdown: StgUserBreakdownRow[] = [];
   const families: StgUserFamilyCountRow[] = [];
   const nestedNames = new Set<string>();
@@ -381,7 +392,12 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
       prompt_tokens: optionalCount(tokenUsage, "prompt_tokens_sum", `${field}.token_usage.prompt_tokens_sum`, SAFE_INT_MAX),
       output_tokens: optionalCount(tokenUsage, "output_tokens_sum", `${field}.token_usage.output_tokens_sum`, SAFE_INT_MAX),
       version_info: version,
-      prompt_count: null, total_user_messages: null,
+      prompt_count: field === "totals_by_cli" || field === "totals_by_copilot_app"
+        ? optionalCount(value, "prompt_count", `${field}.prompt_count`)
+        : null,
+      total_user_messages: field === "totals_by_vscode_agent"
+        ? optionalCount(value, "total_user_messages", `${field}.total_user_messages`)
+        : null,
     });
   };
   addClient("totals_by_cli", "copilot_cli", "last_known_cli_version", "cli_version");
@@ -431,7 +447,6 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
     featureRows.some((item) => isObject(item) && item.feature === "copilot_app") ||
     appIdeActivity;
   const cloud = source.used_copilot_cloud_agent === true;
-  const phase = isObject(source.ai_adoption_phase) ? source.ai_adoption_phase : null;
   const unknown: JsonObject = {};
   for (const [field, value] of Object.entries(source)) if (!ROOT_FIELDS.has(field)) unknown[field] = value;
 
@@ -450,7 +465,7 @@ function parseLine(line: string, lineNumber: number, input: MetricsDayInput): {
       ai_adoption_phase_number: phase ? toInteger(phase.phase_number) : null,
       ai_adoption_phase: phase ? nonEmptyString(phase.phase) : null,
       extra_json: Object.keys(unknown).length ? JSON.stringify(unknown) : null,
-      ai_adoption_phase_version: null,
+      ai_adoption_phase_version: typeof phaseVersion === "string" ? phaseVersion : null,
     },
     breakdown,
     families,

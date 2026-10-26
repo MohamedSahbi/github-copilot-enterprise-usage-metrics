@@ -83,6 +83,48 @@ function hash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+async function rejectUnrepresentablePhaseVersions(
+  pool: sql.ConnectionPool,
+  content: string,
+  parsed: ReturnType<typeof parseMetricsDay>,
+): Promise<void> {
+  if (parsed.fatal) return;
+  const versions = [...new Set(parsed.rows
+    .map((row) => row.daily.ai_adoption_phase_version)
+    .filter((version): version is string => version !== null))];
+  if (versions.length === 0) return;
+
+  const invalid = new Set<string>();
+  for (let offset = 0; offset < versions.length; offset += 256) {
+    const batch = versions.slice(offset, offset + 256);
+    const result = await pool.request()
+      .input("versionsJson", sql.NVarChar(sql.MAX), JSON.stringify(batch))
+      .query<{ version: string }>(`
+        SELECT [value] AS version
+        FROM OPENJSON(@versionsJson)
+        WHERE CONVERT(varbinary(max), CONVERT(nvarchar(max), CONVERT(varchar(64), [value] COLLATE DATABASE_DEFAULT)))
+          <> CONVERT(varbinary(max), [value])`);
+    for (const row of result.recordset) invalid.add(row.version);
+  }
+  if (invalid.size === 0) return;
+
+  const lines = content.split(/\r?\n/);
+  for (const row of parsed.rows) {
+    const version = row.daily.ai_adoption_phase_version;
+    if (version === null || !invalid.has(version)) continue;
+    const sourceLine = lines[row.daily.line_number - 1] ?? "";
+    parsed.issues.push({
+      line_number: row.daily.line_number,
+      raw_row_sha256: hash(Buffer.from(sourceLine, "utf8")),
+      severity: "fatal",
+      error_code: "unsupported_schema",
+      field_path: "ai_adoption_phase.version",
+      message: "version cannot be represented losslessly as VARCHAR(64) using the target SQL collation",
+    });
+    parsed.fatal = true;
+  }
+}
+
 function countNonEmptyLines(bytes: Uint8Array): number {
   let count = 0;
   let hasContent = false;
@@ -445,11 +487,13 @@ async function publish(
           loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted, used_agent, used_chat, used_cli,
           used_coding_agent, used_cloud_agent, used_copilot_app, used_vscode_agent, used_code_review_active,
           used_code_review_passive, ai_credits_used, ai_adoption_phase_number, ai_adoption_phase, extra_json,
+          ai_adoption_phase_version,
           run_id, source_artifact_id, transform_version)
         SELECT organization_id, user_id, usage_day, interaction_count, code_generation_count, code_acceptance_count,
           loc_suggested_to_add, loc_suggested_to_delete, loc_added, loc_deleted, used_agent, used_chat, used_cli,
           used_coding_agent, used_cloud_agent, used_copilot_app, used_vscode_agent, used_code_review_active,
           used_code_review_passive, ai_credits_used, ai_adoption_phase_number, ai_adoption_phase, extra_json,
+          ai_adoption_phase_version,
           run_id, artifact_id, '${TRANSFORM_VERSION}'
         FROM portal.stg_user_daily WHERE run_id = @runId`);
 
@@ -461,10 +505,12 @@ async function publish(
           organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count,
           code_generation_count, code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete,
           loc_added, loc_deleted, session_count, request_count, prompt_tokens, output_tokens, version_info,
+          prompt_count, total_user_messages,
           run_id, source_artifact_id, transform_version)
         SELECT d.organization_id, d.user_id, d.usage_day, b.breakdown_kind, b.key_1, b.key_2, b.interaction_count,
           b.code_generation_count, b.code_acceptance_count, b.loc_suggested_to_add, b.loc_suggested_to_delete,
           b.loc_added, b.loc_deleted, b.session_count, b.request_count, b.prompt_tokens, b.output_tokens, b.version_info,
+          b.prompt_count, b.total_user_messages,
           b.run_id, b.artifact_id, '${TRANSFORM_VERSION}'
         FROM portal.stg_user_breakdown AS b
         JOIN portal.stg_user_daily AS d
@@ -726,6 +772,7 @@ export async function loadMetricsDay(
       };
     }
     const parsed = parseMetricsDay(content, { runId, artifactId, reportDay: input.reportDay, organizationId: input.organizationId });
+    await rejectUnrepresentablePhaseVersions(pool, content, parsed);
     const rowsQuarantined = parsed.fatal ? parsed.linesRead : parsed.linesRead - parsed.rows.length;
     const stageTx = new sql.Transaction(pool);
     await stageTx.begin();

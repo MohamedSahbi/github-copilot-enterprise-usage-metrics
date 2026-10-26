@@ -19,7 +19,7 @@ const line = (overrides: Record<string, unknown> = {}): string =>
   });
 
 describe("parseMetricsDay", () => {
-  it("leaves restoration destinations explicitly null even when source values are present", () => {
+  it("extracts phase version and independent client-specific source counts", () => {
     const result = parseMetricsDay(line({
       ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "v1" },
       totals_by_cli: { session_count: 3, request_count: 4, prompt_count: 5 },
@@ -31,17 +31,66 @@ describe("parseMetricsDay", () => {
     expect(result.issues).toEqual([]);
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]!.daily).toMatchObject({
-      ai_adoption_phase_version: null, ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
+      ai_adoption_phase_version: "v1", ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
       interaction_count: 2, code_generation_count: 1, loc_added: 1,
     });
     expect(result.rows[0]!.breakdown).toHaveLength(4);
-    for (const row of result.rows[0]!.breakdown) {
-      expect(row).toMatchObject({ prompt_count: null, total_user_messages: null });
-    }
     expect(result.rows[0]!.breakdown.find((row) => row.key_1 === "copilot_cli"))
-      .toMatchObject({ session_count: 3, request_count: 4 });
+      .toMatchObject({ session_count: 3, request_count: 4, prompt_count: 5, total_user_messages: null });
+    expect(result.rows[0]!.breakdown.find((row) => row.key_1 === "copilot_app"))
+      .toMatchObject({ prompt_count: 7, total_user_messages: null });
     expect(result.rows[0]!.breakdown.find((row) => row.key_1 === "vscode_agent"))
-      .toMatchObject({ prompt_tokens: 9 });
+      .toMatchObject({ prompt_tokens: 9, prompt_count: null, total_user_messages: 8 });
+  });
+
+  it.each([
+    ["CLI prompt_count", "totals_by_cli", "prompt_count", "copilot_cli"],
+    ["Copilot App prompt_count", "totals_by_copilot_app", "prompt_count", "copilot_app"],
+    ["VS Code total_user_messages", "totals_by_vscode_agent", "total_user_messages", "vscode_agent"],
+  ])("preserves zero and missing/null for %s", (_label, sourceField, sourceCount, client) => {
+    for (const sourceValue of [0, undefined, null]) {
+      const clientSource = sourceValue === undefined ? {} : { [sourceCount]: sourceValue };
+      const result = parseMetricsDay(line({ [sourceField]: clientSource }), {
+        runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
+      });
+      expect(result.issues).toEqual([]);
+      const row = result.rows[0]!.breakdown.find((candidate) => candidate.key_1 === client)!;
+      expect(row[sourceCount === "prompt_count" ? "prompt_count" : "total_user_messages"]).toBe(sourceValue ?? null);
+    }
+  });
+
+  it.each([
+    ["CLI prompt_count", "totals_by_cli", "prompt_count"],
+    ["Copilot App prompt_count", "totals_by_copilot_app", "prompt_count"],
+    ["VS Code total_user_messages", "totals_by_vscode_agent", "total_user_messages"],
+  ])("rejects invalid supplied %s values", (_label, sourceField, sourceCount) => {
+    for (const value of ["5", -1, 1.5, 2_147_483_648]) {
+      const result = parseMetricsDay(line({ [sourceField]: { [sourceCount]: value } }), {
+        runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
+      });
+      expect(result.rows).toHaveLength(0);
+      expect(result.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ error_code: "negative_count", field_path: `${sourceField}.${sourceCount}` }),
+      ]));
+    }
+  });
+
+  it("preserves version strings through the VARCHAR(64) boundary and rejects invalid versions", () => {
+    const parse = (version: unknown) => parseMetricsDay(line({ ai_adoption_phase: { phase_number: 2, phase: "Agent first", version } }), {
+      runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
+    });
+    expect(parse("v".repeat(64)).rows[0]?.daily.ai_adoption_phase_version).toBe("v".repeat(64));
+    expect(parse("é".repeat(64)).rows[0]?.daily.ai_adoption_phase_version).toBe("é".repeat(64));
+    expect(parse("v1").rows[0]?.daily.ai_adoption_phase_version).toBe("v1");
+    expect(parse(null).rows[0]?.daily.ai_adoption_phase_version).toBeNull();
+    expect(parse(undefined).rows[0]?.daily.ai_adoption_phase_version).toBeNull();
+    for (const version of [1, {}, "v".repeat(65)]) {
+      const result = parse(version);
+      expect(result.rows).toHaveLength(0);
+      expect(result.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ error_code: "unsupported_schema", field_path: "ai_adoption_phase.version" }),
+      ]));
+    }
   });
 
   it("maps a valid day row and preserves the exact credit token", () => {
@@ -155,6 +204,19 @@ describe("parseMetricsDay", () => {
     expect(result.fatal).toBe(true);
     expect(result.issues.map((issue) => issue.error_code)).toContain("negative_count");
     expect(result.issues.map((issue) => issue.error_code)).toContain("duplicate_file");
+  });
+
+  it.each([true, false])("detects duplicate identity around an invalid client counter (invalid first: %s)", (invalidFirst) => {
+    const valid = line({ totals_by_cli: { prompt_count: 5 } });
+    const invalid = line({ totals_by_cli: { prompt_count: "5" } });
+    const result = parseMetricsDay(`${(invalidFirst ? [invalid, valid] : [valid, invalid]).join("\n")}\n`, {
+      runId: "00000000-0000-4000-8000-000000000001", artifactId: 1, reportDay: "2026-03-02", organizationId: 9000001,
+    });
+
+    expect(result.fatal).toBe(true);
+    expect(result.issues.map((issue) => issue.error_code)).toContain("negative_count");
+    expect(result.issues.map((issue) => issue.error_code)).toContain("duplicate_file");
+    expect(result.rows).toHaveLength(invalidFirst ? 0 : 1);
   });
 
   it("records rejected lines and warns on unknown fields without exposing row data", () => {
