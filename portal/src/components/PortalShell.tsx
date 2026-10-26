@@ -34,6 +34,7 @@ export default function PortalShell({
             GitHub Copilot Usage Metrics
           </Link>
           <div className="flex flex-wrap items-center gap-4">
+            <Link href="/help" className="text-sm !text-white underline">Help / FAQ</Link>
             <span className="text-sm text-white/80">Signed in as {viewer.displayName}</span>
             <form action={async () => {
               "use server";
