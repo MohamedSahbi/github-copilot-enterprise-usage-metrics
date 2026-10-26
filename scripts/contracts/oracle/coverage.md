@@ -31,9 +31,11 @@ the ingestion mapper stores zero for that breakdown kind, and the upstream langu
 expose different measures. The client breakdown's dimension keys and distinct users are compared
 with upstream client-presence data. Its `interactions` field is asserted to remain zero because the
 mapper stores zero; it cannot stand in for client telemetry. Client sessions, requests, tokens and
-versions remain uncovered by the current API response. AI-credit user totals use a nine-decimal
-comparison because the SQL `DECIMAL(18,9)` and upstream JavaScript number paths encode decimal
-values differently.
+versions remain uncovered by the current API response. AI-credit user totals are checked with
+Vitest `toBeCloseTo(..., 9)` because the SQL `DECIMAL(18,9)` and upstream JavaScript number paths
+encode decimal values differently. This fixture does not exercise large `DECIMAL(38,9)` sums: the
+known SQL driver precision loss for those sums is tracked separately in #122, and this oracle
+assertion is not an exact-decimal transport guarantee.
 
 Upstream `portal/upstream/src/domain/metricsParser.ts` synthesizes a `copilot_app` IDE row from
 feature interactions when those feature rows exist; otherwise it can use
