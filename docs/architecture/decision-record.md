@@ -829,7 +829,7 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 
 | Item | Type | When |
 | --- | --- | --- |
-| Whether a GitHub App installation token works for `orgs/{org}/copilot/metrics/reports/users-1-day` (docs name the fine-grained permission but not App installations explicitly) | Fact check | Phase 0 |
+| Whether a GitHub App installation token works for `orgs/{org}/copilot/metrics/reports/users-1-day` (docs name the fine-grained permission but not App installations explicitly) | Fact check | **Resolved:** owner-attested successful organization `users-1-day` request using a newly minted GitHub App installation token. No independent authenticated replay; credentials and report contents retained privately (#64). |
 | Whether GitHub exposes a supported `consumedAgainstType` or `effective_budget.consumed_against` field for Budget Lookup; neither is in the enterprise budget response schema | Fact check | Before implementing the Budget Lookup adapter; do not include either field unless documented |
 | `profileUrl` is returned by SCIM in practice but is not in the documented schema; confirm the normalized-`userName` fallback produces the same login for a sample, including hex-hash logins | Fact check | Phase 0 |
 | Submodule proof of concept outcome (§10.1) | Fact check | Done. Checks 1 to 4 pass. `github.com` access is a documented prerequisite; #33 is closed (`docs/architecture/poc-submodule.md`) |
