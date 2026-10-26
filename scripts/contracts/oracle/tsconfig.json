@@ -5,5 +5,5 @@
     "types": ["node"],
     "paths": { "@/*": ["../../../portal/upstream/src/*"] }
   },
-  "include": ["*.test.ts"]
+  "include": ["*.test.ts", "*.int.test.ts"]
 }

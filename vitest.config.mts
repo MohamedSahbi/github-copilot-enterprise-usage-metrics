@@ -20,7 +20,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "integration",
-          include: ["scripts/integration/**/*.int.test.ts"],
+          include: ["scripts/integration/**/*.int.test.ts", "scripts/contracts/oracle/**/*.int.test.ts"],
           fileParallelism: false,
           testTimeout: 60_000,
           hookTimeout: 120_000,
