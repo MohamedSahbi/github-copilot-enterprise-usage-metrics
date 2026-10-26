@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 const mode = process.argv[2] ?? "component";
-if (!["restoration", "component"].includes(mode)) throw new Error("invalid_component_grants_mode");
+if (!["restoration", "component", "runtime-permissions"].includes(mode)) throw new Error("invalid_component_grants_mode");
 const nodeVersion = process.versions.node.split(".").map(Number);
 if (nodeVersion[0] !== 22 || (nodeVersion[1] ?? 0) < 12) throw new Error("component_grants_runner_requires_node22_12");
 for (const key of [
@@ -81,7 +81,9 @@ async function main(): Promise<void> {
   try {
     const selector = mode === "restoration"
       ? "upgrades populated restoration tables without fabrication and accepts nullable bounded storage"
-      : "component runtime grants";
+      : mode === "runtime-permissions"
+        ? "access model and runtime permissions"
+        : "component runtime grants";
     child = spawn(process.execPath, [
       join("node_modules", "vitest", "vitest.mjs"), "run", "--project", "unit",
       "scripts/contracts/sql-container.test.ts", "-t", selector, "--maxWorkers", "1", "--pool", "threads",

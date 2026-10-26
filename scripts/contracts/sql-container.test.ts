@@ -514,13 +514,20 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
   describe("access model and runtime permissions", () => {
     const sqlcmd = (...args: string[]): string =>
       docker("exec", "-e", `SQLCMDPASSWORD=${sa}`, name, "/opt/mssql-tools18/bin/sqlcmd", "-C", "-I", "-b", "-S", "localhost", "-U", "sa", ...args);
+    let runtimePermissionsDb: string | undefined;
 
     beforeAll(async () => {
-      sqlcmd("-Q", "CREATE DATABASE portal_test");
-      await migrate({ connectionString: cs("portal_test") });
+      runtimePermissionsDb = await freshDb();
+      expect(runtimePermissionsDb).toMatch(/^portal_test_[1-9]\d*$/);
+      await migrate({ connectionString: cs(runtimePermissionsDb) });
     }, 240_000);
 
-    const run = (q: string): string => sqlcmd("-d", "portal_test", "-h", "-1", "-W", "-Q", `SET NOCOUNT ON; ${q}`).trim();
+    const run = (q: string): string => {
+      if (!runtimePermissionsDb || !/^portal_test_[1-9]\d*$/.test(runtimePermissionsDb)) {
+        throw new Error("runtime_permissions_database_not_isolated");
+      }
+      return sqlcmd("-d", runtimePermissionsDb, "-h", "-1", "-W", "-Q", `SET NOCOUNT ON; ${q}`).trim();
+    };
     const fails = (q: string, pattern: RegExp): void => {
       let message = "";
       try { run(q); } catch (e) { message = String((e as { stdout?: unknown; message?: string }).stdout ?? "") + String((e as Error).message); }
@@ -536,6 +543,13 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     };
     const grant = (pid: string, oid: string, role: string, scope: string, value = ""): string =>
       `INSERT INTO portal.AccessGrant (principal_id, principal_entra_oid, role, scope, scope_value) VALUES ('${pid}', '${oid}', '${role}', '${scope}', N'${value}')`;
+
+    afterAll(() => {
+      if (runtimePermissionsDb) {
+        sqlcmd("-Q", `IF DB_ID(N'${runtimePermissionsDb}') IS NOT NULL
+          BEGIN ALTER DATABASE [${runtimePermissionsDb}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [${runtimePermissionsDb}]; END;`);
+      }
+    });
 
     it("accepts exactly the valid role/scope pairs", () => {
       const pid = principal(O1, 1001);
