@@ -18,6 +18,8 @@ Inputs worth knowing:
 | Input | Meaning |
 | --- | --- |
 | `organization` | Enterprise slug, organizations, login suffix, group prefix, directory provider, Entra tenant ID. Passed to the portal as app settings; real values live in the private deployment repository (D-46). |
+| `github_app_id` | Required positive-decimal GitHub App identifier, passed only to metrics ingestion; not secret material. The private key remains operator-managed in Key Vault. |
+| `backfill_from` | Optional inclusive metrics API start date (`YYYY-MM-DD`); omitted means no historical API fetch. Runtime enforces the moving supported window. |
 | `modules` | Optional modules (D-1): `ai_credits`, `budget_lookup`, `feedback`. Toggling never changes the SQL schema. |
 | `network.mode` | `create` (demo), `existing` (enterprise default), or `import` (D-35). |
 | `private_endpoints_enabled` | On by default (D-19); disable only for development. |
@@ -53,6 +55,21 @@ terraform plan -var-file=terraform.tfvars
 
 Authenticate with OIDC (`ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_USE_OIDC=true`). Never put secrets in variables or tfvars; Terraform state is sensitive.
 The example tfvars includes synthetic IDs only. For a brand-new environment, bootstrap only the vault with a targeted plan/apply (`-target=module.key_vault`), then create every secret named by `terraform output -json secret_names` in that vault. For an existing environment, create any newly required names in its vault before running the full plan. In either case, a full plan checks names without reading values and fails with the missing names before creating any app or secret-scoped role assignment; the deployment identity needs permission to list secret metadata for this check. This preflight checks presence only, not secret validity or runtime readability. App Services depend on completion of the secret-scoped role assignments before their settings are applied. Because Azure RBAC propagation is eventual, confirm Key Vault references report `Resolved` before deploying portal code; if a reference remains unresolved after propagation, invoke the App Service Key Vault-reference refresh operation and verify again. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key; the metrics identity receives the GitHub App and optional AI Credits token; the directory identity receives only the directory PAT. Never put secret values in Terraform. The private deployment repository supplies real client IDs, tenant ID, and access settings. `SQL_SERVER`, `SQL_DATABASE`, and the component-specific `AZURE_CLIENT_ID` settings are wired by the stack.
+
+### Metrics App configuration update
+
+The required nonsecret `github_app_id` input is a migration for all existing environments:
+add a positive-decimal value to each private environment tfvars before the first full plan with
+this version. New deployments must supply it in their initial tfvars, whether SQL/resource-group
+resources are created or referenced as existing. Do not use the portal's `auth_github_id`.
+The existing Key Vault secret `github-app-private-key` remains operator-created and retains its
+existing ingestion-only role assignment. The stack supplies it to the metrics Function only as
+an App Service Key Vault reference; no secret value is read or stored by Terraform.
+
+The optional `backfill_from` input is omitted by default and emitted as `BACKFILL_FROM` only when
+set. This selects an inclusive historical API fetch date; omission does not request a historical
+fetch. Terraform validates the static date form, and the runtime rejects values outside the
+supported moving API window.
 
 ## Directory runtime status
 

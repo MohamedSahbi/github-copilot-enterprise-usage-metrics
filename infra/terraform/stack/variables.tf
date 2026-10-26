@@ -39,6 +39,27 @@ variable "modules" {
   default = {}
 }
 
+variable "github_app_id" {
+  description = "Positive-decimal identifier of the GitHub App used only by metrics ingestion; not a secret."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_app_id)) && can(regex("[1-9]", var.github_app_id))
+    error_message = "github_app_id must be a positive decimal identifier."
+  }
+}
+
+variable "backfill_from" {
+  description = "Optional inclusive metrics API backfill start date (YYYY-MM-DD). The runtime enforces the moving API-start and 365-day window."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.backfill_from == null || (can(regex("^\\d{4}-\\d{2}-\\d{2}$", var.backfill_from)) && can(formatdate("YYYY-MM-DD", "${var.backfill_from}T00:00:00Z")) && formatdate("YYYY-MM-DD", "${var.backfill_from}T00:00:00Z") == var.backfill_from)
+    error_message = "backfill_from must be a valid calendar date in YYYY-MM-DD format or omitted."
+  }
+}
+
 variable "organization" {
   description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
   type = object({
@@ -63,6 +84,14 @@ variable "organization" {
   validation {
     condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.organization.entra_tenant_id))
     error_message = "organization.entra_tenant_id must be a GUID."
+  }
+
+  validation {
+    condition = length(var.organization.organizations) > 0 && alltrue([
+      for organization in var.organization.organizations :
+      length(organization) <= 39 && can(regex("^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$", organization))
+    ]) && length(distinct([for organization in var.organization.organizations : lower(organization)])) == length(var.organization.organizations)
+    error_message = "organization.organizations must be unique valid GitHub logins."
   }
 }
 

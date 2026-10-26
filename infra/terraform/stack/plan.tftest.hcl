@@ -36,14 +36,59 @@ mock_provider "azapi" {}
 run "demo_example" {
   command = plan
 
+  override_module {
+    target = module.key_vault
+
+    outputs = {
+      uri         = "https://kv-example.vault.azure.net/"
+      resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.KeyVault/vaults/kv-example"
+    }
+  }
+
+  override_module {
+    target = module.identity["ingestion"]
+
+    outputs = {
+      client_id    = "00000000-0000-0000-0000-000000000001"
+      principal_id = "00000000-0000-0000-0000-000000000002"
+      resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-example-ingestion"
+    }
+  }
+
   assert {
     condition = alltrue([
+      local.ingestion_app_settings.GITHUB_APP_ID == "123456",
+      local.ingestion_app_settings.GITHUB_APP_PRIVATE_KEY == format(
+        "@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)",
+        trimsuffix(module.key_vault.uri, "/"),
+      ),
+      local.ingestion_app_settings.AZURE_CLIENT_ID == "00000000-0000-0000-0000-000000000001",
+      contains(keys(local.ingestion_app_settings), "AZURE_CLIENT_ID"),
+      contains(keys(local.ingestion_app_settings), "SQL_SERVER"),
+      local.ingestion_app_settings.SQL_DATABASE == local.sql_database_name,
+      contains(keys(local.ingestion_app_settings), "RAW_ARCHIVE_ACCOUNT"),
+      local.ingestion_app_settings.RAW_ARCHIVE_CONTAINER == "raw",
+      local.ingestion_key_vault_reference_identity == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-example-ingestion",
+      !contains(keys(local.ingestion_app_settings), "BACKFILL_FROM"),
+      !contains(keys(local.ingestion_app_settings), "AUTH_GITHUB_ID"),
       contains(output.secret_names, "auth-secret"),
       contains(output.secret_names, "auth-microsoft-entra-id-secret"),
       contains(output.secret_names, "auth-github-secret"),
       contains(output.secret_names, "github-directory-pat"),
     ])
-    error_message = "The portal sign-in secret names must be included in secret_names."
+    error_message = "The ingestion app must receive the GitHub App reference and its existing runtime settings; portal sign-in remains isolated."
+  }
+
+  assert {
+    condition = alltrue([
+      local.portal_app_settings.AUTH_GITHUB_ID == "REPLACE_WITH_CLIENT_ID",
+      !contains(keys(local.portal_app_settings), "GITHUB_APP_ID"),
+      !contains(keys(local.portal_app_settings), "GITHUB_APP_PRIVATE_KEY"),
+      !contains(keys(local.directory_app_settings), "GITHUB_APP_ID"),
+      !contains(keys(local.directory_app_settings), "GITHUB_APP_PRIVATE_KEY"),
+      !contains(keys(local.directory_app_settings), "BACKFILL_FROM"),
+    ])
+    error_message = "GitHub App ingestion settings must not leak into portal OAuth or directory runtime configuration."
   }
 
   assert {
@@ -119,9 +164,24 @@ run "enterprise_existing_resources" {
       contains(output.secret_names, "auth-secret"),
       contains(output.secret_names, "auth-microsoft-entra-id-secret"),
       contains(output.secret_names, "auth-github-secret"),
+      local.ingestion_app_settings.GITHUB_APP_ID == "123456",
+      !contains(keys(local.ingestion_app_settings), "BACKFILL_FROM"),
       output.directory_runtime.sql_database_name == "portal",
     ])
     error_message = "Existing-resource plans must preserve portal secrets while referencing the new-solution database and separate directory host storage."
+  }
+}
+
+run "optional_metrics_backfill" {
+  command = plan
+
+  variables {
+    backfill_from = "2025-10-10"
+  }
+
+  assert {
+    condition     = local.ingestion_app_settings.BACKFILL_FROM == "2025-10-10"
+    error_message = "A configured backfill date must be set only on the metrics ingestion app."
   }
 }
 

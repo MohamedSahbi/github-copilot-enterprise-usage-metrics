@@ -26,8 +26,24 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 
 `validateSettings(input, today?)` accepts an injectable UTC calendar date for deterministic validation;
 production callers omit it. `backfillFromSchema` and `DirectoryProviderSchema` are the canonical Zod
-schemas for these additions. Terraform/app-setting wiring of backfill is a dependent implementation,
-not a second configuration source in this contract PR.
+schemas for these additions. The metrics runtime contract reuses `backfillFromSchema`; it does not
+change the existing `validateSettings` or backfill schema behavior.
+
+Metrics ingestion has a separate `MetricsRuntimeSettings` contract in
+`shared/src/metrics-runtime-settings.ts`. It validates `GITHUB_APP_ID` (positive decimal,
+nonsecret), the comma-sourced organization identities, `SQL_SERVER`, `SQL_DATABASE`,
+`AZURE_CLIENT_ID`, `RAW_ARCHIVE_ACCOUNT`, `RAW_ARCHIVE_CONTAINER`, and optional `BACKFILL_FROM`.
+The GitHub App private key is deliberately absent from the shared contract: Terraform binds the
+existing `github-app-private-key` Key Vault secret only to the ingestion app, using that app's
+existing Key Vault reference identity and secret-scoped access. `AUTH_GITHUB_ID` remains the
+separate portal OAuth identifier.
+
+Terraform requires `github_app_id` for every stack, including deployments that reference existing
+SQL or resource groups. Existing deployments must add this nonsecret input to each environment's
+private tfvars before applying the updated stack; new stacks set it in their initial tfvars. The
+stack does not read or set the private-key value. `backfill_from` is omitted unless a historical
+fetch is requested; Terraform validates its static calendar-date form, while runtime validation
+enforces the current API-start and rolling 365-day limits.
 
 ## 2. users-1-day NDJSON → staging/curated (V against a recorded sample)
 
