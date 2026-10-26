@@ -22,7 +22,7 @@ identity-conflict guards remain required.
 | `portal_directory_ingest` | INSERT-only `IngestionRun`; SELECT/INSERT `dim_user`, UPDATE of directory profile/lifecycle/manager columns; SELECT/INSERT and freshness-column UPDATE on `DirectorySyncState`. No login history, staging, raw metrics, access/principal, audit, purge, or DELETE rights. |
 | `portal_metrics_ingest` | Run-store/day-loader run SELECT/INSERT/UPDATE; artifact INSERT and SELECT of returned `artifact_id`; issue INSERT; three metrics staging tables SELECT/INSERT; organization and metrics user/history/dimension upserts; fact/aggregate publication and checkpoint updates. No directory-state or directory-attribute UPDATE, access/principal, audit, AI Credits, purge, or DDL rights. |
 
-Exact grants are in `20261026190000.do.component-ingestion-roles.sql`. Application
+Exact grants are in `20261026003000.do.component-ingestion-roles.sql`. Application
 locks use the default `public` database principal and need no blanket EXECUTE
 grant. Metrics bulk copy checks constraints and fires triggers; do not grant
 ALTER TABLE or bulk-administrator rights to work around a failed test.

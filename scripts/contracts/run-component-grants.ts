@@ -6,12 +6,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
+const mode = process.argv[2] ?? "component";
+if (!["restoration", "component"].includes(mode)) throw new Error("invalid_component_grants_mode");
+const nodeVersion = process.versions.node.split(".").map(Number);
+if (nodeVersion[0] !== 22 || (nodeVersion[1] ?? 0) < 12) throw new Error("component_grants_runner_requires_node22_12");
+for (const key of [
+  "DATABASE_URL", "DB_URL", "DB_HOST", "DB_SERVER", "DB_CONNECTION_STRING",
+  "SQL_URL", "SQL_HOST", "SQL_SERVER", "SQL_DATABASE", "SQL_CONNECTION_STRING",
+  "AZURE_SQL_CONNECTION_STRING", "MSSQL_CONNECTION_STRING", "SQLSERVER_CONNECTION_STRING",
+]) {
+  if (process.env[key]) throw new Error(`refusing_inherited_sql_target:${key}`);
+}
 const owner = randomBytes(8).toString("hex");
 const directory = mkdtempSync(join(tmpdir(), "portal-component-grants-"));
 const manifest = join(directory, "container.json");
 const schema = z.object({
   owner: z.literal(owner),
   containerName: z.string().regex(/^portal-component-grants-[0-9]+-[a-f0-9]{16}$/),
+  testPid: z.number().int().positive().optional(),
   containerId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   port: z.number().int().min(1024).max(65535).optional(),
 });
@@ -27,11 +39,13 @@ async function cleanup(): Promise<void> {
   // An interruption between docker run and manifest capture is resolved only
   // through this invocation's exact name and owner label, never a name search.
   const inspected = spawnSync("docker", ["inspect", "--format",
-    '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}}', data.containerId ?? data.containerName],
+    '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}} {{index .Config.Labels "portal.component-grants-pid"}}',
+    data.containerId ?? data.containerName],
   { encoding: "utf8" });
   if (inspected.status === 0) {
-    const [id, label] = inspected.stdout.trim().split(" ");
+    const [id, label, pid] = inspected.stdout.trim().split(" ");
     if (!id || !/^[a-f0-9]{64}$/.test(id) || label !== owner ||
+        !data.testPid || pid !== String(data.testPid) ||
         (data.containerId !== undefined && data.containerId !== id)) {
       throw new Error("refusing_unowned_component_container_cleanup");
     }
@@ -65,19 +79,25 @@ process.once("SIGTERM", interrupt);
 const deadline = setTimeout(interrupt, 12 * 60_000);
 async function main(): Promise<void> {
   try {
+    const selector = mode === "restoration"
+      ? "upgrades populated restoration tables without fabrication and accepts nullable bounded storage"
+      : "component runtime grants";
     child = spawn(process.execPath, [
       join("node_modules", "vitest", "vitest.mjs"), "run", "--project", "unit",
-      "scripts/contracts/sql-container.test.ts", "-t", "component runtime grants", "--maxWorkers", "1", "--pool", "threads",
+      "scripts/contracts/sql-container.test.ts", "-t", selector, "--maxWorkers", "1", "--pool", "threads",
     ], {
       stdio: "inherit",
-      env: { ...process.env, RUN_SQL_TESTS: "1", COMPONENT_GRANTS_OWNER: owner, COMPONENT_GRANTS_MANIFEST: manifest },
+      env: {
+        ...process.env, RUN_SQL_TESTS: "1", COMPONENT_GRANTS_OWNER: owner,
+        COMPONENT_GRANTS_MANIFEST: manifest,
+      },
     });
     const test = child;
     const code = await new Promise<number>((resolve, reject) => {
       test.once("error", reject);
       test.once("exit", (result) => resolve(result ?? 1));
     });
-    console.info(`component_runner_pid=${process.pid} test_pid=${child.pid ?? "not-started"} test_exit=${code}`);
+    console.info(`component_runner_mode=${mode} node=${process.execPath} test_exec=${process.execPath} runner_pid=${process.pid} test_pid=${child.pid ?? "not-started"} test_exit=${code}`);
     process.exitCode = interrupted ? 130 : code;
   } finally {
     clearTimeout(deadline);

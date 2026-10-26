@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ContainerClient, newPipeline } from "@azure/storage-blob";
@@ -19,7 +20,7 @@ const owner = process.env.COMPONENT_GRANTS_OWNER ?? randomBytes(8).toString("hex
 const containerName = `portal-component-grants-${process.pid}-${owner}`;
 const database = "portal_component_grants";
 const password = `Aa1!${randomBytes(24).toString("hex")}`;
-const migrationFile = join(__dirname, "../../db/migrations/20261026190000.do.component-ingestion-roles.sql");
+const migrationFile = join(__dirname, "../../db/migrations/20261026003000.do.component-ingestion-roles.sql");
 let containerId: string | undefined;
 let port = 0;
 const poolTargets = new WeakMap<sql.ConnectionPool, sql.config>();
@@ -30,12 +31,14 @@ function docker(...args: string[]): string {
 
 function guard(config: sql.config): void {
   if (!containerId || config.server !== "127.0.0.1" || config.port !== port ||
-      port < 1024 || [10000, 10001, 10002, 14330, 14501, 14504].includes(port) ||
+      port < 1024 || port > 65535 || [10000, 10001, 10002, 14330, 14501, 14504].includes(port) ||
       !["master", database].includes(config.database ?? "")) {
     throw new Error("component_grants_connection_not_isolated");
   }
-  const identity = docker("inspect", "--format", '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}}', containerId).trim();
-  if (identity !== `${containerId} ${owner}`) throw new Error("component_grants_container_owner_mismatch");
+  const identity = docker("inspect", "--format",
+    '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}} {{index .Config.Labels "portal.component-grants-pid"}}',
+    containerId).trim();
+  if (identity !== `${containerId} ${owner} ${process.pid}`) throw new Error("component_grants_container_owner_mismatch");
 }
 
 function config(user = "sa", db = database): sql.config {
@@ -111,7 +114,7 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
       throw new Error("refusing_existing_component_container");
     }
     if (process.env.COMPONENT_GRANTS_MANIFEST) {
-      writeFileSync(process.env.COMPONENT_GRANTS_MANIFEST, JSON.stringify({ owner, containerName }), { flag: "wx", mode: 0o600 });
+      writeFileSync(process.env.COMPONENT_GRANTS_MANIFEST, JSON.stringify({ owner, containerName, testPid: process.pid }), { flag: "wx", mode: 0o600 });
     }
     // Password is inherited by Docker, never placed in command arguments or printed.
     containerId = execFileSync("docker", [
@@ -119,10 +122,13 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
       "--label", `portal.component-grants-owner=${owner}`, "--label", `portal.component-grants-pid=${process.pid}`,
       "-p", "127.0.0.1::1433", "-e", "ACCEPT_EULA=Y", "-e", "MSSQL_SA_PASSWORD", image,
     ], { encoding: "utf8", env: { ...process.env, MSSQL_SA_PASSWORD: password } }).trim();
-    port = Number(docker("port", containerId, "1433/tcp").trim().split(":").pop());
+    const binding = docker("port", containerId, "1433/tcp").trim();
+    const portMatch = /^127\.0\.0\.1:(\d+)$/.exec(binding);
+    if (!portMatch) throw new Error("component_grants_container_not_loopback_bound");
+    port = Number(portMatch[1]);
     guard({ server: "127.0.0.1", port, database });
     if (process.env.COMPONENT_GRANTS_MANIFEST) {
-      writeFileSync(process.env.COMPONENT_GRANTS_MANIFEST, JSON.stringify({ owner, containerName, containerId, port }), { mode: 0o600 });
+      writeFileSync(process.env.COMPONENT_GRANTS_MANIFEST, JSON.stringify({ owner, containerName, testPid: process.pid, containerId, port }), { mode: 0o600 });
     }
     let ready = false;
     for (let attempt = 0; attempt < 90; attempt++) {
@@ -159,16 +165,30 @@ describe.skipIf(process.env.RUN_SQL_TESTS !== "1")("component runtime grants (is
     await query("INSERT INTO portal.dim_user (user_id, login) VALUES (7299, 'fixture-shared')");
   }, 120_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     vi.restoreAllMocks();
     if (containerId) {
       const identity = spawnSync("docker", ["inspect", "--format",
-        '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}}', containerId], { encoding: "utf8" });
+        '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}} {{index .Config.Labels "portal.component-grants-pid"}}',
+        containerId], { encoding: "utf8" });
       if (identity.status === 0) {
-        if (identity.stdout.trim() !== `${containerId} ${owner}`) throw new Error("refusing_unowned_container_cleanup");
+        if (identity.stdout.trim() !== `${containerId} ${owner} ${process.pid}`) throw new Error("refusing_unowned_container_cleanup");
         const removed = spawnSync("docker", ["rm", "-f", containerId], { stdio: "ignore" });
         if (removed.status !== 0) throw new Error("component_grants_container_cleanup_failed");
+      } else if (docker("ps", "-aq", "--filter", `name=^/${containerName}$`).trim() !== "") {
+        throw new Error("component_grants_container_inspection_failed");
       }
+      const remaining = spawnSync("docker", ["ps", "-aq", "--no-trunc", "--filter", `id=${containerId}`], { encoding: "utf8" });
+      if (remaining.status !== 0 || remaining.stdout.trim() !== "") {
+        throw new Error("component_grants_container_still_present");
+      }
+    }
+    if (port > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const server = createServer();
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => server.close((error) => error ? reject(error) : resolve()));
+      });
     }
   });
 
