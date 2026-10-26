@@ -4,7 +4,7 @@ import { ContainerClient } from "@azure/storage-blob";
 import sql from "mssql";
 import { computeAdoption, type AdoptionRow } from "../../../shared/src/metrics.js";
 import { FEATURE_TAXONOMY } from "../../../shared/src/features.js";
-import type { StgUserBreakdownRow, StgUserDailyRow, StgUserFamilyCountRow } from "../../../shared/src/rows.js";
+import { TABLE_COLUMNS, type StgUserBreakdownRow, type StgUserDailyRow, type StgUserFamilyCountRow } from "../../../shared/src/rows.js";
 import { parseMetricsDay, type MetricsValidationIssue } from "./day-parser.js";
 
 const TRANSFORM_VERSION = "1";
@@ -126,7 +126,7 @@ function addColumn(table: sql.Table, name: string, type: sql.ISqlType | (() => s
 // portal_ingest has no ALTER TABLE; these hints keep bulk copy permitted on tables with constraints.
 const BULK_OPTIONS = { checkConstraints: true, fireTriggers: true };
 
-function dailyTable(rows: readonly StgUserDailyRow[]): sql.Table {
+export function dailyTable(rows: readonly StgUserDailyRow[]): sql.Table {
   const table = new sql.Table("portal.stg_user_daily");
   table.create = false;
   addColumn(table, "run_id", sql.UniqueIdentifier);
@@ -152,11 +152,12 @@ function dailyTable(rows: readonly StgUserDailyRow[]): sql.Table {
   addColumn(table, "ai_adoption_phase_number", sql.TinyInt, true);
   addColumn(table, "ai_adoption_phase", sql.VarChar(64), true);
   addColumn(table, "extra_json", sql.NVarChar(sql.MAX), true);
-  for (const row of rows) table.rows.add(...Object.values(row));
+  addColumn(table, "ai_adoption_phase_version", sql.VarChar(64), true);
+  for (const row of rows) table.rows.add(...TABLE_COLUMNS["portal.stg_user_daily"].map((column) => row[column]));
   return table;
 }
 
-function breakdownTable(rows: readonly StgUserBreakdownRow[]): sql.Table {
+export function breakdownTable(rows: readonly StgUserBreakdownRow[]): sql.Table {
   const table = new sql.Table("portal.stg_user_breakdown");
   table.create = false;
   addColumn(table, "run_id", sql.UniqueIdentifier);
@@ -178,7 +179,9 @@ function breakdownTable(rows: readonly StgUserBreakdownRow[]): sql.Table {
   addColumn(table, "prompt_tokens", sql.BigInt, true);
   addColumn(table, "output_tokens", sql.BigInt, true);
   addColumn(table, "version_info", sql.NVarChar(1000), true);
-  for (const row of rows) table.rows.add(...Object.values(row));
+  addColumn(table, "prompt_count", sql.Int, true);
+  addColumn(table, "total_user_messages", sql.Int, true);
+  for (const row of rows) table.rows.add(...TABLE_COLUMNS["portal.stg_user_breakdown"].map((column) => row[column]));
   return table;
 }
 

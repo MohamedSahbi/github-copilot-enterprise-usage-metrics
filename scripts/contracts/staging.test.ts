@@ -10,6 +10,33 @@ const ART = 7;
 const lines = (f: string) => readFileSync(join(dir, f), "utf8").split("\n").filter(Boolean);
 
 describe("users-1-day → staging shape", () => {
+  it("initializes restoration destinations to null without extracting supplied source fields", () => {
+    const result = mapUsersDayLine(JSON.stringify({
+      day: WINDOW.start, organization_id: 1, user_id: 1,
+      user_initiated_interaction_count: 2, code_generation_activity_count: 1, code_acceptance_activity_count: 0,
+      loc_added_sum: 1, loc_deleted_sum: 0, loc_suggested_to_add_sum: 3, loc_suggested_to_delete_sum: 0,
+      ai_adoption_phase: { phase_number: 2, phase: "Agent first", version: "v1" },
+      totals_by_feature: [{ feature: "code_completion", code_generation_activity_count: 1 }],
+      totals_by_cli: { session_count: 3, request_count: 4, prompt_count: 5 },
+      totals_by_copilot_app: { session_count: 6, prompt_count: 7 },
+      totals_by_vscode_agent: { total_user_messages: 8, token_usage: { prompt_tokens_sum: 9 } },
+    }), 1, createStagingContext(RUN, WINDOW), ART);
+    expect(result.issues).toEqual([]);
+    expect(result.loaded).toBe(true);
+    expect(result.daily).toMatchObject({
+      ai_adoption_phase_version: null, ai_adoption_phase_number: 2, ai_adoption_phase: "Agent first",
+      interaction_count: 2, code_generation_count: 1, loc_added: 1,
+    });
+    expect(result.breakdown).toHaveLength(4);
+    for (const row of result.breakdown) {
+      expect(row).toMatchObject({ prompt_count: null, total_user_messages: null });
+    }
+    expect(result.breakdown.find((row) => row.key_1 === "copilot_cli"))
+      .toMatchObject({ session_count: 3, request_count: 4 });
+    expect(result.breakdown.find((row) => row.key_1 === "vscode_agent"))
+      .toMatchObject({ prompt_tokens: 9 });
+  });
+
   it("loads every valid fixture line with typed columns and no rejects", () => {
     const ctx = createStagingContext(RUN, WINDOW);
     const results = lines("users-1-day.ndjson").map((l, i) => mapUsersDayLine(l, i + 1, ctx, ART));

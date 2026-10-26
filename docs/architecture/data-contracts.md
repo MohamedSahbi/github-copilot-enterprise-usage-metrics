@@ -50,17 +50,48 @@ One JSON object per line; one line = one user, one organization, one day. Fact k
 | `used_copilot_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | `used_cloud_agent`, `used_copilot_app`, `used_vscode_agent` | BIT | no | Absent in some rows → false |
 | `used_copilot_code_review_active` / `_passive` | `used_code_review_active` / `_passive` | BIT | no | Absent/null → false |
 | `ai_credits_used` | `ai_credits_used` | DECIMAL(18,9) | no | Absent/null → exact string `"0"`; numeric JSON tokens preserved losslessly; never rounded |
-| `ai_adoption_phase{phase_number,phase,version}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR | yes | |
+| `ai_adoption_phase{phase_number,phase}` | `ai_adoption_phase_number`, `ai_adoption_phase` | TINYINT / VARCHAR(64) | yes | Existing mapping |
+| `ai_adoption_phase.version` | `ai_adoption_phase_version` | VARCHAR(64) | yes | Staging and daily fact schema available; explicitly NULL until #121 implements extraction/publication |
 | `totals_by_ide[]` | breakdown `ide` (key_1 = ide) | | | `last_known_ide_version` and `last_known_plugin_version` → `version_info` (compact JSON of the documented string fields, NULL when absent) |
 | `totals_by_feature[]` | breakdown `feature` | | | |
 | `totals_by_language_feature[]` | breakdown `language_feature` (key_1 language, key_2 feature) | | | No interaction count in source → 0 |
 | `totals_by_language_model[]` | breakdown `language_model` | | | |
 | `totals_by_model_feature[]` | breakdown `model_feature` | | | |
-| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. A supplied value that is not a valid count is rejected (`negative_count`), an absent one is NULL. `prompt_count` and `avg_tokens_per_request` are not staged |
+| `totals_by_cli`, `totals_by_copilot_app`, `totals_by_vscode_agent` | breakdown `client` rows (`copilot_cli`, `copilot_app`, `vscode_agent`) | | | Optional objects (upstream `CopilotClientUsageTotals`): `session_count`, `request_count` → INT; `token_usage.prompt_tokens_sum` / `output_tokens_sum` → `prompt_tokens`, `output_tokens` (BIGINT); `last_known_cli_version` → `version_info`. A supplied value that is not a valid count is rejected (`negative_count`), an absent one is NULL. The new destinations below are null-only in #120; `avg_tokens_per_request` is not staged |
+| `totals_by_cli.prompt_count`, `totals_by_copilot_app.prompt_count` | breakdown `prompt_count` | INT | yes | Client keys `copilot_cli` / `copilot_app`; storage range 0..2147483647, zero distinct from NULL; extraction/publication deferred to #121 |
+| `totals_by_vscode_agent.total_user_messages` | breakdown `total_user_messages` | INT | yes | Client key `vscode_agent`; storage range 0..2147483647, zero distinct from NULL; extraction/publication deferred to #121 |
 | `totals_by_skill`, `_custom_agent`, `_mcp`, `_slash_cmd`, `_plugin` | `fact_usage_family_count` (family, name, count) | | | |
 | any other field | `extra_json` (daily) | | | Warn `unknown_field`, load. `totals_by_client` is not in the pinned upstream types and is not staged |
 
 Language names are normalized with the upstream language normalizer before loading (oracle parity).
+
+### Restoration schema and compatibility boundary (#120)
+
+Migration `20261026010000` adds nullable `ai_adoption_phase_version VARCHAR(64)` to
+`portal.stg_user_daily` and `portal.fact_user_daily_usage`, and nullable `prompt_count INT` and
+`total_user_messages INT` to `portal.stg_user_breakdown` and `portal.fact_usage_breakdown`.
+Version width is 64 bytes, matching the existing phase label's VARCHAR width; no numeric version
+or inferred label is substituted. Both counters use the existing INT activity-count range
+0..2147483647, enforced by SQL type and non-negative checks. No defaults, new indexes, or
+historic updates are added. All six columns permit NULL; existing rows remain unavailable NULL.
+
+Shared staging row properties are **required and nullable**; daily facts inherit the version
+property. The Functions parser and reference mapper explicitly initialize these destinations to
+NULL for every daily/generic/client constructor, even when the source supplies them. Staging bulk
+columns follow the explicit column registries, not JavaScript object insertion order.
+Exact-credit VARCHAR transport and SQL-server DECIMAL conversion are unchanged. Existing curated
+inserts and the local curated seed omit the new nullable columns, so newly published facts also
+remain NULL. Schema availability is not source preservation.
+
+Dependent **#121**, after #120 merges, owns source extraction and validation, missing/null/zero
+distinctions, staging-to-fact publication, and reference source mapping. Until then no newly
+introduced source values are validated or published. Discarded historic values remain unavailable:
+no fabricated zeros, replay, backfill or data migration is authorized. Future API consumption and
+parity remain separate work with #115/#119 owners; neither #120 nor #121 implements API consumption
+or promises historic parity. In particular, #119's feature-backed IDE fix does not recover the
+prompt-only oracle case. Scope approval does not authorize merge, migration application outside
+throwaway local tests, deployment or activation. The existing restore/rollback and deployment gates
+remain in force.
 
 SQL-row `ai_credits_used` is an exact decimal **string** in staging and inherited fact types
 (owner-approved correction to the former `number` contract, issue #45). The reference mapper uses
