@@ -15,13 +15,20 @@ const orgLogin = "example-metrics-org";
 const scopeKey = String(orgId);
 const reportDay = "2026-03-02";
 const containerName = `metrics-loader-${process.pid}`;
-const blobService = BlobServiceClient.fromConnectionString("UseDevelopmentStorage=true");
+const azuriteConnectionString = process.env.AZURITE_CONNECTION_STRING;
+const blobService = createBlobServiceClient(azuriteConnectionString);
 const blobContainer = blobService.getContainerClient(containerName);
 const sqlConfig = sql.ConnectionPool.parseConnectionString(testConnection);
 
 let pool: sql.ConnectionPool;
 let runIds: string[] = [];
 let blobPaths: string[] = [];
+
+function createBlobServiceClient(connectionString: string | undefined): BlobServiceClient {
+  return BlobServiceClient.fromConnectionString(
+    connectionString === undefined ? "UseDevelopmentStorage=true" : connectionString,
+  );
+}
 
 function ndjson(ids: readonly number[], extra: Record<string, unknown> = {}): Uint8Array {
   const lines = ids.map((user_id) => JSON.stringify({
@@ -65,6 +72,26 @@ async function count(
 }
 
 describe("metrics day loader (SQL Server + Azurite)", () => {
+  it("uses the supplied Azurite Blob endpoint without making a request", () => {
+    if (azuriteConnectionString === undefined) {
+      expect(new URL(blobService.url).port).toBe("10000");
+      return;
+    }
+
+    const endpoint = /(?:^|;)BlobEndpoint=([^;]+)/i.exec(azuriteConnectionString)?.[1];
+    expect(endpoint).toBeDefined();
+    if (endpoint === undefined) throw new Error("AZURITE_CONNECTION_STRING must include BlobEndpoint");
+    expect(new URL(blobService.url).href).toBe(new URL(endpoint).href);
+  });
+
+  it("rejects an empty supplied Azurite connection string", () => {
+    expect(() => createBlobServiceClient("")).toThrow();
+  });
+
+  it("rejects a malformed supplied Azurite connection string", () => {
+    expect(() => createBlobServiceClient("not-a-connection-string")).toThrow();
+  });
+
   beforeAll(async () => {
     const master = await new sql.ConnectionPool(localConnectionString(process.env, "master")).connect();
     try {
