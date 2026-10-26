@@ -27,6 +27,12 @@ locks use the default `public` database principal and need no blanket EXECUTE
 grant. Metrics bulk copy checks constraints and fires triggers; do not grant
 ALTER TABLE or bulk-administrator rights to work around a failed test.
 
+Before deploying this renamed migration, privately inspect the target database's
+migration history. The former version `20261026190000` must not be recorded, and
+`20261026003000` must not be pending below a later applied version. If either
+condition fails, stop and use an approved forward-only migration remediation;
+never delete migration history or weaken the planner.
+
 **Do not just add the new role.** An identity that remains in `portal_ingest`,
 `portal_reader`, `portal_writer`, `db_datareader`, `db_datawriter`, an owner/admin
 role, or an indirectly privileged custom role is not isolated. Keep the
