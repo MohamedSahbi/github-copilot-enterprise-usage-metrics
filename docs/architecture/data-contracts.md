@@ -344,6 +344,42 @@ package; no speculative response schemas are introduced here. The inline synthet
 `ingestion-contracts.test.ts` validates this shared output. Verified AI Credits fields, exact-decimal
 strings, mapping and numeric display DTOs are unchanged.
 
+### 10.1.1 Per-user manager resolution evidence (D-47)
+
+Migration `20261027092500` adds two required properties to `DimUserRow` and its
+`TABLE_COLUMNS` registry:
+
+| Column | SQL type | Meaning |
+| --- | --- | --- |
+| `manager_resolved` | `BIT NOT NULL DEFAULT (0)` | Whether this user's latest manager/profile attempt completed authoritatively, including an authoritative no-manager result |
+| `manager_checked_at` | `DATETIME2(0) NULL` | UTC time of that user's latest manager/profile attempt; NULL means no recorded attempt |
+
+Directory sync owns both fields through the single ingestion writer. On a successful check it
+sets the flag true and records the attempt time, with the current manager identity/recognition
+attributes (or NULL for an authoritative no-manager result). On that user's failed or incomplete
+attempt it sets the flag false and records the attempt time while retaining the stored manager
+adjacency. An attempt timestamp alone is not evidence of success. Metrics observations must not
+set or refresh these fields.
+
+The migration preserves all existing attributes and relationships. Preexisting users and new
+metrics-only rows start with false/NULL; no historic backfill fabricates resolution. The timestamp
+has no default. This is a persistence/row contract only: `DirectoryUserSchema`, `DirectoryUser`
+and the CSV headers remain unchanged; evidence is maintained by the sync, not supplied in CSV.
+
+Team eligibility requires positive evidence for each traversed user-to-manager edge:
+`manager_resolved = 1` and a non-NULL timestamp within the existing configurable directory stale
+threshold (default 36 hours), allowing at most the existing 500 ms SQL timestamp-rounding
+tolerance into the future. Missing, stale, or later timestamps do not qualify. Only eligible
+edges participate in direct/indirect team traversal; unaffected users' fresh resolved edges
+remain eligible when another user's attempt makes source-level sync status incomplete.
+Source-level state never substitutes for per-user evidence, and a retained relationship alone
+does not establish eligibility.
+
+Under D-47 this contract merges before the separate consumer work: ingestion evidence writes,
+team-grant filtering and every recursive SQL edge gate. This prerequisite PR does not implement
+those consumers, change CSV input, or authorize deployment, backfill, migration application,
+or access to live directory services.
+
 ### 10.2 CSV directory contract
 
 `parseDirectoryCsv(Uint8Array)` validates the complete file and returns `DirectoryUser[]`, or throws
