@@ -17,6 +17,8 @@ function fakeTransaction() {
   const request = new sql.Request(transaction);
   const query = vi.spyOn(request, "query").mockImplementation(() =>
     Promise.resolve({ recordset: [], recordsets: [], output: {}, rowsAffected: [] }));
+  const execute = vi.spyOn(request, "execute").mockImplementation(() =>
+    Promise.resolve({ recordset: [], recordsets: [], output: {}, rowsAffected: [] }));
   let calls = 0;
   vi.spyOn(transaction, "request").mockImplementation(() => {
     if (calls++ === 0) return request;
@@ -24,23 +26,29 @@ function fakeTransaction() {
     vi.spyOn(next, "query").mockImplementation(request.query);
     return next;
   });
-  return { transaction, request, query };
+  return { transaction, request, query, execute };
 }
 
 describe("single logical ingestion user writer", () => {
-  it("retains exact existing metrics SQL and transaction request bindings", async () => {
-    const { transaction, request, query } = fakeTransaction();
+  it("executes the fixed metrics procedure before retaining the existing login-history write", async () => {
+    const { transaction, request, query, execute } = fakeTransaction();
     await writeMetricsUsers(transaction, runId);
-    expect(request.parameters.runId?.value).toBe(runId);
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(request.parameters.run_id?.value).toBe(runId);
+    expect(request.parameters.run_id?.type).toBe(sql.UniqueIdentifier);
+    expect(execute).toHaveBeenCalledExactlyOnceWith("portal.usp_write_metrics_users");
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(execute.mock.invocationCallOrder[0]).toBeLessThan(query.mock.invocationCallOrder[0]!);
     const statements = query.mock.calls.map(([text]) => text);
+    expect(statements.join("\n")).toContain("INSERT INTO portal.dim_user_login_history");
+    expect(statements.join("\n")).not.toMatch(/(?:UPDATE|INSERT INTO) portal\.dim_user\b/);
     expect(createHash("sha256").update(JSON.stringify(statements)).digest("hex"))
-      .toBe("b5d728c2877f006e09d5965a05803a1c11c1d755fc03257a9aecc03799bca455");
+      .toBe("cd6b202fda2206a4fc3f9b23fce6b793ee36dae6db05ef4e92de01c997723748");
     const caller = readFileSync(new URL("../metrics/day-loader.ts", import.meta.url), "utf8");
     expect(caller).toContain("await writeMetricsUsers(transaction, runId);");
     expect(caller).not.toContain("INSERT INTO portal.dim_user (");
     expect(statements.join("\n")).not.toMatch(/manager_email|manager_entra_object_id|department|business_area|Principal|GrantRevocation/);
   });
+
 
   it("uses fixed parameterized directory columns without rewriting metric dates or history", async () => {
     const { transaction, request, query } = fakeTransaction();
