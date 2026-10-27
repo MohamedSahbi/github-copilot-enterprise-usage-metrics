@@ -724,7 +724,7 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
         )
       `);
       const before = permissions();
-      for (const batch of batches) run(batch);
+      for (const batch of batches) sqlcmd("-d", "portal_test", "-Q", batch);
       expect(permissions()).toBe(before);
     });
 

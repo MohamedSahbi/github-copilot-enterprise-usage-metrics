@@ -328,7 +328,7 @@ export async function assertComponentIngestionPermissions(
       ON target.user_id = source.user_id WHEN MATCHED THEN UPDATE SET manager_resolved = 1;`,
     `EXEC portal.usp_write_metrics_users @run_id = '${runId}', @directory_fields = N'email'`,
     "ALTER TABLE portal.dim_user ADD contract_forbidden_column INT NULL",
-    "ALTER PROCEDURE portal.usp_write_metrics_users @run_id UNIQUEIDENTIFIER AS SELECT 1",
+    "EXEC(N'ALTER PROCEDURE portal.usp_write_metrics_users @run_id UNIQUEIDENTIFIER AS SELECT 1')",
     "EXEC portal.usp_purge_login_history @max_age_months = 24",
     "EXEC portal.usp_link_principal_entra @principal_id = '00000000-0000-4000-8000-000000000001', @entra_tenant_id = '00000000-0000-4000-8000-000000000002', @entra_object_id = '00000000-0000-4000-8000-000000000003'",
     "SELECT * FROM portal.DirectorySyncState",
