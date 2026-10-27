@@ -60,6 +60,33 @@ variable "backfill_from" {
   }
 }
 
+variable "metrics_sync_schedule" {
+  description = "Required six-field UTC NCRONTAB schedule for the metrics timer Function. No default cadence is applied; activation remains gated on #64."
+  type        = string
+
+  validation {
+    condition = length(split(" ", trimspace(var.metrics_sync_schedule))) == 6 && alltrue([
+      for index, field in split(" ", trimspace(var.metrics_sync_schedule)) :
+      can(regex("^(\\*|[0-9]+)(-[0-9]+)?(/[1-9][0-9]*)?(,(\\*|[0-9]+)(-[0-9]+)?(/[1-9][0-9]*)?)*$", field)) &&
+      alltrue([
+        for token in split(",", field) :
+        split("/", token)[0] == "*" || (
+          alltrue([
+            for value in split("-", split("/", token)[0]) :
+            try(tonumber(value), -1) >= try([0, 0, 0, 1, 1, 0][index], 0) &&
+            try(tonumber(value), -1) <= try([59, 59, 23, 31, 12, 6][index], -1)
+          ]) &&
+          (
+            length(split("-", split("/", token)[0])) == 1 ||
+            try(tonumber(split("-", split("/", token)[0])[0]), -1) <= try(tonumber(split("-", split("/", token)[0])[1]), -1)
+          )
+        )
+      ])
+    ])
+    error_message = "metrics_sync_schedule must be a six-field UTC NCRONTAB expression."
+  }
+}
+
 variable "organization" {
   description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
   type = object({

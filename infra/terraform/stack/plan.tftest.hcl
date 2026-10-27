@@ -52,6 +52,14 @@ run "demo_example" {
   assert {
     condition = alltrue([
       local.ingestion_app_settings.GITHUB_APP_ID == "123456",
+      local.ingestion_app_settings.METRICS_SYNC_SCHEDULE == var.metrics_sync_schedule,
+      local.ingestion_app_settings.FUNCTIONS_EXTENSION_VERSION == "~4",
+      local.ingestion_app_settings.FUNCTIONS_WORKER_RUNTIME == "node",
+      local.ingestion_app_settings["AzureWebJobs.metricsSync.Disabled"] == "true",
+      local.ingestion_app_settings.AzureWebJobsStorage__credential == "managedidentity",
+      local.ingestion_app_settings.AzureWebJobsStorage__clientId == "00000000-0000-0000-0000-000000000001",
+      !contains(keys(local.directory_app_settings), "METRICS_SYNC_SCHEDULE"),
+      !contains(keys(local.portal_app_settings), "METRICS_SYNC_SCHEDULE"),
       local.ingestion_app_settings.GITHUB_APP_PRIVATE_KEY == format(
         "@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)",
         trimsuffix(module.key_vault.uri, "/"),

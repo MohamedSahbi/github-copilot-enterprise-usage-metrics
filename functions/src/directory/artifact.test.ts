@@ -20,7 +20,7 @@ async function listFiles(root: string, relative = ""): Promise<string[]> {
 }
 
 async function buildAndInspect(outputDirectory: string): Promise<[string, string][]> {
-  execFileSync(process.execPath, ["build-directory-artifact.mjs", outputDirectory], {
+  execFileSync(process.execPath, ["build-artifact.mjs", "directory", outputDirectory], {
     cwd: functionsRoot,
     stdio: "ignore",
   });
@@ -40,6 +40,7 @@ async function buildAndInspect(outputDirectory: string): Promise<[string, string
       integrity?: string;
       dependencies?: Record<string, string>;
       optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
       link?: boolean;
     }>;
   };
@@ -60,6 +61,8 @@ async function buildAndInspect(outputDirectory: string): Promise<[string, string
     "@azure/functions", "@azure/identity", "mssql", "zod",
   ].sort());
   expect(lock.lockfileVersion).toBe(rootLock.lockfileVersion);
+  expect(createHash("sha256").update(await readFile(path.join(outputDirectory, "package-lock.json"))).digest("hex"))
+    .toBe("4b8cbf0a9409c298e46ea0a599c8d9ff9514fa20542925fabf76175f1d1dfc78");
   expect(lock.packages[""]?.dependencies).toEqual(manifest.dependencies);
   for (const [name, version] of Object.entries(manifest.dependencies)) {
     expect(version).toBe(rootLock.packages[`node_modules/${name}`]?.version);
@@ -68,6 +71,7 @@ async function buildAndInspect(outputDirectory: string): Promise<[string, string
   }
   for (const [packagePath, entry] of Object.entries(lock.packages)) {
     if (packagePath === "") continue;
+    expect(Object.keys(entry.peerDependencies ?? {})).toHaveLength(0);
     expect(entry.link).not.toBe(true);
     expect(entry.version).toBe(rootLock.packages[packagePath]?.version);
     expect(entry.resolved).toBe(rootLock.packages[packagePath]?.resolved);
@@ -115,7 +119,7 @@ describe("directory Functions artifact", () => {
     const output = path.join(parent, "directory-artifact-symlink");
     try {
       await symlink(target, output, "dir");
-      expect(() => execFileSync(process.execPath, ["build-directory-artifact.mjs", output], {
+      expect(() => execFileSync(process.execPath, ["build-artifact.mjs", "directory", output], {
         cwd: functionsRoot,
         stdio: "ignore",
       })).toThrow();

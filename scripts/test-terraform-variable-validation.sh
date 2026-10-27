@@ -18,6 +18,7 @@ organization = {
   entra_tenant_id = "00000000-0000-0000-0000-000000000000"
 }
 directory_sync_schedule = "0 0 2 * * *"
+metrics_sync_schedule = "0 0 2 * * *"
 auth_trust_host = false
 auth_microsoft_entra_id_id = "00000000-0000-0000-0000-000000000000"
 auth_github_id = "REPLACE_WITH_CLIENT_ID"
@@ -82,6 +83,11 @@ expect_valid -var 'directory_sync_schedule=0 0 * * * *'
 expect_valid -var 'directory_sync_schedule=0 0 2 * * *'
 expect_valid -var 'directory_sync_schedule=0 0 2 * * 1'
 expect_valid -var 'directory_sync_schedule=59 59 23 31 12 6'
+expect_valid -var 'metrics_sync_schedule=0 0 * * * *'
+expect_valid -var 'metrics_sync_schedule=0 0 2 * * *'
+expect_valid -var 'metrics_sync_schedule=0 0 2 * * 1'
+expect_valid -var 'metrics_sync_schedule=59 59 23 31 12 6'
+expect_valid -var 'metrics_sync_schedule=0 */6 2-4 * * 1,3'
 expect_valid -var 'access_request_url=https://example.com/request'
 expect_valid -var access_break_glass_group_id=00000000-0000-0000-0000-000000000001
 expect_valid -var directory_department_attribute=department
@@ -139,5 +145,22 @@ expect_invalid key_vault_allowed_ipv4_addresses '["2001:db8::1"]' "Addresses mus
 expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11/24"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
 expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11","192.0.2.11"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
 expect_invalid key_vault_allowed_ipv4_addresses '[]' "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
+
+sed '/^metrics_sync_schedule = /d' "$test_root/valid.tfvars" >"$test_root/missing-metrics-schedule.tfvars"
+if terraform -chdir="$test_root" plan -refresh=false -input=false -no-color \
+  -var-file="$test_root/missing-metrics-schedule.tfvars" >"$test_root/output" 2>&1; then
+  printf 'Expected metrics_sync_schedule to be required.\n' >&2
+  exit 1
+fi
+if ! grep -Fq "No value for required variable" "$test_root/output" ||
+   ! grep -Fq 'metrics_sync_schedule' "$test_root/output"; then
+  cat "$test_root/output" >&2
+  exit 1
+fi
+for invalid_schedule in "" "0 0 2 * *" "0 0 2 * * monday" "0 0 ? * * *" "0 0 2 */0 * *" \
+  "60 0 2 * * *" "0 60 2 * * *" "0 0 24 * * *" "0 0 2 32 * *" \
+  "0 0 2 * 13 *" "0 0 2 * * 7" "30-10 0 2 * * *"; do
+  expect_invalid metrics_sync_schedule "$invalid_schedule" "metrics_sync_schedule must be a six-field UTC NCRONTAB expression."
+done
 
 printf 'Terraform variable validation: %s valid and %s invalid cases passed.\n' "$valid_cases" "$invalid_cases"

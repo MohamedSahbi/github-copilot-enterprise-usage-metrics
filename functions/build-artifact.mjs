@@ -3,12 +3,18 @@ import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "no
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimePackageClosure } from "./runtime-package-closure.mjs";
 
 const functionsRoot = path.dirname(fileURLToPath(import.meta.url));
-const customArtifactRoot = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
+const component = process.argv[2];
+if (component !== "directory" && component !== "metrics") throw new Error("component_must_be_directory_or_metrics");
+const customArtifactRoot = process.argv[3] ? path.resolve(process.argv[3]) : undefined;
 const manifest = JSON.parse(await readFile(path.join(functionsRoot, "package.json"), "utf8"));
+const requiredRuntimeDependencies = [
+  "@azure/functions", "@azure/identity", "mssql", "zod",
+  ...(component === "metrics" ? ["@azure/storage-blob"] : []),
+];
 const rootLock = JSON.parse(await readFile(path.join(functionsRoot, "..", "package-lock.json"), "utf8"));
-const requiredRuntimeDependencies = ["@azure/functions", "@azure/identity", "mssql", "zod"];
 
 for (const dependency of requiredRuntimeDependencies) {
   if (!manifest.dependencies?.[dependency]) throw new Error(`missing_runtime_dependency:${dependency}`);
@@ -33,30 +39,11 @@ const runtimeDependencies = Object.fromEntries(requiredRuntimeDependencies.map((
   if (!version) throw new Error(`missing_locked_runtime_dependency:${name}`);
   return [name, version];
 }));
-const runtimePackagePaths = new Set();
-const pendingPackagePaths = requiredRuntimeDependencies.map((name) => resolveLockedPackage("", name));
-while (pendingPackagePaths.length > 0) {
-  const packagePath = pendingPackagePaths.pop();
-  if (!packagePath || runtimePackagePaths.has(packagePath)) continue;
-
-  const packageEntry = rootLock.packages[packagePath];
-  if (!packageEntry || packageEntry.link || !packageEntry.version) {
-    throw new Error(`invalid_locked_runtime_package:${packagePath}`);
-  }
-  if (Object.keys(packageEntry.peerDependencies ?? {}).length > 0) {
-    throw new Error(`runtime_artifact_peer_dependency_requires_review:${packagePath}`);
-  }
-
-  runtimePackagePaths.add(packagePath);
-  for (const dependencyName of Object.keys({
-    ...packageEntry.dependencies,
-    ...packageEntry.optionalDependencies,
-  })) {
-    const dependencyPath = resolveLockedPackage(packagePath, dependencyName);
-    if (!dependencyPath) throw new Error(`missing_locked_transitive_dependency:${packagePath}:${dependencyName}`);
-    pendingPackagePaths.push(dependencyPath);
-  }
-}
+const runtimePackagePaths = resolveRuntimePackageClosure(
+  requiredRuntimeDependencies.map((name) => resolveLockedPackage("", name)),
+  rootLock,
+  resolveLockedPackage,
+);
 
 let artifactRoot;
 if (customArtifactRoot) {
@@ -66,9 +53,9 @@ if (customArtifactRoot) {
   const relativePath = path.relative(canonicalTempRoot, canonicalArtifactRoot);
   if (customRootStat.isSymbolicLink() || !customRootStat.isDirectory() ||
       relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath) ||
-      !path.basename(customArtifactRoot).startsWith("directory-artifact-") ||
+      !path.basename(customArtifactRoot).startsWith(`${component}-artifact-`) ||
       (await readdir(canonicalArtifactRoot)).length !== 0) {
-    throw new Error("custom_artifact_path_must_be_a_directory_artifact_temp_path");
+    throw new Error("custom_artifact_path_must_be_a_component_artifact_temp_path");
   }
   artifactRoot = canonicalArtifactRoot;
   await mkdir(path.join(artifactRoot, "dist"));
@@ -83,7 +70,7 @@ if (customArtifactRoot) {
     throw new Error("default_artifact_path_must_remain_inside_functions_directory");
   }
 
-  artifactRoot = path.join(canonicalDistRoot, "artifact");
+  artifactRoot = path.join(canonicalDistRoot, component === "directory" ? "artifact" : "metrics-artifact");
   try {
     const artifactStat = await lstat(artifactRoot);
     if (artifactStat.isSymbolicLink()) throw new Error("default_artifact_path_must_not_be_a_symlink");
@@ -97,7 +84,7 @@ if (customArtifactRoot) {
 if (customArtifactRoot === undefined) await mkdir(path.join(artifactRoot, "dist"));
 await build({
   absWorkingDir: functionsRoot,
-  entryPoints: ["src/directory/function.ts"],
+  entryPoints: [`src/${component}/function.ts`],
   outfile: path.join(artifactRoot, "dist/function.js"),
   bundle: true,
   packages: "external",
@@ -111,7 +98,7 @@ await build({
 });
 await cp(path.join(functionsRoot, "host.json"), path.join(artifactRoot, "host.json"));
 const artifactManifest = {
-  name: `${manifest.name}-directory`,
+  name: `${manifest.name}-${component}`,
   version: manifest.version,
   private: true,
   type: "module",
