@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { TABLE_COLUMNS } from "../../shared/src/rows";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { TABLE_COLUMNS, type DimUserRow, type IsoDateTime } from "../../shared/src/rows";
 
 const dir = join(__dirname, "..", "..", "db", "migrations");
 const sql = readdirSync(dir).filter((f) => f.endsWith(".sql")).map((f) => readFileSync(join(dir, f), "utf8")).join("\n")
@@ -32,6 +32,14 @@ function columnsOf(table: string): string[] {
 }
 
 describe("shared row types match the migrations", () => {
+  it("requires per-user manager resolution evidence", () => {
+    expect(TABLE_COLUMNS["portal.dim_user"].slice(-2)).toEqual(["manager_resolved", "manager_checked_at"]);
+    expectTypeOf<DimUserRow["manager_resolved"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<DimUserRow["manager_checked_at"]>().toEqualTypeOf<IsoDateTime | null>();
+    expectTypeOf<Pick<DimUserRow, "manager_resolved" | "manager_checked_at">>()
+      .toEqualTypeOf<{ manager_resolved: boolean; manager_checked_at: IsoDateTime | null }>();
+  });
+
   for (const [table, cols] of Object.entries(TABLE_COLUMNS)) {
     it(table, () => expect(columnsOf(table)).toEqual([...cols]));
   }

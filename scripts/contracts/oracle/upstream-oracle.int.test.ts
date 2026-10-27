@@ -151,6 +151,22 @@ function readBreakdown(kind: UsageBreakdownRow["kind"]): GroupedInteractions[] {
   }).sort((a, b) => a.key.localeCompare(b.key));
 }
 
+function visibleGroups(rows: ApiBreakdown["rows"]): GroupedInteractions[] {
+  return rows.flatMap((row) => {
+    if (row.suppressed) {
+      if (row.value !== null || row.userCount !== null) {
+        throw new Error("A suppressed IDE row must hide both its value and user count");
+      }
+      return [];
+    }
+    if (row.value === null || row.userCount === null) {
+      throw new Error("A visible IDE row must include its value and user count");
+    }
+    expect(row.userCount).toBe(row.value.userCount);
+    return [{ key: row.value.key, interactions: row.value.interactions, userCount: row.value.userCount }];
+  }).sort((left, right) => left.key.localeCompare(right.key));
+}
+
 function expectedLanguageUsers(oracle: ReturnType<typeof upstreamMetrics>): GroupedInteractions[] {
   return oracle.aggregated.languages.languageStats
     .map(({ language, uniqueUsers }) => ({ key: language, interactions: 0, userCount: uniqueUsers }))
@@ -358,10 +374,30 @@ describe("upstream metrics oracle against curated SQL API aggregates", () => {
     expect(readBreakdown("model")).toStrictEqual(expectedBreakdown("model", detailByUser));
   });
 
-  it("matches the IDE breakdown dimensions represented by curated SQL rows", () => {
-    expect(readBreakdown("ide")).toStrictEqual(
-      expectedBreakdown("ide", detailByUser).filter(({ key }) => key !== "copilot_app"),
-    );
+  it("matches visible IDE groups and explicitly accounts for suppressed groups", () => {
+    const expected = expectedBreakdown("ide", detailByUser);
+    const expectedVisible = expected.filter(({ userCount }) => userCount >= 5);
+    const expectedSuppressed = expected.filter(({ userCount }) => userCount < 5);
+    expect(expectedSuppressed).toContainEqual({
+      key: "copilot_app", interactions: 10, userCount: 1,
+    });
+
+    const result = apiBreakdowns.get("ide");
+    if (!result) throw new Error("The SQL API IDE result was not collected");
+    expect(result.totalItems).toBe(expected.length);
+    expect(result.rows).toHaveLength(expected.length);
+
+    const visible = result.rows.map(({ suppressed, userCount, value }) => {
+      if (suppressed || value === null || userCount === null) return null;
+      expect(userCount).toBe(value.userCount);
+      return { key: value.key, interactions: value.interactions, userCount: value.userCount };
+    }).filter((row): row is GroupedInteractions => row !== null)
+      .sort((left, right) => left.key.localeCompare(right.key));
+    expect(visible).toStrictEqual(expectedVisible);
+
+    const suppressed = result.rows.filter((row) => row.suppressed);
+    expect(suppressed).toHaveLength(expectedSuppressed.length);
+    expect(suppressed.every(({ value, userCount }) => value === null && userCount === null)).toBe(true);
   });
 
   it("matches client keys and distinct users, including suppressed cohorts", () => {
@@ -421,18 +457,38 @@ describe("upstream metrics oracle against curated SQL API aggregates", () => {
     }
   });
 
-  it("keeps a one-user feature-backed App cohort suppressed", async () => {
+  it("keeps an existing prompt-fallback App group suppressed when one-user feature data is added", async () => {
     if (!pool) throw new Error("The oracle SQL pool was not opened");
     const before = await getUsageBreakdown(pool, API_ACCESS, apiBreakdownRange(WINDOW.start), CORRELATION_ID);
     const lines = featureBackedAppLines(1);
+    const featureExpected = expectedBreakdown(
+      "ide",
+      computeUserDetailedMetrics(upstreamMetrics(lines).userDetailAccumulator),
+    ).filter(({ key }) => key === "copilot_app");
+    expect(featureExpected).toStrictEqual([{ key: "copilot_app", interactions: 10, userCount: 1 }]);
+
+    const expectedBaseline = expectedBreakdown("ide", detailByUser);
+    const expectedBaselineApp = expectedBaseline.filter(({ key }) => key === "copilot_app");
+    expect(expectedBaselineApp).toStrictEqual([{ key: "copilot_app", interactions: 10, userCount: 1 }]);
+    const expectedSuppressedCount = expectedBaseline.filter(({ userCount }) => userCount < 5).length;
+    const beforeVisible = visibleGroups(before.rows);
+    expect(before.totalItems).toBe(expectedBaseline.length);
+    expect(before.rows).toHaveLength(expectedBaseline.length);
+    expect(before.rows.filter(({ suppressed }) => suppressed)).toHaveLength(expectedSuppressedCount);
+    expect(before.rows.filter(({ suppressed }) => suppressed)
+      .every(({ value, userCount }) => value === null && userCount === null)).toBe(true);
+    expect(before.rows.some((row) => !row.suppressed && row.value?.key === "copilot_app")).toBe(false);
+
     const { artifactId, userIds } = await insertFeatureBreakdowns(lines);
     try {
       const after = await getUsageBreakdown(pool, API_ACCESS, apiBreakdownRange(WINDOW.start), CORRELATION_ID);
-      expect(after.totalItems).toBe(before.totalItems + 1);
+      expect(after.totalItems).toBe(before.totalItems);
       expect(after.rows).toHaveLength(after.totalItems);
-      expect(after.rows.filter((row) => row.suppressed)).toHaveLength(
-        before.rows.filter((row) => row.suppressed).length + 1,
-      );
+      expect(after.rows.filter((row) => row.suppressed)).toHaveLength(expectedSuppressedCount);
+      expect(after.rows.filter(({ suppressed }) => suppressed)
+        .every(({ value, userCount }) => value === null && userCount === null)).toBe(true);
+      const afterVisible = visibleGroups(after.rows);
+      expect(afterVisible).toStrictEqual(beforeVisible);
       expect(after.rows.some((row) => !row.suppressed && row.value?.key === "copilot_app")).toBe(false);
     } finally {
       await removeFeatureBreakdowns(artifactId, userIds);

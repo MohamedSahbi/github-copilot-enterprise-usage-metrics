@@ -15,7 +15,14 @@ organization = {
   entra_tenant_id    = "00000000-0000-0000-0000-000000000000"
 }
 
+# Nonsecret GitHub App identifier used only by metrics ingestion. The private key stays in Key Vault.
+github_app_id = "123456"
+# Optional inclusive metrics backfill start (YYYY-MM-DD); omit to request no historical fetch.
+# backfill_from = "2025-10-10"
+
 # Sign-in identifiers are placeholders. OAuth secrets are created in Key Vault using the secret_names output.
+# Optional custom HTTPS origin; null uses the portal's default azurewebsites.net hostname.
+portal_public_url                 = null
 auth_trust_host                    = false
 trusted_forwarding_ingress         = false
 auth_microsoft_entra_id_id         = "00000000-0000-0000-0000-000000000000"
@@ -50,6 +57,12 @@ alert_emails = ["team@example.com"]
 
 # Development only: skip private endpoints. Keep true for test and prod.
 private_endpoints_enabled = false
+
+# Synthetic documentation-only IPv4. Supply every app's possible outbound IPs in private environment tfvars.
+key_vault_allowed_ipv4_addresses = ["192.0.2.10"]
+
+# Optional Entra USER object IDs for secret management; supply real IDs only in private config.
+key_vault_operator_object_ids = []
 
 network = {
   mode = "create"

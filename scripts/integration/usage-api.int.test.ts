@@ -3,6 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Scope } from "../../shared/src/rows";
 import { getUsageBreakdown, getUsageOverview, getUserUsage, resolveUsageRange } from "../../portal/src/usage/sql-usage";
 import type { AuthorizedUsageAccess } from "../../portal/src/usage/api";
+import { createDirectoryTransport } from "../../functions/src/directory/runtime";
+import { readGraphProfile } from "../../functions/src/directory/providers";
+import { writeDirectoryUsers } from "../../functions/src/ingestion/user-writer";
 import { openPool } from "./db";
 
 const ORGANIZATION_ID = 990087001;
@@ -76,10 +79,11 @@ async function seed(): Promise<void> {
       .input("managerObjectId", sql.UniqueIdentifier, manager)
       .input("department", sql.NVarChar(100), department)
       .input("businessArea", sql.NVarChar(50), businessArea)
-      .query(`INSERT INTO portal.dim_user (user_id, login, entra_object_id, manager_entra_object_id, manager_email, department, business_area, state)
+      .query(`INSERT INTO portal.dim_user (user_id, login, entra_object_id, manager_entra_object_id, manager_email, department, business_area, state,
+          manager_resolved, manager_checked_at)
         VALUES (@userId, CONCAT('usage-user-', @userId), @objectId, @managerObjectId,
           CASE WHEN @managerObjectId IS NULL THEN NULL ELSE N'manager@example.invalid' END,
-          @department, @businessArea, 'active')`);
+          @department, @businessArea, 'active', 1, DATEADD(second, -1, SYSUTCDATETIME()))`);
     await pool.request().input("organizationId", sql.BigInt, ORGANIZATION_ID)
       .input("userId", sql.BigInt, userId)
       .input("day", sql.Date, new Date(`${DAY}T00:00:00Z`))
@@ -160,6 +164,92 @@ describe("scoped usage API SQL (curated integration)", () => {
     ]), { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
 
     expect(result.rows.map((row) => row.userId)).toEqual(expectedUserIds);
+  });
+
+  it.each([
+    ["unresolved", "manager_resolved = 0"],
+    ["missing timestamp", "manager_checked_at = NULL"],
+    ["stale", "manager_checked_at = DATEADD(hour, -37, SYSUTCDATETIME())"],
+    ["future", "manager_checked_at = DATEADD(hour, 1, SYSUTCDATETIME())"],
+  ])("excludes only the %s report edge and its subtree, retaining fresh siblings and self/company access", async (_name, update) => {
+    const userId = USER_IDS[1]!;
+    await pool.request().input("userId", sql.BigInt, userId)
+      .query(`UPDATE portal.dim_user SET ${update} WHERE user_id = @userId`);
+    try {
+      const team = accessFor(OBJECT_IDS[0]!, [{ role: "manager", scope: "team", scope_value: "" }]);
+      const result = await getUserUsage(pool, team, { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
+      expect(result.rows.map(({ userId }) => userId)).toEqual([USER_IDS[2]]);
+      const overview = await getUsageOverview(pool, team, RANGE, CORRELATION_ID, 1);
+      expect(overview.adoption).toMatchObject({ suppressed: false, value: { totalUsers: 1 } });
+      const breakdown = await getUsageBreakdown(pool, team, { ...RANGE, kind: "feature", page: 1, pageSize: 50 }, CORRELATION_ID, 1);
+      expect(breakdown.rows.every((row) => row.userCount === 1)).toBe(true);
+      const self = await getUserUsage(pool, accessFor(OBJECT_IDS[1]!, [
+        { role: "user", scope: "self", scope_value: "" },
+      ]), { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
+      expect(self.rows.map(({ userId }) => userId)).toEqual([userId]);
+      const company = await getUserUsage(pool, accessFor(OBJECT_IDS[0]!, [
+        { role: "admin", scope: "company", scope_value: "" },
+      ]), { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
+      expect(company.rows.map(({ userId }) => userId)).toEqual(USER_IDS);
+    } finally {
+      await pool.request().input("userId", sql.BigInt, userId)
+        .query(`UPDATE portal.dim_user SET manager_resolved = 1,
+          manager_checked_at = DATEADD(second, -1, SYSUTCDATETIME()) WHERE user_id = @userId`);
+    }
+  });
+
+  it("persists unclassified failure without clearing the edge, then clears it for the approved 404 code", async () => {
+    const userId = USER_IDS[1]!;
+    const objectId = OBJECT_IDS[1]!;
+    try {
+      for (const code of ["Authorization_RequestDenied", "Request_ResourceNotFound"]) {
+        const get = createDirectoryTransport("graph", async () => "synthetic-token", async (input) =>
+          String(input).includes("/manager?")
+            ? new Response(JSON.stringify({ error: { code } }), { status: 404 })
+            : new Response(JSON.stringify({ id: objectId, accountEnabled: true }), { status: 200 }));
+        const profile = await readGraphProfile(get, {
+          userId, entraObjectId: objectId, login: "synthetic-user", active: true,
+        }, { departmentAttribute: "", businessAreaAttribute: "" });
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        try {
+          await writeDirectoryUsers(transaction, [profile]);
+          await transaction.commit();
+        } catch (error) {
+          await transaction.rollback();
+          throw error;
+        }
+        const result = await pool.request().input("userId", sql.BigInt, userId).query<{
+          manager_entra_object_id: string | null;
+          manager_email: string | null;
+          manager_resolved: boolean;
+          manager_checked_at: Date | null;
+        }>(`SELECT manager_entra_object_id, manager_email, manager_resolved, manager_checked_at
+          FROM portal.dim_user WHERE user_id = @userId`);
+        const row = result.recordset[0]!;
+        expect(row.manager_resolved).toBe(code === "Request_ResourceNotFound");
+        expect(row.manager_checked_at).toBeInstanceOf(Date);
+        if (code === "Request_ResourceNotFound") {
+          expect(row.manager_entra_object_id).toBeNull();
+          expect(row.manager_email).toBeNull();
+        } else {
+          expect(row.manager_entra_object_id?.toLowerCase()).toBe(OBJECT_IDS[0]);
+          expect(row.manager_email).toBe("manager@example.invalid");
+        }
+        const visible = await getUserUsage(pool, accessFor(OBJECT_IDS[0]!, [
+          { role: "manager", scope: "team", scope_value: "" },
+        ]), { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
+        expect(visible.rows.map(({ userId }) => userId)).toEqual([USER_IDS[2]]);
+      }
+    } finally {
+      await pool.request().input("userId", sql.BigInt, userId)
+        .input("managerId", sql.UniqueIdentifier, OBJECT_IDS[0]!)
+        .query(`UPDATE portal.dim_user SET manager_entra_object_id = @managerId,
+          manager_email = N'manager@example.invalid', manager_resolved = 1,
+          manager_checked_at = DATEADD(second, -1, SYSUTCDATETIME()),
+          department = N'engineering', business_area = N'platform',
+          login = CONCAT('usage-user-', @userId) WHERE user_id = @userId`);
+    }
   });
 
   it.each([

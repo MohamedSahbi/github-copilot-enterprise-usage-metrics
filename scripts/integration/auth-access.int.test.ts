@@ -42,6 +42,29 @@ describe("SQL-backed immutable principal and active-grant reads", () => {
     ]);
     expect(managerUsers.map(({ user_id }) => user_id).sort((a, b) => a - b)).toEqual([1000003, 1000007]);
   });
+  it.each([
+    ["unresolved", "manager_resolved = 0"],
+    ["missing timestamp", "manager_checked_at = NULL"],
+    ["stale", "manager_checked_at = DATEADD(hour, -37, SYSUTCDATETIME())"],
+    ["future", "manager_checked_at = DATEADD(hour, 1, SYSUTCDATETIME())"],
+  ])("excludes a %s report from scoped users and grant availability without hiding its fresh parent", async (_name, update) => {
+    await pool.request().query(`UPDATE portal.dim_user SET ${update} WHERE user_id = 1000007`);
+    try {
+      const users = await repository.readScopedUsers(AUTH_OBJECTS[1]!, [
+        { role: "manager", scope: "team", scope_value: "" },
+      ]);
+      expect(users.map(({ user_id }) => user_id)).toEqual([1000003]);
+      expect((await resolveAccess(entra(1), repository, readAccessSettings({}))).state).toBe("authorized");
+      await pool.request().query("UPDATE portal.dim_user SET manager_resolved = 0 WHERE user_id = 1000003");
+      expect(await repository.readScopedUsers(AUTH_OBJECTS[1]!, [
+        { role: "manager", scope: "team", scope_value: "" },
+      ])).toEqual([]);
+      expect((await resolveAccess(entra(1), repository, readAccessSettings({}))).state).toBe("no-access");
+    } finally {
+      await pool.request().query(`UPDATE portal.dim_user SET manager_resolved = 1,
+        manager_checked_at = DATEADD(second, -1, SYSUTCDATETIME()) WHERE user_id IN (1000003, 1000007)`);
+    }
+  });
   it("sees revocation on the next read through v_active_grant", async () => {
     const id = AUTH_PRINCIPALS[2]!;
     expect((await repository.read(entra(2))).grants).toHaveLength(1);

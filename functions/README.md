@@ -40,6 +40,25 @@ advancement. Synthetic fixtures exercise the exact-code allow case and these
 fail-closed alternatives; they do not prove Graph application-auth support,
 least privilege or consent.
 
+Each persisted user has `manager_resolved` and `manager_checked_at` evidence from
+the merged directory row contract. A failed profile/manager read, or an unmapped
+licensed seat in a complete collected population, marks that user's evidence
+unresolved without deleting the cached relationship. Successful users in the
+same partial run retain their own successful evidence; source-level success
+still advances only for a complete run. An incomplete population collection
+cannot identify every affected user, so it does not refresh their evidence.
+Existing evidence then expires at the configured directory stale threshold.
+
+Portal team scope traverses only edges with positive, current per-user evidence:
+resolved and checked within `STALE_DATA_THRESHOLD_HOURS` (default 36), with the
+existing 500 ms SQL timestamp-rounding allowance. An ineligible edge also blocks
+its downstream path; fresh sibling paths remain visible. Missing evidence denies
+that edge. Team grants are usable only when at least one eligible direct report
+exists, and both SQL scope readers recheck every edge. Self grants and the
+existing admin/executive freshness policy are unchanged. Metrics observations
+do not write these markers; SQL permission remediation and runtime activation
+remain separate deployment gates.
+
 `src/ingestion/user-writer.ts` is the shared logical user-write boundary:
 metrics retain their existing login/date/history writes; directory writes only
 its current attributes and hierarchy, without changing metric observation dates

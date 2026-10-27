@@ -26,8 +26,24 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 
 `validateSettings(input, today?)` accepts an injectable UTC calendar date for deterministic validation;
 production callers omit it. `backfillFromSchema` and `DirectoryProviderSchema` are the canonical Zod
-schemas for these additions. Terraform/app-setting wiring of backfill is a dependent implementation,
-not a second configuration source in this contract PR.
+schemas for these additions. The metrics runtime contract reuses `backfillFromSchema`; it does not
+change the existing `validateSettings` or backfill schema behavior.
+
+Metrics ingestion has a separate `MetricsRuntimeSettings` contract in
+`shared/src/metrics-runtime-settings.ts`. It validates `GITHUB_APP_ID` (positive decimal,
+nonsecret), the comma-sourced organization identities, `SQL_SERVER`, `SQL_DATABASE`,
+`AZURE_CLIENT_ID`, `RAW_ARCHIVE_ACCOUNT`, `RAW_ARCHIVE_CONTAINER`, and optional `BACKFILL_FROM`.
+The GitHub App private key is deliberately absent from the shared contract: Terraform binds the
+existing `github-app-private-key` Key Vault secret only to the ingestion app, using that app's
+existing Key Vault reference identity and secret-scoped access. `AUTH_GITHUB_ID` remains the
+separate portal OAuth identifier.
+
+Terraform requires `github_app_id` for every stack, including deployments that reference existing
+SQL or resource groups. Existing deployments must add this nonsecret input to each environment's
+private tfvars before applying the updated stack; new stacks set it in their initial tfvars. The
+stack does not read or set the private-key value. `backfill_from` is omitted unless a historical
+fetch is requested; Terraform validates its static calendar-date form, while runtime validation
+enforces the current API-start and rolling 365-day limits.
 
 ## 2. users-1-day NDJSON → staging/curated (V against a recorded sample)
 
@@ -205,11 +221,11 @@ Oracle: the pinned upstream aggregation (`portal/upstream/src/domain`, D-14); ou
 | --- | --- | --- |
 | `advanced_users` | Widens relative to the old portal's chart: includes CLI, VS Code agent and coding agent in addition to agent mode. | D-22 adopts upstream; stakeholders are told the figure rises. Not a difference from upstream. |
 | `*_users` over a range | Upstream computes over the loaded file; ours over SQL rows inside the retention window and organization scope. Equal when the fixture covers the range. | Scope |
-| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ingestion applies the same derivation at load. Upstream appends a synthetic `copilot_app` IDE total from feature interactions or `prompt_count`. The `kind=ide` read model derives App interactions from persisted feature rows at organization/user/day grain, replacing rather than adding to raw App IDE counts, including zero-valued feature rows; raw-only IDE rows remain unchanged. Flag/client-only days without feature or raw IDE rows are not synthesized as zero. Newly ingested App `prompt_count` is now preserved by #121, but this API does not consume it; client session/request/token counts are not substitutes for the upstream fallback. Historic NULLs remain unavailable and #121 includes no replay/backfill. A prompt-only aggregate for one user is below the API's enforced minimum group size, so it cannot be a visible parity assertion. | `app_users` derivation agrees. Feature-backed IDE recovery merged in #123 and is compared separately by the strict five-user oracle; the prompt-only API fallback remains unavailable and is not a visible parity expectation (see `scripts/contracts/oracle/coverage.md` and #119). |
+| `used_copilot_app` | Upstream derives it as the flag OR `totals_by_copilot_app` present OR a `copilot_app` feature row OR `copilot_app` IDE activity; ingestion applies the same derivation at load. The `kind=ide` read model normalizes App rows at organization/user/day grain: feature interactions replace raw App IDE interactions (including measured zero); otherwise positive raw interactions are retained, while non-positive raw interactions use persisted non-NULL `prompt_count` when available and retain the raw value when it is NULL. An absent raw row is synthesized only from a non-NULL client prompt count; a NULL prompt count is not synthesized as zero, and an activation flag alone does not create an App IDE row. These last two cases remain unsupported. Each user's daily source is selected before grouping to prevent double counting. Other IDE rows are unchanged, and the default minimum-group suppression still applies. Client session/request/token counts are not substitutes for prompt counts. Historic NULLs remain NULL in storage; no replay/backfill is included. | `app_users` derivation agrees. Feature-backed IDE recovery was compared against the strict five-user oracle in #123. Prompt fallback from non-NULL persisted counts is covered by focused real-SQL regressions; NULL-prompt rows without raw activity and activation-only rows remain unsupported. The pinned upstream parser's per-user precedence is in `portal/upstream/src/domain/metricsParser.ts` (`addCopilotAppClientTotal`). A one-user prompt-only result remains suppressed and is not a visible API parity expectation. |
 | `used_coding_agent` | Upstream sets both coding-agent flags from `used_copilot_cloud_agent` only; ours stores the same value in `used_coding_agent` and `used_cloud_agent`, ignoring the source `used_copilot_coding_agent` field. | Oracle parity for `coding_agent_users` |
 | Language | Upstream normalizes language names at parse time; ours normalizes at load. | Same function applied in the loader |
 
-The SQL/upstream oracle coverage and its known limits are tracked in `scripts/contracts/oracle/coverage.md`. It does not claim visible parity for the fixture's one-user prompt-only `copilot_app` fallback; a separate five-user feature-backed comparison remains strict against the SQL reconstruction merged in #123.
+The SQL/upstream oracle coverage and its known limits are tracked in `scripts/contracts/oracle/coverage.md`. The fixture's one-user prompt-only `copilot_app` fallback is suppressed by the API's minimum group size; a separate five-user feature-backed comparison remains strict against the SQL reconstruction merged in #123.
 
 ## 5. Identity keys
 
@@ -327,6 +343,42 @@ Graph/SCIM/seats wire schemas belong beside future Functions adapters unless reu
 package; no speculative response schemas are introduced here. The inline synthetic fixture in
 `ingestion-contracts.test.ts` validates this shared output. Verified AI Credits fields, exact-decimal
 strings, mapping and numeric display DTOs are unchanged.
+
+### 10.1.1 Per-user manager resolution evidence (D-47)
+
+Migration `20261027092500` adds two required properties to `DimUserRow` and its
+`TABLE_COLUMNS` registry:
+
+| Column | SQL type | Meaning |
+| --- | --- | --- |
+| `manager_resolved` | `BIT NOT NULL DEFAULT (0)` | Whether this user's latest manager/profile attempt completed authoritatively, including an authoritative no-manager result |
+| `manager_checked_at` | `DATETIME2(0) NULL` | UTC time of that user's latest manager/profile attempt; NULL means no recorded attempt |
+
+Directory sync owns both fields through the single ingestion writer. On a successful check it
+sets the flag true and records the attempt time, with the current manager identity/recognition
+attributes (or NULL for an authoritative no-manager result). On that user's failed or incomplete
+attempt it sets the flag false and records the attempt time while retaining the stored manager
+adjacency. An attempt timestamp alone is not evidence of success. Metrics observations must not
+set or refresh these fields.
+
+The migration preserves all existing attributes and relationships. Preexisting users and new
+metrics-only rows start with false/NULL; no historic backfill fabricates resolution. The timestamp
+has no default. This is a persistence/row contract only: `DirectoryUserSchema`, `DirectoryUser`
+and the CSV headers remain unchanged; evidence is maintained by the sync, not supplied in CSV.
+
+Team eligibility requires positive evidence for each traversed user-to-manager edge:
+`manager_resolved = 1` and a non-NULL timestamp within the existing configurable directory stale
+threshold (default 36 hours), allowing at most the existing 500 ms SQL timestamp-rounding
+tolerance into the future. Missing, stale, or later timestamps do not qualify. Only eligible
+edges participate in direct/indirect team traversal; unaffected users' fresh resolved edges
+remain eligible when another user's attempt makes source-level sync status incomplete.
+Source-level state never substitutes for per-user evidence, and a retained relationship alone
+does not establish eligibility.
+
+Under D-47 this contract merges before the separate consumer work: ingestion evidence writes,
+team-grant filtering and every recursive SQL edge gate. This prerequisite PR does not implement
+those consumers, change CSV input, or authorize deployment, backfill, migration application,
+or access to live directory services.
 
 ### 10.2 CSV directory contract
 
