@@ -179,10 +179,12 @@ describe("scoped usage API SQL (curated integration)", () => {
       const team = accessFor(OBJECT_IDS[0]!, [{ role: "manager", scope: "team", scope_value: "" }]);
       const result = await getUserUsage(pool, team, { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
       expect(result.rows.map(({ userId }) => userId)).toEqual([USER_IDS[2]]);
-      const overview = await getUsageOverview(pool, team, RANGE, CORRELATION_ID, 1);
-      expect(overview.adoption).toMatchObject({ suppressed: false, value: { totalUsers: 1 } });
-      const breakdown = await getUsageBreakdown(pool, team, { ...RANGE, kind: "feature", page: 1, pageSize: 50 }, CORRELATION_ID, 1);
-      expect(breakdown.rows.every((row) => row.userCount === 1)).toBe(true);
+      const overview = await getUsageOverview(pool, team, RANGE, CORRELATION_ID);
+      expect(overview.adoption).toEqual({ suppressed: true, userCount: null, value: null });
+      expect(overview.series).toEqual([{ suppressed: true, userCount: null, value: null }]);
+      const breakdown = await getUsageBreakdown(pool, team, { ...RANGE, kind: "feature", page: 1, pageSize: 50 }, CORRELATION_ID);
+      expect(breakdown.totalItems).toBe(1);
+      expect(breakdown.rows).toEqual([{ suppressed: true, userCount: null, value: null }]);
       const self = await getUserUsage(pool, accessFor(OBJECT_IDS[1]!, [
         { role: "user", scope: "self", scope_value: "" },
       ]), { ...RANGE, page: 1, pageSize: 50 }, CORRELATION_ID);
