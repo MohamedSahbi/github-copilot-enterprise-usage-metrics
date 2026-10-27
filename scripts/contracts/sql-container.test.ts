@@ -8,6 +8,7 @@ import { join } from "node:path";
 import sql from "mssql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TABLE_COLUMNS } from "../../shared/src/rows";
+import { assertComponentIngestionPermissions } from "./component-ingestion-permissions";
 import { migrate } from "../db/migrate";
 import { splitBatches } from "../db/split-go";
 import { createStagingContext, mapUsersDayLine } from "./reference/staging";
@@ -85,6 +86,19 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(again.applied).toEqual([]);
     const [count] = await query<{ n: number }>(db, "SELECT COUNT(*) AS n FROM portal.schema_version");
     expect(count?.n).toBe(realFiles.length);
+  }, 240_000);
+
+  it("fails closed when a component role name is occupied by a non-role principal", async () => {
+    const db = await freshDb();
+    const migration = "20261027095703.do.component-ingestion-user-write.sql";
+    const oldDir = copyMigrations();
+    rmSync(join(oldDir, migration));
+    await migrate({ connectionString: cs(db), dir: oldDir });
+    await query(db, "CREATE USER portal_metrics_ingest WITHOUT LOGIN");
+    const batches = splitBatches(readFileSync(join(realMigrations, migration), "utf8"));
+    await query(db, batches[0] ?? "");
+    await query(db, batches[1] ?? "");
+    await expect(query(db, batches[2] ?? "")).rejects.toThrow(/role name is occupied by a non-role principal/i);
   }, 240_000);
 
   it("upgrades populated restoration tables without fabrication and accepts nullable bounded storage", async () => {
@@ -685,6 +699,43 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
       asUserFails("t_ingest", "DELETE FROM portal.dim_user_login_history WHERE user_id = 3004");
       expect(() => asUser("t_ingest", "EXEC portal.usp_purge_login_history @max_age_months = 24")).not.toThrow();
       expect(run("SELECT COUNT(*) FROM portal.dim_user_login_history WHERE user_id = 3004")).toBe("0");
+    });
+
+    it("preserves legacy ingestion user writes until the procedure consumer merges", () => {
+      expect(() => asUser("t_ingest", `
+        BEGIN TRANSACTION;
+        INSERT INTO portal.dim_user (user_id, login) VALUES (3005, N'legacy-observation');
+        UPDATE portal.dim_user SET login = N'legacy-updated' WHERE user_id = 3005;
+        IF NOT EXISTS (SELECT 1 FROM portal.dim_user WHERE user_id = 3005 AND login = N'legacy-updated')
+          THROW 50146, N'The contract broke the legacy metrics user writer', 1;
+        ROLLBACK TRANSACTION;
+      `)).not.toThrow();
+    });
+
+    it("reapplies the component ingestion migration without changing its permission catalog", () => {
+      const migration = "20261027095703.do.component-ingestion-user-write.sql";
+      const batches = splitBatches(readFileSync(join(realMigrations, migration), "utf8"));
+      const permissions = (): string => run(`
+        SELECT COUNT(*) FROM sys.database_permissions
+        WHERE grantee_principal_id IN (
+          DATABASE_PRINCIPAL_ID(N'portal_metrics_ingest'),
+          DATABASE_PRINCIPAL_ID(N'portal_directory_ingest'),
+          DATABASE_PRINCIPAL_ID(N'portal_ingest')
+        )
+      `);
+      const before = permissions();
+      for (const batch of batches) sqlcmd("-d", "portal_test", "-Q", batch);
+      expect(permissions()).toBe(before);
+    });
+
+    it("enforces the component-scoped metrics and directory ingestion contract", async () => {
+      await assertComponentIngestionPermissions({
+        execute: async (statement) => { run(statement); },
+        expectDenied: async (statement) => {
+          fails(statement, /permission (?:was )?denied|do not have permission|permission denied/i);
+        },
+        expectError: async (statement, message) => { fails(statement, message); },
+      });
     });
 
     it("lets ingestion unlink but not relink or delete, and keeps the audit tables append-only", () => {
