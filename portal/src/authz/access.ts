@@ -19,6 +19,7 @@ export interface AccessSnapshot {
   principal: Principal | null;
   grants: Grant[];
   sync: { source: string; last_success_at: Date | null }[];
+  teamAvailable?: boolean;
 }
 export interface AccessRepository {
   read(identity: Identity): Promise<AccessSnapshot>;
@@ -61,6 +62,7 @@ export async function resolveAccess(
   });
   const scopes = enabledScopes(settings.directory);
   const grants = snapshot.grants.filter((g) => isValidRoleScope(g.role, g.scope) && scopes.includes(g.scope) &&
+    (g.scope !== "team" || snapshot.teamAvailable === true) &&
     (directoryFresh || (g.role !== "executive" && g.role !== "admin")));
   if (!grants.length) return { state: "no-access", breakGlass };
   return { state: "authorized", breakGlass, principal, grants, namesVisible: settings.perUserDetailEnabled };

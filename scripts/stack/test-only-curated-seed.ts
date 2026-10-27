@@ -304,8 +304,9 @@ export async function seedTestOnlyCuratedData(connectionString: string): Promise
           .query(`
             INSERT INTO portal.dim_user
               (user_id, login, entra_object_id, manager_entra_object_id, manager_email, department, business_area,
-               first_seen_day, last_seen_day)
-            VALUES (@id, @login, @entra, @manager, @managerEmail, @department, @area, @first, @last)`);
+               first_seen_day, last_seen_day, manager_resolved, manager_checked_at)
+            VALUES (@id, @login, @entra, @manager, @managerEmail, @department, @area, @first, @last,
+              1, DATEADD(second, -1, SYSUTCDATETIME()))`);
         await new sql.Request(tx)
           .input("id", sql.BigInt, user.user_id)
           .input("login", sql.NVarChar(255), user.login)

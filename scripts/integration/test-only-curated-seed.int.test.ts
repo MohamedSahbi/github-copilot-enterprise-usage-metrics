@@ -95,6 +95,10 @@ describe("test-only curated seed (synthetic fixtures → curated)", () => {
   });
 
   it("provides company, team, self, and no-access grants for the four local personas", async () => {
+    expect(await scalar(`SELECT COUNT(*) AS n FROM portal.dim_user
+      WHERE user_id IN (1000001, 1000003, 1000004, 1000006, 1000007, 1000008, 1000009, 1000011, 1000012)
+        AND manager_resolved = 1 AND manager_checked_at >= DATEADD(minute, -5, SYSUTCDATETIME())`))
+      .toBe(TEST_CURATED_EXPECTED_COUNTS.users);
     const scopes: Record<string, Array<{ role: string; scope: string }>> = {};
     for (const persona of Object.keys(TEST_CURATED_PERSONAS) as (keyof typeof TEST_CURATED_PERSONAS)[]) {
       const principalId = TEST_CURATED_PERSONAS[persona].principalId;
