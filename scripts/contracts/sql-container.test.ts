@@ -701,6 +701,17 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
       expect(run("SELECT COUNT(*) FROM portal.dim_user_login_history WHERE user_id = 3004")).toBe("0");
     });
 
+    it("preserves legacy ingestion user writes until the procedure consumer merges", () => {
+      expect(() => asUser("t_ingest", `
+        BEGIN TRANSACTION;
+        INSERT INTO portal.dim_user (user_id, login) VALUES (3005, N'legacy-observation');
+        UPDATE portal.dim_user SET login = N'legacy-updated' WHERE user_id = 3005;
+        IF NOT EXISTS (SELECT 1 FROM portal.dim_user WHERE user_id = 3005 AND login = N'legacy-updated')
+          THROW 50146, N'The contract broke the legacy metrics user writer', 1;
+        ROLLBACK TRANSACTION;
+      `)).not.toThrow();
+    });
+
     it("reapplies the component ingestion migration without changing its permission catalog", () => {
       const migration = "20261027095703.do.component-ingestion-user-write.sql";
       const batches = splitBatches(readFileSync(join(realMigrations, migration), "utf8"));

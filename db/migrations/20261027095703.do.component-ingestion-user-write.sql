@@ -42,9 +42,7 @@ IF EXISTS (
     THROW 50106, N'Ingestion component roles must be owned by dbo for the permission contract', 1;
 GO
 
--- A user left in the legacy broad role must not retain direct dim_user writes while the mapping is migrated.
-REVOKE INSERT, UPDATE, DELETE ON OBJECT::portal.dim_user FROM portal_ingest;
-DENY INSERT, UPDATE, DELETE ON OBJECT::portal.dim_user TO portal_ingest;
+-- Legacy portal_ingest permissions remain unchanged until the procedure consumer and later hardening migration.
 DENY INSERT, UPDATE, DELETE ON OBJECT::portal.dim_user TO portal_metrics_ingest;
 DENY UPDATE (
     entra_object_id, email, display_name, state, deleted_at, pii_purged_at,

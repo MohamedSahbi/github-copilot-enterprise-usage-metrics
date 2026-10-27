@@ -53,7 +53,7 @@ Migration headers already name these writers; none is changed by this inventory.
 
 | Existing SQL role | Directory and access permissions after all migrations |
 | --- | --- |
-| `portal_ingest` | Legacy ingestion permissions remain for other consumers. Direct INSERT/UPDATE/DELETE on `dim_user` are denied by `20261027095703`; do not map either component identity to this broad role |
+| `portal_ingest` | Unchanged until consumer: existing `dim_user` permissions remain so the current loader continues publishing. A later hardening migration removes direct writes after the procedure consumer merges; do not map either component identity to this broad role |
 | `portal_metrics_ingest` | Metrics run store, constrained staging bulk, dimensions, login history, facts, aggregate and checkpoint permissions; no direct `dim_user` DML. `dim_user` observations go only through `portal.usp_write_metrics_users(@run_id)` |
 | `portal_directory_ingest` | SELECT/INSERT/UPDATE on `IngestionRun` and `DirectorySyncState`; SELECT/INSERT on `dim_user` and column-limited UPDATE for directory profile, lifecycle, hierarchy and resolution evidence. No grants to portal-owned principal/grant/revocation/audit surfaces |
 | `portal_ingest` exclusions | No INSERT/UPDATE/DELETE grants on `Principal`, `PrincipalIdentity` or `AccessGrant`; explicit SELECT denial on those tables and `v_active_grant`. No INSERT on portal-owned `AuditLog`; audit/revocation UPDATE/DELETE and link DELETE are denied |
@@ -74,6 +74,12 @@ role, direct grants, or schema/object ownership. The operator preflight in
 PUBLIC, direct permissions, ownership, effective DDL and procedure execution, and protected
 column rights before mapping. It fails on unsafe state; it never removes unrelated role
 memberships. An additive component-role membership does not narrow broader inherited access.
+
+Under D-47, this contract merges first without changing legacy `portal_ingest` rights.
+The separate Functions consumer PR then switches the metrics loader to the procedure.
+A subsequent small hardening migration PR removes `portal_ingest`'s direct `dim_user`
+writes. Until that hardening lands, this contract does not isolate a runtime identity
+that still uses the legacy role. Deployment and runtime mapping remain separately gated.
 
 The existing principal tenant/object pairing, unique identity indexes,
 `PrincipalIdentity` principal FK and `AccessGrant` principal/Entra composite FK

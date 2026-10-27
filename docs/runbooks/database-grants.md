@@ -4,6 +4,10 @@ Migrations create permission roles, not runtime users. The portal uses `portal_r
 `portal_writer`; the metrics and directory ingestion identities use the separate
 `portal_metrics_ingest` and `portal_directory_ingest` roles. `portal_ingest` remains a legacy
 broad role for other consumers and is not a substitute for either component role.
+Its `dim_user` permissions are unchanged until consumer: this contract lands first,
+the separate Functions consumer PR switches the metrics loader to the procedure,
+then a small hardening migration PR removes legacy direct `dim_user` writes.
+Do not claim isolation for a runtime identity that still uses `portal_ingest`.
 These roles constrain object and column permissions, not row-level access; they do not
 isolate a component to particular runs, organizations, or users.
 
