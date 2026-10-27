@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.11](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.10...v0.2.11) (2026-10-27)
+
+
+### Features
+
+* add fixture-backed directory synchronization ([#146](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/146)) ([8b490b3](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/8b490b39d982c08212db70d5bba49d16f8f193d0))
+* add per-user manager resolution contract ([#156](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/156)) ([c78d94a](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/c78d94a0a95712364cdc6f65585e64e65f5c8bf3))
+
+
+### Bug Fixes
+
+* require per-user evidence for team manager edges ([5ea8d98](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/5ea8d98f0d6c0e47d5e586ed4dd27f81d070af78))
+* retain negative directory evidence across publication rollback ([1ffe3be](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1ffe3be73a218747cefea074d4326bb347f224c0))
+
 ## [0.2.10](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.9...v0.2.10) (2026-10-27)
 
 
