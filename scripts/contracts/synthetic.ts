@@ -66,7 +66,7 @@ export function usersDayRows(): Row[] {
         totals_by_language_feature: LANGS.map((language) => ({ language, feature: "code_completion", ...counts(r, false) })),
         totals_by_language_model: LANGS.map((language, i) => ({ language, model: MODELS[i % 3], ...counts(r, false) })),
         totals_by_model_feature: MODELS.map((model) => ({ model, feature: "chat_panel_ask_mode", ...counts(r) })),
-        totals_by_skill: u % 2 ? [{ name: "skill-x", interaction_count: 2 }] : [],
+        totals_by_skill: u % 2 ? [{ skill: "skill-x", interaction_count: 2 }] : [],
         totals_by_mcp: [],
       };
       if (usedCli) row.totals_by_cli = { session_count: 1, request_count: 4, prompt_count: 3, token_usage: { output_tokens_sum: 100, prompt_tokens_sum: 400, avg_tokens_per_request: 125 } };

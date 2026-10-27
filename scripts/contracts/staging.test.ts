@@ -312,6 +312,18 @@ describe("count validation and nested mappings", () => {
     expect(r.issues.map((i) => i.error_code)).toContain("negative_count");
   });
 
+  it.each(["skill", "custom_agent", "mcp", "slash_cmd", "plugin"])("maps a %s family row keyed by its own name field", (family) => {
+    const r = map({ ...base(), totals_by_skill: [], [`totals_by_${family}`]: [{ [family]: "example-item", interaction_count: 1 }] });
+    expect(r.loaded).toBe(true);
+    expect(r.issues).toEqual([]);
+    expect(r.families).toMatchObject([{ family, item_name: "example-item", interaction_count: 1 }]);
+  });
+
+  it("reports a family row without its name field", () => {
+    const r = map({ ...base(), totals_by_skill: [{ name: "example-skill", interaction_count: 1 }] });
+    expect(r.issues.map((i) => i.error_code)).toContain("extra_nested_item");
+  });
+
   it("accepts the INT maximum", () => {
     expect(map({ ...base(), user_initiated_interaction_count: 2147483647 }).loaded).toBe(true);
   });
