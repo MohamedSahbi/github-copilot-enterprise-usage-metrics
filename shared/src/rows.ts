@@ -188,6 +188,8 @@ export interface DimUserRow {
   manager_email: string | null;
   department: string | null;
   business_area: string | null;
+  manager_resolved: boolean;
+  manager_checked_at: IsoDateTime | null;
 }
 
 export interface DimUserLoginHistoryRow {
@@ -339,6 +341,7 @@ export const TABLE_COLUMNS = {
   "portal.dim_user": [
     "user_id", "login", "email", "display_name", "entra_object_id", "state", "first_seen_day", "last_seen_day",
     "deleted_at", "pii_purged_at", "updated_at", "manager_entra_object_id", "manager_email", "department", "business_area",
+    "manager_resolved", "manager_checked_at",
   ] as const satisfies readonly (keyof DimUserRow)[],
   "portal.dim_user_login_history": [
     "user_id", "login", "first_seen_day", "last_seen_day", "is_hashed_login",

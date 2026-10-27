@@ -28,7 +28,7 @@ output "identities" {
 }
 
 output "secret_names" {
-  description = "Key Vault secret names to create before a full-stack plan/apply (az keyvault secret set)."
+  description = "Key Vault secret names for the operator's pre-apply check; Terraform does not query secret names or values."
   value       = local.secret_names
 }
 

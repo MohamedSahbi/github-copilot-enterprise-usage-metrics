@@ -5,6 +5,7 @@ The portal reads only the new portal database. Configure the following app setti
 | App setting | Meaning |
 | --- | --- |
 | `AUTH_SECRET` | NextAuth JWT encryption secret, supplied through a Key Vault reference |
+| `AUTH_URL` | Canonical HTTPS portal origin; Terraform defaults to the App Service `azurewebsites.net` hostname. Set `portal_public_url` for a custom domain, not an `/api/auth` path. Register both provider callbacks against this origin. |
 | `AUTH_TRUST_HOST` | Set `true` only behind a trusted ingress that controls forwarded host/protocol headers; omitted when false so the literal string `"false"` cannot enable trust |
 | `AUTH_MICROSOFT_ENTRA_ID_ID` | Entra app client ID |
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | Entra client secret, Key Vault reference |
@@ -23,7 +24,7 @@ The portal reads only the new portal database. Configure the following app setti
 | `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing success timestamps, or timestamps more than 500 ms in the future (maximum `DATETIME2(0)` rounding error, not general clock skew), deny elevated grants |
 | `PER_USER_DETAIL_ENABLED` | `false` by default; server-derived `namesVisible`, never a request parameter |
 
-The Terraform stack wires `SQL_SERVER`, `SQL_DATABASE`, and the portal `AZURE_CLIENT_ID` from the selected SQL resources and managed identity. It provides Key Vault references for `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_GITHUB_SECRET`; create the values separately in Key Vault using the corresponding names from the `secret_names` output. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key. The GitHub sign-in OAuth secret belongs to its separate sign-in app and must not reuse ingestion or directory credentials; the portal cannot read ingestion or directory secrets.
+The Terraform stack wires `SQL_SERVER`, `SQL_DATABASE`, and the portal `AZURE_CLIENT_ID` from the selected SQL resources and managed identity. It provides Key Vault references for `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_GITHUB_SECRET`; create the values separately in Key Vault using the corresponding names from the `secret_names` output. Terraform plan/apply does not query secret names or values: operators must verify expected names, component-identity access, and resolved Key Vault reference status through the approved deployment route before releasing portal code. Never expose secret values during these checks. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key. The GitHub sign-in OAuth secret belongs to its separate sign-in app and must not reuse ingestion or directory credentials; the portal cannot read ingestion or directory secrets.
 
 OAuth callbacks are `/api/auth/callback/microsoft-entra-id` and `/api/auth/callback/github`. Configure Entra to emit group object IDs in its signed ID token for break-glass. Group overage/missing claims do **not** trigger Graph calls and do not grant break-glass. Only matching-tenant Entra sign-in can use it, for admin and health surfaces only. Group evidence expires at the configured permission-freshness interval; sign in again to renew it. It never grants data or feedback access.
 
@@ -32,6 +33,8 @@ JWT sessions last eight hours but contain identity, not grants. Every protected 
 `validateServerGrant` resolves principal existence and directory values on the server before calling the shared validator. Future admin mutation routes must authorize the actor separately; it is not an authorization bypass. `canAccess` is the single surface gate, including restricted break-glass. Admin pages are delivered separately.
 
 Core reporting pages read the existing scoped usage aggregates server-side and request fixed periods. Production never reads synthetic fixtures or NDJSON. The current API-backed views are Overview, Copilot Adoption, Languages, Model Usage, CLI Adoption, Copilot Impact, the Clients aggregate breakdown, and Users when names are visible. In guarded E2E test-auth runs, unsupported views can use synthetic fixtures; in production they show **Data unavailable** instead. This currently applies to the full Executive Summary and Clients views, Client Versions, AI Adoption Phases, User Details, and scope selections the API cannot safely narrow. Follow-up #115 tracks the missing core-view DTOs, authorized business-area/department/team narrowing, and gated per-user detail.
+
+Production sign-in requires a canonical URL even when forwarded-host trust is disabled. The pinned Auth.js v5 infers `trustHost` from an explicit `AUTH_URL`; NextAuth rewrites the request origin to that URL rather than deriving it from forwarded headers. Leave `AUTH_TRUST_HOST` omitted for the normal App Service hostname. Configuring `AUTH_URL` does not provision custom-domain bindings or OAuth app registrations.
 
 ## Local browser verification
 

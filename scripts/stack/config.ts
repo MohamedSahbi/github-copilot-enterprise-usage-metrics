@@ -13,6 +13,17 @@ export function localConnectionString(env: Record<string, string | undefined>, d
   return `Server=127.0.0.1,${port};Database=${database};User Id=sa;Password=${password};Encrypt=true;TrustServerCertificate=true`;
 }
 
+export function assertExplicitLocalConnection(env: Record<string, string | undefined>): void {
+  if (!env.LOCAL_SQL_PORT || !env.SQL_CONNECTION_STRING) {
+    throw new Error("Explicit LOCAL_SQL_PORT and SQL_CONNECTION_STRING are required; no fallback.");
+  }
+  const expected = localConnectionString(env);
+  assertLocalHost(expected);
+  if (env.SQL_CONNECTION_STRING !== expected) {
+    throw new Error("SQL_CONNECTION_STRING must match the explicit local stack target.");
+  }
+}
+
 // Fixture loading writes staging tables, which only ingestion may do against a real database (D-34).
 export function assertLocalHost(connectionString: string): void {
   const parts = connectionString

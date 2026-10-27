@@ -7,7 +7,7 @@ export default async function CorePage({
   searchParams,
 }: {
   params: Promise<{ page: string }>;
-  searchParams: Promise<{ scope?: string }>;
+  searchParams: Promise<{ scope?: string | string[] }>;
 }) {
   return renderCorePage((await params).page, searchParams);
 }

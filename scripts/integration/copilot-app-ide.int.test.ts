@@ -70,7 +70,11 @@ describe("feature-backed Copilot App IDE SQL read model", () => {
           (@org, 0, '2026-03-04'), (@org, 0, '2026-03-05'), (@org, 1, '2026-03-05'),
           (@org, 2, '2026-03-05'), (@org, 3, '2026-03-05'), (@org, 4, '2026-03-05'),
           (@org, 0, '2026-03-06'), (@org, 1, '2026-03-06'), (@org, 2, '2026-03-06'),
-          (@org, 3, '2026-03-06'), (@org, 4, '2026-03-06'), (@org + 1, 2, '2026-03-02')
+          (@org, 3, '2026-03-06'), (@org, 4, '2026-03-06'), (@org + 1, 2, '2026-03-02'),
+          (@org, 0, '2026-03-07'), (@org, 1, '2026-03-07'), (@org, 2, '2026-03-07'),
+          (@org, 3, '2026-03-07'), (@org, 4, '2026-03-07'), (@org, 0, '2026-03-08'),
+          (@org, 0, '2026-03-09'), (@org, 1, '2026-03-09'), (@org, 2, '2026-03-09'),
+          (@org, 3, '2026-03-09'), (@org, 4, '2026-03-09'), (@org, 0, '2026-03-11')
         ) AS days(org, n, day);
       INSERT INTO portal.fact_usage_breakdown (
         organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count,
@@ -101,7 +105,12 @@ describe("feature-backed Copilot App IDE SQL read model", () => {
           (@org, 3, '2026-03-05', 'feature', N'copilot_app', 0),
           (@org, 4, '2026-03-05', 'feature', N'copilot_app', 0),
           (@org, 0, '2026-03-05', 'ide', N'copilot_app', 99),
-          (@org, 0, '2026-03-06', 'client', N'copilot_app', 0),
+          (@org, 0, '2026-03-07', 'ide', N'copilot_app', 0),
+          (@org, 0, '2026-03-09', 'ide', N'copilot_app', 0),
+          (@org, 1, '2026-03-09', 'ide', N'copilot_app', 0),
+          (@org, 2, '2026-03-09', 'ide', N'copilot_app', 0),
+          (@org, 3, '2026-03-09', 'ide', N'copilot_app', 0),
+          (@org, 4, '2026-03-09', 'ide', N'copilot_app', 0),
           (@org + 1, 2, '2026-03-02', 'feature', N'copilot_app', 9000),
           (@org, 0, '2026-03-02', 'ide', N'vscode', 8),
           (@org, 1, '2026-03-02', 'ide', N'vscode', 8),
@@ -109,6 +118,29 @@ describe("feature-backed Copilot App IDE SQL read model", () => {
           (@org, 3, '2026-03-02', 'ide', N'vscode', 8),
           (@org, 4, '2026-03-02', 'ide', N'vscode', 8)
         ) AS rows(org, n, day, kind, name, interactions);
+      INSERT INTO portal.fact_usage_breakdown (
+        organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count,
+        code_generation_count, code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete,
+        loc_added, loc_deleted, prompt_count, run_id, source_artifact_id, transform_version
+      )
+        SELECT org, @org + n, day, 'client', N'copilot_app', N'', 0, 0, 0, 0, 0, 0, 0,
+          prompt_count, @run, @artifact, '1'
+        FROM (VALUES
+          (@org, 2, '2026-03-02', 9),
+          (@org, 0, '2026-03-05', 13),
+          (@org, 0, '2026-03-07', 2),
+          (@org, 1, '2026-03-07', 0),
+          (@org, 2, '2026-03-07', 3),
+          (@org, 3, '2026-03-07', 2),
+          (@org, 4, '2026-03-07', 3),
+          (@org, 0, '2026-03-08', 2),
+          (@org, 0, '2026-03-09', NULL),
+          (@org, 1, '2026-03-09', NULL),
+          (@org, 2, '2026-03-09', NULL),
+          (@org, 3, '2026-03-09', NULL),
+          (@org, 4, '2026-03-09', NULL),
+          (@org, 0, '2026-03-11', NULL)
+        ) AS prompt_rows(org, n, day, prompt_count);
       UPDATE portal.fact_user_daily_usage SET used_copilot_app = 1
         WHERE organization_id = @org AND usage_day = '2026-03-06';
     `);
@@ -145,7 +177,7 @@ describe("feature-backed Copilot App IDE SQL read model", () => {
     expect((await breakdown("2026-03-02", "2026-03-03")).rows[0]?.value)
       .toEqual({ kind: "ide", key: "copilot_app", interactions: 54, userCount: 5 });
     expect(await breakdown("2026-03-02", "2026-03-03", 2)).toEqual({ rows: [], totalItems: 2 });
-    expect(await breakdown("2026-03-07")).toEqual({ rows: [], totalItems: 0 });
+    expect(await breakdown("2026-03-10")).toEqual({ rows: [], totalItems: 0 });
   });
 
   it("preserves an all-zero feature cohort as measured zero, rather than retaining raw counts or requiring an activation flag", async () => {
@@ -159,6 +191,28 @@ describe("feature-backed Copilot App IDE SQL read model", () => {
 
   it("does not fabricate zero IDE interactions for flag/client-only days with unavailable prompt counts", async () => {
     expect(await breakdown("2026-03-06")).toEqual({ rows: [], totalItems: 0 });
+  });
+
+  it("does not synthesize App IDE rows from NULL prompt counts without raw activity", async () => {
+    expect(await breakdown("2026-03-11")).toEqual({ rows: [], totalItems: 0 });
+  });
+
+  it("uses persisted prompt counts when features are absent and raw App interactions are missing or zero", async () => {
+    expect(await breakdown("2026-03-07")).toEqual({
+      rows: [{
+        suppressed: false, userCount: 5,
+        value: { kind: "ide", key: "copilot_app", interactions: 10, userCount: 5 },
+      }], totalItems: 1,
+    });
+    expect(await breakdown("2026-03-08")).toEqual({
+      rows: [{ suppressed: true, userCount: null, value: null }], totalItems: 1,
+    });
+    expect(await breakdown("2026-03-09")).toEqual({
+      rows: [{
+        suppressed: false, userCount: 5,
+        value: { kind: "ide", key: "copilot_app", interactions: 0, userCount: 5 },
+      }], totalItems: 1,
+    });
   });
 
   it("does not expose feature-backed cohorts outside a real grant, even with organization narrowing", async () => {

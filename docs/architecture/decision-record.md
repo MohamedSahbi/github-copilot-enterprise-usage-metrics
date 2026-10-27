@@ -655,6 +655,13 @@ The GitHub Actions wrapper is functional, not identical: no published plan artif
 
 - **Public and private documents (D-46).** The public repository carries a sanitized decision record with placeholders (`{enterprise}`, `{org}`, `{login-suffix}`, `{group-prefix}`) and no evidence links into private repositories. Organization-specific facts live in a private deployment note in the EMU repository. Secret scanning and push protection are on; a CI check fails if any term from a private denylist appears. The denylist is stored as an Actions secret, never in the repository.
 - **Contracts first (D-47).** The first Phase 1 task, done by one agent and approved by the owner, defines: the curated SQL schema, the NDJSON-field-to-column mapping, metric definitions (cross-checked against the upstream oracle), and API request/response types in `shared/`. Parallel feature work starts only after that PR merges. Later contract changes land in `shared/` first, in their own PR.
+  The per-user manager-resolution contract (`dim_user.manager_resolved` and `manager_checked_at`;
+  [data contracts §10.1.1](data-contracts.md#1011-per-user-manager-resolution-evidence-d-47))
+  follows this same prerequisite sequence. Team traversal requires fresh, positively resolved
+  evidence for each edge; unresolved users do not invalidate other users' eligible edges.
+  The forward-only schema/shared-row contract merges before ingestion writes, team-grant filtering
+  and recursive SQL edge gates in a separate consumer PR. Existing relationships are preserved
+  without fabricating resolution evidence; CSV input is unchanged.
 - **Coordination (D-48).**
   - Work items are GitHub issues created from an agent-task form: goal, decisions (`D-<n>`), area, acceptance criteria, tests, `depends-on`.
   - Only issues labelled `ready-for-agent` are assigned to agents; at most one active agent task per `area:*` label.
