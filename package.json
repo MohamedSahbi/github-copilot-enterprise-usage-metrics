@@ -1,6 +1,6 @@
 {
   "name": "github-copilot-enterprise-usage-metrics",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "private": true,
   "license": "MIT",
   "workspaces": [
