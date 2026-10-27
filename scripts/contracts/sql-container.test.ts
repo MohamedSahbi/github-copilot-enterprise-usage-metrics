@@ -204,9 +204,9 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     `);
     expect(await query(db, `SELECT user_id, manager_resolved, manager_checked_at
       FROM portal.dim_user ORDER BY user_id`)).toEqual([
-      { user_id: 7101, manager_resolved: true, manager_checked_at: new Date("2026-10-27T09:00:00Z") },
-      { user_id: 7102, manager_resolved: true, manager_checked_at: new Date("2026-10-27T09:00:00Z") },
-      { user_id: 7103, manager_resolved: false, manager_checked_at: new Date("2026-10-27T09:01:00Z") },
+      { user_id: "7101", manager_resolved: true, manager_checked_at: new Date("2026-10-27T09:00:00Z") },
+      { user_id: "7102", manager_resolved: true, manager_checked_at: new Date("2026-10-27T09:00:00Z") },
+      { user_id: "7103", manager_resolved: false, manager_checked_at: new Date("2026-10-27T09:01:00Z") },
     ]);
     await query(db, "INSERT INTO portal.dim_user (user_id) VALUES (7104)");
     expect(await query(db, `SELECT manager_resolved, manager_checked_at
