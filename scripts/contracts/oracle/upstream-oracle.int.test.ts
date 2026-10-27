@@ -222,12 +222,64 @@ function featureBackedAppLines(userCount: number): string[] {
   return lines;
 }
 
-async function insertFeatureBreakdowns(lines: readonly string[]): Promise<{ artifactId: number; userIds: number[] }> {
+function promptCountAppLines(userCount: number): { lines: string[]; persistedUserId: number } {
+  const promptCounts = [2, 0, 3, 2, 3] as const;
+  if (userCount !== promptCounts.length) {
+    throw new Error(`The prompt-count oracle scenario requires exactly ${promptCounts.length} users`);
+  }
+
+  const metrics = fixtureLines.flatMap((line) => {
+    const metric = parseMetricsLine(line);
+    return metric && metric.day === WINDOW.start ? [metric] : [];
+  });
+  const hasAppIde = (metric: (typeof metrics)[number]): boolean =>
+    metric.totals_by_ide.some(({ ide }) => ide === "copilot_app");
+  const hasAppFeature = (metric: (typeof metrics)[number]): boolean =>
+    metric.totals_by_feature.some(({ feature }) => feature === "copilot_app");
+  const persisted = metrics.find((metric) =>
+    metric.totals_by_copilot_app != null && !hasAppFeature(metric),
+  );
+  if (!persisted || persisted.totals_by_copilot_app?.prompt_count !== promptCounts[0]) {
+    throw new Error("Expected one baseline prompt-only App row with prompt_count 2");
+  }
+
+  const candidates = metrics.filter((metric) =>
+    metric.user_id !== persisted.user_id &&
+    !metric.used_copilot_app &&
+    metric.totals_by_copilot_app == null &&
+    !hasAppIde(metric) &&
+    !hasAppFeature(metric),
+  );
+  if (candidates.length < userCount - 1) {
+    throw new Error(`Expected ${userCount - 1} fixture users without App source rows, found ${candidates.length}`);
+  }
+
+  const selected = [persisted, ...candidates.slice(0, userCount - 1)];
+  const lines = selected.map((source, index) => {
+    const metric = structuredClone(source);
+    metric.totals_by_ide = metric.totals_by_ide.filter(({ ide }) => ide !== "copilot_app");
+    metric.totals_by_feature = metric.totals_by_feature.filter(({ feature }) => feature !== "copilot_app");
+    metric.totals_by_copilot_app = {
+      session_count: 0,
+      request_count: 0,
+      prompt_count: promptCounts[index]!,
+      token_usage: { output_tokens_sum: 0, prompt_tokens_sum: 0, avg_tokens_per_request: 0 },
+    };
+    metric.used_copilot_app = true;
+    return JSON.stringify(metric);
+  });
+  return { lines, persistedUserId: persisted.user_id };
+}
+
+async function insertAppBreakdowns(
+  lines: readonly string[],
+  breakdownKind: "feature" | "client",
+): Promise<{ artifactId: number; userIds: number[] }> {
   if (!pool) throw new Error("The oracle SQL pool was not opened");
   const source = `${lines.join("\n")}\n`;
   const artifactResult = await pool.request()
     .input("runId", sql.UniqueIdentifier, TEST_CURATED_RUN_IDS.usage)
-    .input("blobPath", sql.NVarChar(600), `oracle/copilot-app-feature-backed-${lines.length}.ndjson`)
+    .input("blobPath", sql.NVarChar(600), `oracle/copilot-app-${breakdownKind}-${lines.length}.ndjson`)
     .input("sha256", sql.Char(64), sha256Hex(source))
     .input("sizeBytes", sql.BigInt, Buffer.byteLength(source))
     .input("rowCount", sql.Int, lines.length)
@@ -243,10 +295,10 @@ async function insertFeatureBreakdowns(lines: readonly string[]): Promise<{ arti
     const mapped = mapUsersDayLine(line, index + 1, context, artifactId);
     const daily = mapped.daily;
     if (!mapped.loaded || !daily) {
-      throw new Error(`Feature-backed oracle line ${index + 1} could not be staged`);
+      throw new Error(`Copilot App oracle line ${index + 1} could not be staged`);
     }
     return mapped.breakdown
-      .filter((row) => row.breakdown_kind === "feature" && row.key_1 === "copilot_app")
+      .filter((row) => row.breakdown_kind === breakdownKind && row.key_1 === "copilot_app")
       .map((row) => ({
         organization_id: daily.organization_id,
         user_id: daily.user_id,
@@ -261,13 +313,14 @@ async function insertFeatureBreakdowns(lines: readonly string[]): Promise<{ arti
         loc_suggested_to_delete: row.loc_suggested_to_delete,
         loc_added: row.loc_added,
         loc_deleted: row.loc_deleted,
+        prompt_count: row.prompt_count,
         run_id: TEST_CURATED_RUN_IDS.usage,
         source_artifact_id: artifactId,
         transform_version: "1",
       }));
   });
   if (rows.length !== lines.length) {
-    throw new Error(`Expected one staged Copilot App feature row per oracle line, found ${rows.length}`);
+    throw new Error(`Expected one staged Copilot App ${breakdownKind} row per oracle line, found ${rows.length}`);
   }
   await pool.request()
     .input("rows", sql.NVarChar(sql.MAX), JSON.stringify(rows))
@@ -275,24 +328,29 @@ async function insertFeatureBreakdowns(lines: readonly string[]): Promise<{ arti
       INSERT INTO portal.fact_usage_breakdown (
         organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count,
         code_generation_count, code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete,
-        loc_added, loc_deleted, run_id, source_artifact_id, transform_version)
+        loc_added, loc_deleted, prompt_count, run_id, source_artifact_id, transform_version)
       SELECT organization_id, user_id, usage_day, breakdown_kind, key_1, key_2, interaction_count,
         code_generation_count, code_acceptance_count, loc_suggested_to_add, loc_suggested_to_delete,
-        loc_added, loc_deleted, run_id, source_artifact_id, transform_version
+        loc_added, loc_deleted, prompt_count, run_id, source_artifact_id, transform_version
       FROM OPENJSON(@rows) WITH (
         organization_id BIGINT, user_id BIGINT, usage_day DATE, breakdown_kind VARCHAR(24),
         key_1 NVARCHAR(128), key_2 NVARCHAR(128), interaction_count INT, code_generation_count INT,
         code_acceptance_count INT, loc_suggested_to_add BIGINT, loc_suggested_to_delete BIGINT,
-        loc_added BIGINT, loc_deleted BIGINT, run_id UNIQUEIDENTIFIER, source_artifact_id BIGINT,
+        loc_added BIGINT, loc_deleted BIGINT, prompt_count INT, run_id UNIQUEIDENTIFIER, source_artifact_id BIGINT,
         transform_version VARCHAR(32))`);
   return { artifactId, userIds: rows.map(({ user_id }) => user_id) };
 }
 
-async function removeFeatureBreakdowns(artifactId: number, userIds: readonly number[]): Promise<void> {
+async function removeAppBreakdowns(
+  artifactId: number,
+  userIds: readonly number[],
+  breakdownKind: "feature" | "client",
+): Promise<void> {
   if (!pool || userIds.length === 0) return;
   const request = pool.request()
     .input("runId", sql.UniqueIdentifier, TEST_CURATED_RUN_IDS.usage)
-    .input("artifactId", sql.BigInt, artifactId);
+    .input("artifactId", sql.BigInt, artifactId)
+    .input("breakdownKind", sql.VarChar(24), breakdownKind);
   const userParameters = userIds.map((userId, index) => {
     const parameter = `user${index}`;
     request.input(parameter, sql.BigInt, userId);
@@ -301,9 +359,17 @@ async function removeFeatureBreakdowns(artifactId: number, userIds: readonly num
   await request.query(`
     DELETE FROM portal.fact_usage_breakdown
     WHERE run_id = @runId AND source_artifact_id = @artifactId
-      AND breakdown_kind = 'feature' AND key_1 = N'copilot_app'
+      AND breakdown_kind = @breakdownKind AND key_1 = N'copilot_app'
       AND user_id IN (${userParameters.join(", ")});
     DELETE FROM portal.SourceArtifact WHERE run_id = @runId AND artifact_id = @artifactId`);
+}
+
+async function insertFeatureBreakdowns(lines: readonly string[]): Promise<{ artifactId: number; userIds: number[] }> {
+  return insertAppBreakdowns(lines, "feature");
+}
+
+async function removeFeatureBreakdowns(artifactId: number, userIds: readonly number[]): Promise<void> {
+  return removeAppBreakdowns(artifactId, userIds, "feature");
 }
 
 function apiBreakdownRange(day: string) {
@@ -454,6 +520,43 @@ describe("upstream metrics oracle against curated SQL API aggregates", () => {
       }]);
     } finally {
       await removeFeatureBreakdowns(artifactId, userIds);
+    }
+  });
+
+  it("matches upstream prompt-count-only App IDE totals for five distinct users", async () => {
+    if (!pool) throw new Error("The oracle SQL pool was not opened");
+    const { lines, persistedUserId } = promptCountAppLines(5);
+    const upstream = upstreamMetrics(lines);
+    const expectedApp = expectedBreakdown(
+      "ide",
+      computeUserDetailedMetrics(upstream.userDetailAccumulator),
+    ).filter(({ key }) => key === "copilot_app");
+    expect(expectedApp).toStrictEqual([{ key: "copilot_app", interactions: 10, userCount: 5 }]);
+    const cohortUserIds = lines.map((line) => {
+      const metric = parseMetricsLine(line);
+      if (!metric) throw new Error("A generated prompt-count oracle line could not be parsed upstream");
+      return metric.user_id;
+    });
+    expect(new Set(cohortUserIds).size).toBe(5);
+    const additionalLines = lines.filter((_, index) => cohortUserIds[index] !== persistedUserId);
+    expect(additionalLines).toHaveLength(4);
+    // The fixture's first prompt row is already seeded; insert only the other four users.
+    const { artifactId, userIds: insertedUserIds } = await insertAppBreakdowns(additionalLines, "client");
+    try {
+      const result = await getUsageBreakdown(
+        pool,
+        API_ACCESS,
+        apiBreakdownRange(WINDOW.start),
+        CORRELATION_ID,
+      );
+      const appRows = result.rows.filter((row) => row.value?.key === "copilot_app");
+      expect(appRows).toStrictEqual([{
+        suppressed: false,
+        userCount: 5,
+        value: { kind: "ide", key: "copilot_app", interactions: 10, userCount: 5 },
+      }]);
+    } finally {
+      await removeAppBreakdowns(artifactId, insertedUserIds, "client");
     }
   });
 
