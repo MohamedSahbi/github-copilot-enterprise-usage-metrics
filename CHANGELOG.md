@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.2.10](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.9...v0.2.10) (2026-10-27)
+
+
+### Features
+
+* add explicit user-only Key Vault operator access ([#155](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/155)) ([f0e0ea4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/f0e0ea4c4a94986577904076abcfbc6c0f409a98))
+
+
+### Bug Fixes
+
+* configure the portal canonical authentication URL ([#152](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/152)) ([32bdb00](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/32bdb00fb8ae270f522f0884d64ceba1d718801e))
+
+## [0.2.9](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.8...v0.2.9) (2026-10-27)
+
+
+### Features
+
+* add immutable-identity sign-in and fail-closed access states ([#101](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/101)) ([041fa87](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/041fa87edd42aa4c2d9ebec8a313b8639c9ba420))
+* add metrics day loader ([#117](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/117)) ([3ed10cb](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/3ed10cb868622d997c887ad9014c8f8e59a58042))
+* add metrics runtime configuration ([#136](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/136)) ([c7f4562](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/c7f456292c0b13abfcaebb2893121698b9be4822))
+* add restoration schema and null-only compatibility ([#125](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/125)) ([400b152](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/400b152d745ec43fd537b7a94ec6cda68eaad175))
+* add scoped period request contract ([#135](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/135)) ([413e1ce](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/413e1ce9e6c78502e11edf8e0d4cc3811877dadf))
+* add scoped portal usage API ([#108](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/108)) ([ab73438](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/ab7343865ecd4dedc50c87d8a9e496bd69c5c897))
+* **contracts:** add live GitHub Budget Lookup contract ([#102](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/102)) ([33b5e1e](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/33b5e1ec659e69beb0199c7055328a8b56e36419))
+* define core-view API DTO and exact-credit contracts ([#131](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/131)) ([df1b114](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/df1b114763eb1d618e9d1cbecbcbdd8358202079))
+* define Phase 2 ingestion settings and directory inputs ([#98](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/98)) ([1a3ac3d](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1a3ac3dae706caf630331a55d680e7f90e09fc85)), closes [#69](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/69)
+* **infra:** portal sign-in and access-state deployment settings ([#111](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/111)) ([96ddb53](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/96ddb53859e3d21241ddf2a40d2073ac0cc34985))
+* isolate directory runtime infrastructure ([#118](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/118)) ([dc02203](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/dc0220326cb08ae823ac017ddd9b951cf07764c3))
+* move raw archive to Cool tier ([#83](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/83)) ([ed1372a](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/ed1372a7741048d6fc8807dbdbac9f71ea244dd4))
+* portal shell and core pages ([#89](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/89)) ([#105](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/105)) ([6104fd1](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/6104fd1649d42ed12bfca01f3bb26e63b5f2b5e6))
+* preserve core-view source metrics ([#132](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/132)) ([1dd239e](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1dd239e2d492042669493cd6d991b4f65ace51c3))
+* publish portal FAQ and contextual help links ([#126](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/126)) ([53db8ba](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/53db8ba37f83cb374e4558e921abfa4ed797ffa3))
+
+
+### Bug Fixes
+
+* **e2e:** isolate Safe Alpha secondary CI server ([126b708](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/126b708e37b1fa70ce2f75f41e211447e9e5410b))
+* **e2e:** isolate secondary CI from Turbopack reloads ([fb8adf5](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/fb8adf52577f2948a809b9947f6f83dd4cdaea9d))
+* **e2e:** wait for exact Help title before axe scan ([#139](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/139)) ([0813743](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/0813743dccaf9de944c6ccfa6738e21f60744059))
+* honor Copilot App IDE prompt availability ([#147](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/147)) ([c810f76](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/c810f76f64ff30e9c6731532a3bf05aa08ec759b))
+* recover feature-backed Copilot App IDE aggregates ([#123](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/123)) ([a6a8f38](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/a6a8f3897edad6a3e26a5c30a43c7419594a3dc4))
+* respect unavailable Copilot App prompt counts ([6f92cd4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/6f92cd4bf09554fe91016927e8df382b1cafb79b))
+* restore Copilot App IDE prompt fallback ([ef1ecc8](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/ef1ecc802b4aecde23c0fba915c14e7e7234fbc3))
+* restrict alpha Key Vault access to app egress ([#151](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/151)) ([84994d6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/84994d68a8c91dc76e39fbadf86e3c41f6761954))
+* restrict safe alpha portal surface ([783cef5](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/783cef5a48141f371bc7050a5e20a368f9d62107))
+* restrict Safe Alpha portal surface ([#149](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/149)) ([e75d760](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/e75d7604fe9cbe61fa329cc6c194d3d1ba7ece7a))
+
 ## [0.2.8](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.7...v0.2.8) (2026-10-25)
 
 

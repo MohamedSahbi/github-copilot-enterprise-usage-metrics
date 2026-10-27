@@ -56,7 +56,7 @@ describe("directory synchronization boundary", () => {
     });
     const logged = JSON.stringify([logger.info.mock.calls, logger.warn.mock.calls, logger.error.mock.calls]);
     for (const value of ["fixture-user", "private-unmapped-login", "profile@example.invalid", oid, managerOid]) expect(logged).not.toContain(value);
-    expect(Object.keys(commits[0]!)).toEqual(["run", "users", "sync"]);
+    expect(Object.keys(commits[0]!)).toEqual(["run", "users", "sync", "managerCheckUserIds"]);
   });
 
   it("writes a preserve-manager command on failures without replacing cache with NULL", async () => {
@@ -65,6 +65,48 @@ describe("directory synchronization boundary", () => {
     expect(commits[0]?.users[0]?.managerResolved).toBe(false);
     expect(commits[0]?.run.error_code).toBe("manager_read_failed");
     expect(commits[0]?.sync.every((source) => source.last_success_at === null)).toBe(true);
+  });
+
+  it("tracks every licensed user for manager-resolution invalidation, including unmapped profiles", async () => {
+    const { dependencies, commits } = setup({ unmapped: true });
+    await syncDirectory(input, dependencies);
+    expect(commits[0]).toMatchObject({ managerCheckUserIds: [42, 43] });
+  });
+
+  it("tracks failed profile reads without fabricating a directory profile", async () => {
+    const { dependencies, commits } = setup();
+    dependencies.graph = async () => ({ status: 403, body: null });
+    await syncDirectory(input, dependencies);
+    expect(commits[0]).toMatchObject({ users: [], managerCheckUserIds: [42] });
+  });
+
+  it("keeps a successful user's manager resolution independent of another user's failed read", async () => {
+    const { dependencies, commits } = setup();
+    const otherOid = "00000000-0000-0000-0000-000000000004";
+    dependencies.github = async (path) => path.startsWith("/scim/") ? { status: 200, body: {
+      totalResults: 2, startIndex: 1, itemsPerPage: 2, Resources: [
+        { externalId: oid, active: true, profileUrl: "https://github.com/fixture-user" },
+        { externalId: otherOid, active: true, profileUrl: "https://github.com/other-user" },
+      ],
+    } } : { status: 200, body: { total_seats: 2, seats: [
+      { assignee: { id: 42, login: "fixture-user" } },
+      { assignee: { id: 43, login: "other-user" } },
+    ] } };
+    dependencies.graph = async (path) => {
+      if (path.includes("/manager?")) return path.includes(otherOid)
+        ? { status: 403, body: null }
+        : { status: 200, body: { id: managerOid, mail: "manager@example.invalid" } };
+      return { status: 200, body: { id: path.includes(otherOid) ? otherOid : oid, accountEnabled: true } };
+    };
+    await syncDirectory(input, dependencies);
+    expect(commits[0]).toMatchObject({
+      managerCheckUserIds: [42, 43],
+      run: { status: "failed" },
+      users: [
+        { user: { user_id: 42 }, managerResolved: true, errorCode: null },
+        { user: { user_id: 43 }, managerResolved: false, errorCode: "manager_read_failed" },
+      ],
+    });
   });
 
   it("records source failures explicitly, without successful empty data or raw exceptions", async () => {

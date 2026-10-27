@@ -2,7 +2,13 @@
 
 Pinned upstream commit: `00608a2bc10fe61c3316d4e90e8eb51fb169bf6e` (`asizikov-demos/copilot-user-level-statistics-viewer`, `main`, 2026-10-20). Upstream files are untouched (`git -C portal/upstream status` is clean).
 
-Chart proven: upstream `FeatureAdoptionChart`, rendered at `/poc/feature-adoption` from a hard-coded fixture through `portal/src/adapters/featureAdoption.ts`.
+Historical chart proven: upstream `FeatureAdoptionChart`, rendered at
+`/poc/feature-adoption` from a hard-coded fixture through
+`portal/src/adapters/featureAdoption.ts`. The results below record that earlier
+proof of concept, not current release availability. Safe Alpha now denies that
+route server-side for authorized viewers while preserving sign-in, no-access, and
+unavailable routing. Its E2E spec asserts denial rather than chart rendering; see
+the [Safe Alpha runbook](../runbooks/safe-alpha.md).
 
 | # | Check | Result | Evidence |
 | --- | --- | --- | --- |

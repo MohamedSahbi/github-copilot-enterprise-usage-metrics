@@ -19,6 +19,7 @@ describe("configured SCIM/seats population", () => {
     ]);
     expect(await collectDirectoryIdentities(get, "fixture-enterprise", ["fixture-org"])).toEqual({
       identities: [{ userId: 42, login: "FIXTURE-USER", entraObjectId: oid, active: true }],
+      licensedUserIds: [42],
       licensedSeats: 1, unmappedLicensedProfiles: 0, scimWithoutSeats: 0,
     });
     expect(get).toHaveBeenCalledTimes(2);
@@ -114,7 +115,7 @@ describe("configured SCIM/seats population", () => {
       { totalResults: 0, startIndex: 1, itemsPerPage: 0, Resources: [] }, { total_seats: 0, seats: [] },
     ]);
     expect(await collectDirectoryIdentities(get, "fixture-enterprise", ["fixture-org"]))
-      .toEqual({ identities: [], licensedSeats: 0, unmappedLicensedProfiles: 0, scimWithoutSeats: 0 });
+      .toEqual({ identities: [], licensedUserIds: [], licensedSeats: 0, unmappedLicensedProfiles: 0, scimWithoutSeats: 0 });
   });
 });
 

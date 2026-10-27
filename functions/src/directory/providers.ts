@@ -26,6 +26,7 @@ export interface DirectoryIdentity {
 }
 export interface DirectoryPopulation {
   identities: DirectoryIdentity[];
+  licensedUserIds: number[];
   licensedSeats: number;
   unmappedLicensedProfiles: number;
   scimWithoutSeats: number;
@@ -156,7 +157,8 @@ export async function collectDirectoryIdentities(
         entraCounts.get(profile.externalId.toLowerCase()) !== 1) continue;
     identities.push({ userId: seat.id, login: seat.login, entraObjectId: profile.externalId.toLowerCase(), active: profile.active });
   }
-  return { identities, licensedSeats: seats.size, unmappedLicensedProfiles: seats.size - identities.length, scimWithoutSeats };
+  return { identities, licensedUserIds: [...seats.keys()], licensedSeats: seats.size,
+    unmappedLicensedProfiles: seats.size - identities.length, scimWithoutSeats };
 }
 
 function attribute(profile: Record<string, unknown>, path: string): unknown {

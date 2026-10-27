@@ -3,6 +3,7 @@ import type { AccessRepository, AccessScopedUser, AccessSnapshot, Grant, Identit
 import type { GrantValidationContext } from "../../../shared/src/access";
 import { enabledScopes } from "../../../shared/src/access";
 import type { AccessSettings } from "../auth/settings";
+import { bindTeamFreshness, eligibleManagerEdge } from "./sql-team-freshness";
 
 function safeUserId(value: number | string): number {
   const userId = typeof value === "number" ? value : Number(value);
@@ -55,7 +56,20 @@ export class SqlAccessRepository implements AccessRepository {
     const sync = (await this.pool.request().query<AccessSnapshot["sync"][number]>(
       "SELECT source, last_success_at FROM portal.DirectorySyncState",
     )).recordset;
-    return { principal, grants, sync };
+    let teamAvailable = false;
+    if (grants.some(({ scope }) => scope === "team")) {
+      const request = this.pool.request().input("principal_oid", sql.UniqueIdentifier, principal.entra_object_id);
+      bindTeamFreshness(request);
+      const reports = await request.query<{ available: boolean }>(`
+        SELECT CAST(CASE WHEN EXISTS (
+          SELECT 1 FROM portal.dim_user AS child
+          WHERE child.state = 'active' AND child.manager_entra_object_id = @principal_oid
+            AND child.entra_object_id <> @principal_oid
+            AND ${eligibleManagerEdge("child")}
+        ) THEN 1 ELSE 0 END AS BIT) AS available`);
+      teamAvailable = reports.recordset[0]?.available === true;
+    }
+    return { principal, grants, sync, teamAvailable };
   }
 
   async readScopedUsers(principalObjectId: string, grants: readonly Grant[]): Promise<AccessScopedUser[]> {
@@ -91,6 +105,7 @@ export class SqlAccessRepository implements AccessRepository {
     });
 
     if (!predicates.length) return [];
+    if (usesTeamScope) bindTeamFreshness(request);
 
     const teamTree = usesTeamScope ? `
       WITH team_tree AS (
@@ -104,6 +119,7 @@ export class SqlAccessRepository implements AccessRepository {
         FROM portal.dim_user child
         INNER JOIN team_tree parent ON child.manager_entra_object_id = parent.entra_object_id
         WHERE child.state = 'active'
+          AND ${eligibleManagerEdge("child")}
           AND (child.entra_object_id IS NULL OR CHARINDEX(CONCAT('/', CONVERT(varchar(36), child.entra_object_id), '/'), parent.path) = 0)
       )` : "";
 

@@ -9,6 +9,7 @@ export interface DirectoryCommit {
   run: IngestionRunRow;
   users: DirectoryProfile[];
   sync: DirectorySyncStateRow[];
+  managerCheckUserIds: number[];
 }
 export interface DirectoryWriter {
   commit(command: DirectoryCommit): Promise<void>;
@@ -51,6 +52,7 @@ export async function syncDirectory(input: DirectorySyncInput, deps: DirectorySy
   }
   const startedAt = deps.now().toISOString();
   const users: DirectoryProfile[] = [];
+  let managerCheckUserIds: number[] = [];
   let rowsRead: number | null = null;
   let unmapped: number | null = null;
   let errorCode: string | null = null;
@@ -63,10 +65,12 @@ export async function syncDirectory(input: DirectorySyncInput, deps: DirectorySy
         throw new DirectoryInputError("invalid_row");
       }
       users.push(...rows.map((user) => ({ user, managerResolved: true, errorCode: null } as const)));
+      managerCheckUserIds = rows.map(({ user_id }) => user_id);
       rowsRead = rows.length;
       unmapped = 0;
     } else {
       const population = await collectDirectoryIdentities(deps.github, input.enterprise, input.organizations);
+      managerCheckUserIds = population.licensedUserIds;
       rowsRead = population.licensedSeats;
       unmapped = population.unmappedLicensedProfiles;
       if (unmapped > 0) {
@@ -103,7 +107,7 @@ export async function syncDirectory(input: DirectorySyncInput, deps: DirectorySy
   await deps.writer.commit({ run, users, sync: sources.map((source) => ({
     source, last_attempt_at: completedAt, last_success_at: status === "published" ? completedAt : null,
     last_error_code: errorCode,
-  })) });
+  })), managerCheckUserIds });
   const event = { event: "directory.completed", correlation_id: correlationId, status,
     rows_read: rowsRead ?? 0, rows_loaded: users.length, code: errorCode ?? "complete" };
   if (status === "failed") deps.logger.error(event);

@@ -122,6 +122,21 @@ variable "organization" {
   }
 }
 
+variable "portal_public_url" {
+  description = "Optional HTTPS origin for portal sign-in callbacks; null uses the App Service default hostname."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.portal_public_url == null ? true : (
+      can(regex("^https://[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]{1,5})?/?$", var.portal_public_url)) &&
+      try(tonumber(regex(":([0-9]+)/?$", var.portal_public_url)[0]), 443) >= 1 &&
+      try(tonumber(regex(":([0-9]+)/?$", var.portal_public_url)[0]), 443) <= 65535
+    )
+    error_message = "Use an HTTPS origin only, or null for the default hostname."
+  }
+}
+
 variable "auth_trust_host" {
   description = "Whether Auth.js trusts the forwarded host. Enable only behind a trusted forwarding ingress."
   type        = bool
@@ -279,6 +294,41 @@ variable "private_endpoints_enabled" {
   description = "Private endpoints on by default; disable only for development (D-19)."
   type        = bool
   default     = true
+}
+
+variable "key_vault_operator_object_ids" {
+  description = "Entra user object IDs allowed to manage vault secrets as Secrets Officer; no operators by default."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = (
+      length(distinct([for id in var.key_vault_operator_object_ids : lower(id)])) == length(var.key_vault_operator_object_ids) &&
+      alltrue([for id in var.key_vault_operator_object_ids : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    )
+    error_message = "Operator object IDs must be unique Entra user GUIDs."
+  }
+}
+
+variable "key_vault_allowed_ipv4_addresses" {
+  description = "IPv4 egress addresses permitted by the public Key Vault firewall; each is emitted as a /32 rule."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      length(var.key_vault_allowed_ipv4_addresses) <= 1000,
+      length(distinct(var.key_vault_allowed_ipv4_addresses)) == length(var.key_vault_allowed_ipv4_addresses),
+      alltrue([for address in var.key_vault_allowed_ipv4_addresses : can(cidrnetmask("${address}/32"))]),
+    ])
+    error_message = "Addresses must be unique bare IPv4 literals (maximum 1000)."
+  }
+
+  validation {
+    condition     = var.private_endpoints_enabled || length(var.key_vault_allowed_ipv4_addresses) > 0
+    error_message = "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
+  }
 }
 
 variable "network" {

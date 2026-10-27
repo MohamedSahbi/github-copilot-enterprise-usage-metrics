@@ -6,6 +6,7 @@ import type { DirectoryCommit } from "./sync.js";
 
 const now = "2026-10-26T12:00:00.000Z";
 const command: DirectoryCommit = {
+  managerCheckUserIds: [42],
   run: {
     run_id: "00000000-0000-0000-0000-000000000003", source_kind: "directory", scope_key: "fixture-enterprise",
     report_day: null, range_start: null, range_end: null, status: "failed", is_current: false, transform_version: "1",
@@ -18,75 +19,137 @@ const command: DirectoryCommit = {
   sync: [{ source: "graph", last_success_at: null, last_attempt_at: now, last_error_code: "manager_read_failed" }],
 };
 
-function setup(failOn: "user" | "run" | "state" | "commit" | null = null, lockResult = 0) {
-  const transaction = new sql.Transaction();
-  const statements: string[] = [];
-  const requests: sql.Request[] = [];
-  const begin = vi.spyOn(transaction, "begin").mockResolvedValue(transaction);
-  const commit = vi.spyOn(transaction, "commit").mockResolvedValue(undefined);
-  if (failOn === "commit") commit.mockRejectedValue(new Error("private-commit@example.invalid"));
-  const rollback = vi.spyOn(transaction, "rollback").mockResolvedValue(undefined);
-  vi.spyOn(transaction, "request").mockImplementation(() => {
-    const request = new sql.Request(transaction);
-    requests.push(request);
-    vi.spyOn(request, "query").mockImplementation((text: string | TemplateStringsArray) => {
-      statements.push(String(text));
-      const failureStatement = failOn === "user" ? "UPDATE portal.dim_user"
-        : failOn === "run" ? "INSERT INTO portal.IngestionRun"
-          : failOn === "state" ? "UPDATE portal.DirectorySyncState" : null;
-      if (failureStatement && String(text).includes(failureStatement)) return Promise.reject(new Error("private-row@example.invalid"));
-      return Promise.resolve({ recordset: [{ result: lockResult }], recordsets: [], output: {}, rowsAffected: [] });
+type Failure = "reservation" | "invalidation" | "ownership" | "user" | "state" | "run" | "commit";
+function setup(failOn: Failure | null = null, failPhase = 0, lockResult = 0, conflicts: number[] = []) {
+  function phase(index: number) {
+    const transaction = new sql.Transaction();
+    const statements: string[] = [];
+    const requests: sql.Request[] = [];
+    const begin = vi.spyOn(transaction, "begin").mockResolvedValue(transaction);
+    const commit = vi.spyOn(transaction, "commit").mockResolvedValue(undefined);
+    if (failOn === "commit" && index === failPhase) commit.mockRejectedValue(new Error("private-commit@example.invalid"));
+    const rollback = vi.spyOn(transaction, "rollback").mockResolvedValue(undefined);
+    vi.spyOn(transaction, "request").mockImplementation(() => {
+      const request = new sql.Request(transaction);
+      requests.push(request);
+      vi.spyOn(request, "query").mockImplementation((text: string | TemplateStringsArray) => {
+        const query = String(text);
+        statements.push(query);
+        const failureStatement = {
+          reservation: "INSERT INTO portal.IngestionRun", invalidation: "manager_resolved = 0",
+          ownership: "DECLARE @owner", user: "DIRECTORY_IDENTITY_CONFLICT",
+          state: "UPDATE portal.DirectorySyncState", run: "UPDATE portal.IngestionRun", commit: "",
+        }[failOn ?? "commit"];
+        if (failOn && failureStatement && index === failPhase && query.includes(failureStatement)) {
+          return Promise.reject(new Error("private-row@example.invalid"));
+        }
+        const recordset = query.includes("sp_getapplock") ? [{ result: lockResult }]
+          : query.includes("SELECT candidate.user_id") ? conflicts.map((user_id) => ({ user_id })) : [];
+        return Promise.resolve({ recordset, recordsets: [], output: {}, rowsAffected: [] });
+      });
+      return request;
     });
-    return request;
-  });
-  return { transaction, statements, requests, begin, commit, rollback, writer: createDirectorySqlWriter(() => transaction) };
+    return { transaction, statements, requests, begin, commit, rollback };
+  }
+  const phases = [phase(0), phase(1)];
+  let nextPhase = 0;
+  const createTransaction = vi.fn(() => phases[nextPhase++]!.transaction);
+  return { phases, createTransaction, writer: createDirectorySqlWriter(createTransaction) };
 }
 
-describe("directory SQL transaction", () => {
-  it("commits run, current hierarchy and freshness in one serializable transaction", async () => {
+describe("directory SQL evidence and publication transactions", () => {
+  it("commits negatives first, then atomically publishes profiles/run/success under the same lock", async () => {
     const fake = setup();
     await fake.writer.commit(command);
-    expect(fake.begin).toHaveBeenCalledWith(sql.ISOLATION_LEVEL.SERIALIZABLE);
-    expect(fake.commit).toHaveBeenCalledOnce();
-    expect(fake.rollback).not.toHaveBeenCalled();
-    expect(fake.statements[0]).toContain("sp_getapplock");
-    expect(fake.statements.some((text) => text.includes("INSERT INTO portal.IngestionRun"))).toBe(true);
-    expect(fake.statements.some((text) => text.includes("UPDATE portal.dim_user"))).toBe(true);
-    const state = fake.statements.find((text) => text.includes("UPDATE portal.DirectorySyncState"));
-    expect(state).toContain("COALESCE(@lastSuccess, last_success_at)");
-    expect(fake.requests.find((request) => request.parameters.source)?.parameters.lastSuccess?.value).toBe(null);
-    expect(fake.statements.join("\n")).not.toMatch(/dbo\.|portal\.Principal|GrantRevocation|GRANT |DELETE/);
+    for (const phase of fake.phases) {
+      expect(phase.begin).toHaveBeenCalledWith(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      expect(phase.commit).toHaveBeenCalledOnce();
+      expect(phase.rollback).not.toHaveBeenCalled();
+      expect(phase.statements[0]).toContain("@Resource = N'ingest:directory'");
+      expect(phase.statements[0]).toContain("@LockOwner = 'Transaction'");
+    }
+    const [negative, publication] = fake.phases;
+    expect(negative!.statements.join("\n")).toContain("manager_resolved = 0");
+    expect(negative!.statements.join("\n")).not.toContain("SET last_success_at");
+    expect(publication!.statements.join("\n")).toContain("DIRECTORY_IDENTITY_CONFLICT");
+    expect(publication!.statements.join("\n")).toContain("COALESCE(@lastSuccess, last_success_at)");
+    expect(publication!.statements.join("\n")).toContain("UPDATE portal.IngestionRun");
+    expect(fake.phases.flatMap(({ statements }) => statements).join("\n"))
+      .not.toMatch(/dbo\.|portal\.Principal|GrantRevocation|GRANT |DELETE/);
   });
 
-  it("rolls back every user/state/run write on SQL failure and sanitizes errors", async () => {
-    const fake = setup("user");
+  it("invalidates only missing/unresolved/conflicting users, leaving successful siblings alone", async () => {
+    const fake = setup();
+    await fake.writer.commit({
+      ...command, managerCheckUserIds: [42, 43, 44],
+      users: [...command.users, { ...command.users[0]!, user: { ...command.users[0]!.user, user_id: 44 }, managerResolved: true, errorCode: null }],
+    });
+    const negative = fake.phases[0]!;
+    const request = negative.requests.find(({ parameters }) => parameters.unresolvedIds);
+    expect(request?.parameters.unresolvedIds?.value).toBe("[42,43]");
+    const query = negative.statements.find((text) => text.includes("manager_resolved = 0"));
+    expect(query).not.toMatch(/manager_entra_object_id\s*=|manager_email\s*=/);
+    expect(query).toContain("manager_checked_at = SYSUTCDATETIME()");
+  });
+
+  it("persists classified conflicts as a genuine failed attempt without publishing a profile", async () => {
+    const fake = setup(null, 0, 0, [42]);
     await expect(fake.writer.commit(command)).rejects.toThrow("directory_write_failed");
-    expect(fake.commit).not.toHaveBeenCalled();
-    expect(fake.rollback).toHaveBeenCalledOnce();
-    expect(fake.statements.some((text) => text.includes("UPDATE portal.DirectorySyncState"))).toBe(false);
+    expect(fake.phases[0]!.commit).toHaveBeenCalledOnce();
+    expect(fake.createTransaction).toHaveBeenCalledOnce();
+    const run = fake.phases[0]!.requests.find(({ parameters }) => parameters.status);
+    expect(run?.parameters.status?.value).toBe("failed");
+    expect(run?.parameters.errorCode?.value).toBe("manager_read_failed");
   });
 
-  it("never writes anything after failing to acquire the directory lock", async () => {
-    const fake = setup(null, -1);
-    await expect(fake.writer.commit(command)).rejects.toThrow("directory_write_failed");
-    expect(fake.statements).toHaveLength(1);
-    expect(fake.rollback).toHaveBeenCalledOnce();
+  it("records an all-successful read as started, not a fictional completed failure", async () => {
+    const fake = setup();
+    await fake.writer.commit({
+      ...command, run: { ...command.run, status: "published", error_code: null },
+      users: command.users.map((profile) => ({ ...profile, managerResolved: true, errorCode: null })),
+      sync: command.sync.map((state) => ({ ...state, last_success_at: now, last_error_code: null })),
+    });
+    const run = fake.phases[0]!.requests.find(({ parameters }) => parameters.status);
+    expect(run?.parameters.status?.value).toBe("started");
+    expect(run?.parameters.errorCode?.value).toBeNull();
+    expect(run?.parameters.completedAt?.value).toBeNull();
+    expect(fake.phases[0]!.statements.join("\n")).not.toContain("manager_resolved = 0");
   });
 
-  it.each(["run", "state", "commit"] as const)("rolls back on %s failure instead of committing partial state", async (stage) => {
+  it.each(["reservation", "invalidation", "state", "commit"] as const)("never publishes when negative phase %s fails", async (stage) => {
     const fake = setup(stage);
     await expect(fake.writer.commit(command)).rejects.toThrow("directory_write_failed");
-    expect(fake.rollback).toHaveBeenCalledOnce();
-    if (stage !== "commit") expect(fake.commit).not.toHaveBeenCalled();
+    expect(fake.createTransaction).toHaveBeenCalledOnce();
+    expect(fake.phases[0]!.rollback).toHaveBeenCalledOnce();
   });
 
-  it("rejects equal-second snapshot ordering because existing freshness timestamps lose subsecond order", async () => {
+  it.each(["ownership", "user", "state", "run", "commit"] as const)("retains committed negatives when publication %s fails", async (stage) => {
+    const fake = setup(stage, 1);
+    await expect(fake.writer.commit(command)).rejects.toThrow("directory_write_failed");
+    expect(fake.phases[0]!.commit).toHaveBeenCalledOnce();
+    expect(fake.phases[0]!.rollback).not.toHaveBeenCalled();
+    expect(fake.phases[1]!.rollback).toHaveBeenCalledOnce();
+    if (stage !== "commit") expect(fake.phases[1]!.commit).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing after failing to acquire the directory lock", async () => {
+    const fake = setup(null, 0, -1);
+    await expect(fake.writer.commit(command)).rejects.toThrow("directory_write_failed");
+    expect(fake.phases[0]!.statements).toHaveLength(1);
+    expect(fake.phases[0]!.rollback).toHaveBeenCalledOnce();
+    expect(fake.createTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("guards strict ordering and exact run/source reservation ownership rather than timestamp equality alone", async () => {
     const fake = setup();
     await fake.writer.commit(command);
-    expect(fake.statements[0]).toContain("@LockOwner = 'Transaction'");
-    const stateWrite = fake.statements.find((text) => text.includes("UPDATE portal.DirectorySyncState"));
-    expect(stateWrite).toContain("last_attempt_at < CONVERT(datetime2(0), @startedAt)");
-    expect(stateWrite).toContain("DIRECTORY_STALE_SNAPSHOT");
-    expect(fake.statements.some((text) => text.includes("IF EXISTS") && !text.includes("UPDATE"))).toBe(false);
+    const first = fake.phases[0]!.statements.join("\n");
+    expect(first).toContain("started_at >= CONVERT(datetime2(0), @startedAt)");
+    expect(first).toContain("last_attempt_at < CONVERT(datetime2(0), @startedAt)");
+    const second = fake.phases[1]!.statements.find((text) => text.includes("DECLARE @owner"));
+    expect(second).toContain("@owner <> @runId");
+    expect(second).toContain("ORDER BY started_at DESC, run_id DESC");
+    expect(second).toContain("OPENJSON(@sources)");
+    expect(second).toContain("DIRECTORY_STALE_SNAPSHOT");
   });
 });

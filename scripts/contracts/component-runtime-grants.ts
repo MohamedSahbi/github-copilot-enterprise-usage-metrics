@@ -91,6 +91,7 @@ function directoryCommand(userId: number, startedAt: string): DirectoryCommit {
       user_id: userId, login: "fixture-user", entra_object_id: "00000000-0000-4000-8000-000000000072",
       entra_account_enabled: true, state: "active", department: "fixture-department",
     }), managerResolved: true, errorCode: null }],
+    managerCheckUserIds: [userId],
     sync: [{ source: "graph", last_success_at: startedAt, last_attempt_at: startedAt, last_error_code: null }],
   };
 }
