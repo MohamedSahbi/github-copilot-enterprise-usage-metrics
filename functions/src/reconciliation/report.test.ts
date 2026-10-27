@@ -149,6 +149,24 @@ describe("metrics day reconciliation", () => {
     expect(result.summary.status).toBe("unexplained");
     expect(result.summary.checks.find((check) => check.check === "totals")!.explanation).toBeNull();
   });
+  it("never matches accepted-only manifest claims against a larger same-digest raw archive", () => {
+    const content = bytes(rawRow(), rawRow(1002, { totals_by_cli: { prompt_count: -1 } }));
+    const current = snapshot(content);
+    current.observed.perUser = current.observed.perUser!.slice(0, 1);
+    current.observed.publishedFacts = { rowCount: 1, totals: sumMetrics(current.observed.perUser) };
+    current.observed.run!.rowsLoaded = 1;
+    current.observed.run!.rowsQuarantined = 1;
+    current.observed.issueCounts.reject = 1;
+    const manifest = createManifest(content, { ...options, includePerUser: false });
+    if (manifest.availability !== "available") throw new Error("fixture invalid");
+    manifest.artifact.distinctUserKeys = 1;
+    manifest.totals = current.observed.publishedFacts.totals;
+    const result = compareMetricsDay({
+      organizationId, reportDay, manifest, ...current,
+      rejects: [{ lineNumber: 2, sha256: createHash("sha256").update(content.toString().split("\n")[1]!).digest("hex") }],
+    });
+    expect(result.summary.status).toBe("incomplete");
+  });
   it("treats fatal, unpublished and accounting-inconsistent runs as incomplete", () => {
     for (const change of [{ status: "failed" as const }, { isCurrent: false }, { rowsRead: null }, { rowsLoaded: 99 }, { errorCode: "quarantined" }]) {
       const current = snapshot();
