@@ -1,0 +1,9 @@
+{
+  "status": 404,
+  "body": {
+    "error": {
+      "code": "Authorization_RequestDenied",
+      "message": "Synthetic negative fixture."
+    }
+  }
+}
