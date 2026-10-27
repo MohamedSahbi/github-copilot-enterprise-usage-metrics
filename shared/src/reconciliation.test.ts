@@ -3,6 +3,7 @@ import {
   assertPublicSummary,
   deriveDayStatus,
   deriveRangeCoverage,
+  evidenceAvailabilityCheck,
   isPermittedExplanation,
   parseEvidenceManifest,
   ReconciliationContractError,
@@ -183,5 +184,38 @@ describe("public summary boundary", () => {
       expect(error).toMatchObject({ code: "invalid_public_summary" });
       expect(String((error as Error).message)).not.toContain("987654321");
     }
+  });
+});
+
+describe("fail-closed evidence handling", () => {
+  it("maps every manifest parse result to an evidence_available check, never matched unless available", () => {
+    const base = { schemaVersion: 1, evidenceKind: "legacy_raw_ndjson_manifest", organizationId: 1001, reportDay: "2026-10-01",
+      provenance: { sourceLabel: "legacy raw archive", retrievedAt: "2026-10-27T10:00:00Z", approvalRef: null, toolVersion: "1" } };
+    const outcomeOf = (input: unknown) => evidenceAvailabilityCheck(parseEvidenceManifest(input));
+    expect(outcomeOf(available)).toEqual({ check: "evidence_available", outcome: "matched", explanation: null, differingCount: 0 });
+    expect(outcomeOf({ ...base, availability: "unavailable" }).outcome).toBe("unavailable");
+    expect(outcomeOf({ ...base, availability: "unauthorized" }).outcome).toBe("unavailable");
+    expect(outcomeOf({ ...base, availability: "incomplete" }).outcome).toBe("incomplete");
+    expect(outcomeOf({ ...available, extra: 1 }).outcome).toBe("incomplete");
+    expect(outcomeOf(null).outcome).toBe("incomplete");
+  });
+
+  it("does not let other matched checks hide a non-matched evidence check, and rejects duplicate check names", () => {
+    expect(deriveDayStatus(withCheck({ check: "evidence_available", outcome: "unavailable", explanation: null, differingCount: 0 }))).toBe("unavailable");
+    expect(deriveDayStatus([...matched(), matched()[0]!])).toBe("incomplete");
+  });
+
+  it("ties differingCount to the outcome in public checks", () => {
+    const day = (r: MetricsCheckResult) => assertPublicSummary({
+      schemaVersion: 1, evidenceKind: "legacy_raw_ndjson_manifest", from: "2026-10-01", to: "2026-10-01",
+      status: deriveDayStatus(withCheck(r)),
+      days: [{ reportDay: "2026-10-01", status: deriveDayStatus(withCheck(r)),
+        counts: { evidenceLines: 2, newRowsRead: 2, newRowsLoaded: 2, newRowsQuarantined: 0, rejectIssues: 0, warnIssues: 0, fatalIssues: 0 },
+        checks: withCheck(r) }],
+    });
+    expect(() => day({ check: "totals", outcome: "matched", explanation: null, differingCount: 5 })).toThrow(ReconciliationContractError);
+    expect(() => day({ check: "totals", outcome: "unexplained", explanation: null, differingCount: 0 })).toThrow(ReconciliationContractError);
+    expect(() => day({ check: "totals", outcome: "explained", explanation: "quarantined_rejects", differingCount: 0 })).toThrow(ReconciliationContractError);
+    expect(day({ check: "totals", outcome: "unexplained", explanation: null, differingCount: 2 }).status).toBe("unexplained");
   });
 });

@@ -4,6 +4,9 @@
 // The only accepted evidence is a manifest of the legacy raw users-1-day NDJSON. It proves load fidelity
 // (legacy bytes -> published facts), not that legacy portal displays match new metric definitions (test oracle).
 // This contract does not grant, perform or imply any source access; it reads no other database.
+// The manifest is an operator attestation, not independent proof: this contract validates its shape only. The
+// implementation must generate it with a tool that computes every claim from the legacy raw bytes, and should also
+// recompute totals from the archived blob of the loaded artifact, so the new side never trusts the manifest alone.
 
 import { z } from "zod";
 import { validateDateRange, type DateRange } from "./api";
@@ -176,10 +179,20 @@ function worst(statuses: readonly ReconciliationStatus[]): ReconciliationStatus 
 // incomplete; an explained outcome without a permitted explanation counts as unexplained.
 export function deriveDayStatus(results: readonly MetricsCheckResult[]): ReconciliationStatus {
   const present = new Set(results.map((result) => result.check));
+  if (present.size !== results.length) return "incomplete";
   const statuses: ReconciliationStatus[] = results.map((result) =>
     result.outcome === "explained" && !isPermittedExplanation(result.check, result.explanation) ? "unexplained" : result.outcome);
   if (REQUIRED_METRICS_CHECKS.some((check) => !present.has(check))) statuses.push("incomplete");
   return worst(statuses);
+}
+
+// The evidence_available check is derived only from the manifest parse, so a missing, unauthorized, incomplete or
+// invalid manifest can never be turned into a match by other checks.
+export function evidenceAvailabilityCheck(parse: EvidenceManifestParse): MetricsCheckResult {
+  const outcome: MetricsCheckOutcome = !parse.ok ? "incomplete"
+    : parse.manifest.availability === "available" ? "matched"
+    : parse.manifest.availability === "incomplete" ? "incomplete" : "unavailable";
+  return { check: "evidence_available", outcome, explanation: null, differingCount: 0 };
 }
 
 export interface MetricsDayCoverage {
@@ -217,7 +230,8 @@ const PublicCheckSchema = z.strictObject({
   outcome,
   explanation: z.enum(Object.keys(METRICS_EXPLANATIONS) as [MetricsExplanation, ...MetricsExplanation[]]).nullable(),
   differingCount: count,
-}).refine((c) => (c.outcome === "explained" ? isPermittedExplanation(c.check, c.explanation) : c.explanation === null));
+}).refine((c) => (c.outcome === "explained" ? isPermittedExplanation(c.check, c.explanation) : c.explanation === null))
+  .refine((c) => (c.outcome === "matched" ? c.differingCount === 0 : c.outcome === "explained" || c.outcome === "unexplained" ? c.differingCount > 0 : true));
 
 const PublicDaySchema = z.strictObject({
   reportDay: isoDate,
