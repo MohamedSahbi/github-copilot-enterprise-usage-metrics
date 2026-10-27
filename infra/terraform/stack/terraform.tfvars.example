@@ -21,6 +21,8 @@ github_app_id = "123456"
 # backfill_from = "2025-10-10"
 
 # Sign-in identifiers are placeholders. OAuth secrets are created in Key Vault using the secret_names output.
+# Optional custom HTTPS origin; null uses the portal's default azurewebsites.net hostname.
+portal_public_url                 = null
 auth_trust_host                    = false
 trusted_forwarding_ingress         = false
 auth_microsoft_entra_id_id         = "00000000-0000-0000-0000-000000000000"

@@ -69,10 +69,15 @@ expect_valid -var directory_business_area_attribute=onPremisesExtensionAttribute
 expect_valid -var backfill_from=2024-02-29
 expect_valid -var 'key_vault_allowed_ipv4_addresses=["192.0.2.11","198.51.100.12"]'
 expect_valid -var auth_trust_host=true -var trusted_forwarding_ingress=true
+expect_valid -var portal_public_url=https://portal.example.com
+expect_valid -var portal_public_url=https://portal.example.com:8443/
 expect_valid -var 'organization={ enterprise_slug = "example-enterprise", organizations = ["example-org"], login_suffix = "_example", directory_provider = "csv", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }'
 expect_valid -var 'organization={ enterprise_slug = "example-enterprise", organizations = ["example-org", "example-team"], login_suffix = "_example", directory_provider = "entra", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }'
 
 expect_invalid auth_trust_host true "auth_trust_host can be true only when trusted_forwarding_ingress is true."
+for value in "" http://portal.example.com https://portal.example.com/path 'https://portal.example.com?query=1' 'https://portal.example.com#fragment' https://user:password@portal.example.com https://portal.example.com:0 https://portal.example.com:65536 "https://portal.example.com/ bad" https://-invalid.example.com; do
+  expect_invalid portal_public_url "$value" "Use an HTTPS origin only, or null for the default hostname."
+done
 expect_invalid auth_microsoft_entra_id_id not-a-guid "auth_microsoft_entra_id_id must be a GUID."
 expect_invalid auth_github_id "" "auth_github_id must not be empty."
 expect_invalid github_app_id 0 "github_app_id must be a positive decimal identifier."
@@ -98,4 +103,4 @@ expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11/24"]' "Addresses m
 expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11","192.0.2.11"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
 expect_invalid key_vault_allowed_ipv4_addresses '[]' "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
 
-printf 'Terraform variable validation: 12 valid and 25 invalid cases passed.\n'
+printf 'Terraform variable validation: 14 valid and 35 invalid cases passed.\n'
