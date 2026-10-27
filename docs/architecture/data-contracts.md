@@ -497,3 +497,48 @@ Source-row credits retain the canonical exact `DECIMAL(18,9)` range. SQL aggrega
 Derived averages and percentages use exact decimal intermediates and round only the final result to scale 9 using half-up rounding. A zero denominator yields `null`. An overflow raises the typed `DecimalOverflowError` (`decimal_overflow`) and the API returns a typed error envelope with no partial data or success-shaped response. `exactDecimal38_9`, `averageDecimal`, and `percentageDecimal` implement the bounded decimal contract; their inputs and outputs are decimal text.
 
 The existing `UserUsageRow.aiCreditsUsed` and `/api/users` response use this same string contract. In `getUserUsage` only, convert `SUM(f.ai_credits_used)` to `VARCHAR(40)` in SQL before the `mssql` driver can round `DECIMAL(38,9)` to a JavaScript number, then return that string unchanged. The existing users table may convert it to a number only in its display formatter, retaining the current `en-US` formatting with at most one fractional digit. This does not change route authorization, periods, paging, filters, response metadata, or the separate `kind=ide` query.
+
+## 16. Metrics reconciliation comparison contract (#79, D-10, D-29, D-34, D-47)
+
+Contract code: `shared/src/reconciliation.ts`. This section covers the **metrics per-day slice only**. Directory comparison needs its own contract PR once the legacy directory evidence source and its access are decided; #79's directory criterion stays open until then. The implementation (reading SQL, computing checks, writing reports) is separate follow-up work that depends on this contract and on the legacy raw-metrics import.
+
+### Evidence kind and its limit
+
+The only accepted evidence kind is `legacy_raw_ndjson_manifest`: a manifest an operator computes from one legacy raw users-1-day NDJSON file (`{YYYY}/{MM}/raw/UsageMetrics-{dd-MM-yyyy}.json`) for one `(organization_id, report_day)`. Because the one-time import loads those same bytes, a match proves **load fidelity** (legacy bytes → archived artifact → published facts). It does **not** prove that the new metric definitions equal what the legacy portal displayed; the upstream test oracle (§4) covers definitions. Legacy enhanced files, legacy SQL totals or any live source are not accepted until a later contract adds them.
+
+The manifest is untrusted operator input, validated by a strict schema (`parseEvidenceManifest`). It is a file supplied to the run: there is no runtime cross-database reader, no old-system write, no cutover and no source-access authorization. `approvalRef` is an opaque reference to the owner's separate approval, held in the private evidence location; the contract does not grant or check access. An invalid manifest is reported as incomplete evidence, never as a match (`evidenceAvailabilityCheck` derives the `evidence_available` check from the parse result only).
+
+The manifest is an **operator attestation, not independent proof**: the contract validates shape and bounds, not truth. The implementation must produce it with a tool that computes every claim from the legacy raw bytes, and should also recompute the new-side comparison inputs (counts, totals) from the archived blob of the loaded artifact, so a mistaken or forged manifest alone cannot yield a match. Private evidence handling stays an owner decision.
+
+| Manifest field | Notes |
+| --- | --- |
+| `schemaVersion`, `evidenceKind`, `organizationId`, `reportDay` | `schemaVersion` is `1`; the day must be a real calendar date |
+| `availability` | `available`, `unavailable`, `unauthorized` or `incomplete`. Only `available` may carry `artifact`, `totals` or `perUser` |
+| `provenance` | Generic `sourceLabel`, `retrievedAt`, `toolVersion`, and `approvalRef` (required when `available`) |
+| `artifact` | `sha256` (lowercase hex), `sizeBytes`, `nonEmptyLines` (same definition as `SourceArtifact.row_count`), `jsonObjects`, `distinctUserKeys`, `duplicateUserKeys` |
+| `totals` | Sums of the seven additive daily measures (integers) and `ai_credits_used` as a canonical exact decimal string (never a JavaScript number) |
+| `perUser` (optional, **private**) | Per-user measures keyed by numeric `user_id`; allowed only when there are no duplicate keys and the count equals `distinctUserKeys` |
+
+### Checks and outcomes
+
+Required checks: `evidence_available`, `run_published`, `lineage_sha256`, `lineage_size`, `row_count`, `rows_accounted`, `distinct_users`, `totals`. `per_user` runs only when the manifest carries per-user rows. The new side is read from the new database only: the current published `IngestionRun`, `SourceArtifact`, `ValidationIssue` counts and `portal.fact_user_daily_usage` (`MetricsDayObserved`).
+
+| Outcome | Meaning |
+| --- | --- |
+| `matched` | Legacy and new values are equal |
+| `explained` | Differ, and new-side evidence supports a fixed explanation code. Initial allowlist: `quarantined_rejects` (the difference is exactly the rows rejected with reject-severity `ValidationIssue` rows), valid only for `distinct_users`, `totals` and `per_user` |
+| `unexplained` | Differ without a permitted explanation. An `explained` outcome with a missing or non-permitted explanation counts as `unexplained` |
+| `incomplete` | Evidence or new-side data is partial: no current published run, a quarantined or fatal day, a missing artifact, or an invalid manifest |
+| `unavailable` | The evidence is missing, unavailable or unauthorized |
+
+Day status precedence is `unavailable` > `incomplete` > `unexplained` > `explained` > `matched` (`deriveDayStatus`). A day is `matched` only when every required check is present and matched. A missing required check or an empty result list is `incomplete`. `rows_accounted` is evaluated only for published runs (a quarantined run is already `incomplete` through `run_published`). Duplicate check names make a day `incomplete`. A public summary must include an `evidence_available` check for every day, including days synthesized as unavailable, and `differingCount` is 0 only for `matched` and at least 1 for `explained` or `unexplained`. A requested range (`deriveRangeCoverage`) lists every requested day; a day without a result is `unavailable`, so a partial range is never matched. Independence of the two solutions does not waive parity evidence, and nothing here authorizes automatic cutover.
+
+### Public and private output
+
+- **Public summary** (`MetricsRangeReconciliationSummary`, gated by `assertPublicSummary`): strict schema with the range, per-day status, per-check outcome/explanation/differing count and aggregate counts only. It never contains user IDs, logins, emails, organization IDs, hashes, blob locators or approval references. Any extra key fails validation.
+- **Private detail** (`MetricsDayReconciliationDetail`): per-check legacy/new values, hashes and per-user differences keyed by `user_id`. It goes only to an owner-approved private evidence location, never to logs, PR text or public artifacts. The location is an owner decision and is not chosen by this contract.
+- Logs carry run IDs, correlation IDs and counts only (D-51).
+
+### Out of scope
+
+Directory comparison, cutover, source-access approval or extraction procedure, final data migration, old directory or `dbo` writes, runtime cross-database grants, API/report consumer authorization (L3/L4) and deployment.
