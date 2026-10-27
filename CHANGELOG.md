@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.10](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.9...v0.2.10) (2026-10-27)
+
+
+### Features
+
+* add explicit user-only Key Vault operator access ([#155](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/155)) ([f0e0ea4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/f0e0ea4c4a94986577904076abcfbc6c0f409a98))
+
+
+### Bug Fixes
+
+* configure the portal canonical authentication URL ([#152](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/152)) ([32bdb00](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/32bdb00fb8ae270f522f0884d64ceba1d718801e))
+
 ## [0.2.9](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.8...v0.2.9) (2026-10-27)
 
 
