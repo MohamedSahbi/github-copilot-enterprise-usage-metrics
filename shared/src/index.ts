@@ -3,6 +3,7 @@ export * from "./api";
 export * from "./directory-contract";
 export * from "./features";
 export * from "./metrics";
+export * from "./metrics-user-write";
 export * from "./languages";
 export * from "./access";
 export * from "./settings";
