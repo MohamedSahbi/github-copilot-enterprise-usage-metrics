@@ -187,7 +187,10 @@ FROM sys.objects AS object_name
 JOIN sys.schemas AS schema_name ON schema_name.schema_id = object_name.schema_id
 WHERE schema_name.name NOT IN (N'portal', N'sys', N'INFORMATION_SCHEMA')
   AND object_name.is_ms_shipped = 0;
-IF SCHEMA_OWNER(N'portal') <> N'dbo'
+IF NOT EXISTS (
+    SELECT 1 FROM sys.schemas
+    WHERE name = N'portal' AND principal_id = DATABASE_PRINCIPAL_ID(N'dbo')
+)
     THROW 50221, N'The portal schema is not owned by dbo; procedure ownership chaining is not trusted', 1;
 DECLARE @metrics_procedure_owner_id int;
 DECLARE @dim_user_owner_id int;
@@ -252,7 +255,7 @@ BEGIN
       (N'dim_language', N'SELECT'), (N'dim_language', N'INSERT'),
       (N'fact_user_daily_usage', N'SELECT'), (N'fact_user_daily_usage', N'INSERT'), (N'fact_user_daily_usage', N'DELETE'),
       (N'fact_usage_breakdown', N'INSERT'), (N'fact_usage_family_count', N'INSERT'),
-      (N'agg_daily_usage', N'INSERT'), (N'agg_daily_usage', N'DELETE');
+      (N'agg_daily_usage', N'SELECT'), (N'agg_daily_usage', N'INSERT'), (N'agg_daily_usage', N'DELETE');
 END
 ELSE IF @component_role = N'portal_directory_ingest'
 BEGIN
@@ -272,8 +275,10 @@ IF @component_role = N'portal_metrics_ingest'
 BEGIN
     INSERT INTO @full_select
     SELECT DISTINCT object_name FROM @component_grants
-    WHERE permission_name = N'SELECT' AND object_name <> N'SourceArtifact';
-    INSERT INTO @column_select VALUES (N'SourceArtifact', N'artifact_id');
+    WHERE permission_name = N'SELECT' AND object_name NOT IN (N'SourceArtifact', N'agg_daily_usage');
+    INSERT INTO @column_select VALUES
+      (N'SourceArtifact', N'artifact_id'),
+      (N'agg_daily_usage', N'organization_id'), (N'agg_daily_usage', N'usage_day');
     INSERT INTO @full_update VALUES (N'IngestionRun'), (N'SourceCheckpoint');
     INSERT INTO @column_update VALUES
       (N'dim_organization', N'login'), (N'dim_organization', N'updated_at'),

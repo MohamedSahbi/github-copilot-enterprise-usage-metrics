@@ -114,6 +114,8 @@ export async function assertComponentIngestionPermissions(
       OR HAS_PERMS_BY_NAME(N'portal.fact_usage_family_count', N'OBJECT', N'INSERT') <> 1
       OR HAS_PERMS_BY_NAME(N'portal.agg_daily_usage', N'OBJECT', N'INSERT') <> 1
       OR HAS_PERMS_BY_NAME(N'portal.agg_daily_usage', N'OBJECT', N'DELETE') <> 1
+      OR HAS_PERMS_BY_NAME(N'portal.agg_daily_usage', N'OBJECT', N'SELECT', N'organization_id', N'COLUMN') <> 1
+      OR HAS_PERMS_BY_NAME(N'portal.agg_daily_usage', N'OBJECT', N'SELECT', N'usage_day', N'COLUMN') <> 1
       OR HAS_PERMS_BY_NAME(N'portal.dim_user', N'OBJECT', N'INSERT') = 1
       OR HAS_PERMS_BY_NAME(N'portal.dim_user', N'OBJECT', N'UPDATE') = 1
       OR HAS_PERMS_BY_NAME(N'portal.dim_user', N'OBJECT', N'DELETE') = 1
@@ -215,6 +217,8 @@ export async function assertComponentIngestionPermissions(
       ${dailyRow(runId, "@artifact_id", 1, organizationId, directoryUserId, "a-metric-login", "2026-03-02")},
       ${dailyRow(runId, "@artifact_id", 2, organizationId, directoryUserId, "z-metric-login", "2026-03-09")},
       ${dailyRow(runId, "@artifact_id", 3, organizationId, nullableLoginUserId, null, "2026-03-04")},
+      ${dailyRow(runId, "@artifact_id", 4, organizationId, newUserId, "a-metric-login", "2026-03-01")},
+      ${dailyRow(runId, "@artifact_id", 5, organizationId, newUserId, "z-metric-login", "2026-03-09")},
       ${dailyRow(nullObservationRunId, "@null_observation_artifact_id", 1, organizationId, directoryUserId, null, "2026-03-01")},
       ${dailyRow(rollbackRunId, "@rollback_artifact_id", 1, organizationId, rolledBackUserId, "rollback-login", "2026-03-05")};
   `);
@@ -231,6 +235,8 @@ export async function assertComponentIngestionPermissions(
     EXEC portal.usp_write_metrics_users @run_id = '${runId}';
     EXEC portal.usp_write_metrics_users @run_id = '${nullObservationRunId}';
     EXEC portal.usp_write_metrics_users @run_id = '${emptyRunId}';
+    DELETE FROM portal.agg_daily_usage
+      WHERE organization_id = ${organizationId} AND usage_day = '2026-03-09';
     IF APPLOCK_MODE('public', N'ingest:users_1_day:${organizationId}:2026-03-09', 'Session') <> 'Exclusive'
       THROW 50121, N'The metrics procedure changed the caller day lock', 1;
     COMMIT TRANSACTION;
@@ -242,7 +248,7 @@ export async function assertComponentIngestionPermissions(
     IF NOT EXISTS (
       SELECT 1 FROM portal.dim_user
       WHERE user_id = ${directoryUserId} AND login = N'z-metric-login'
-        AND first_seen_day = '2026-03-01' AND last_seen_day = '2026-03-09'
+        AND first_seen_day = '2026-03-01' AND last_seen_day = '2026-03-02'
         AND email = N'directory-updated@example.invalid' AND display_name = N'Directory Updated'
         AND entra_object_id = '${entraId}' AND state = 'active'
         AND department = N'updated department' AND business_area = N'updated area'
@@ -257,7 +263,7 @@ export async function assertComponentIngestionPermissions(
     IF NOT EXISTS (
       SELECT 1 FROM portal.dim_user
       WHERE user_id = ${newUserId} AND login = N'z-metric-login'
-        AND first_seen_day = '2026-03-01' AND last_seen_day = '2026-03-09'
+        AND first_seen_day = '2026-03-01' AND last_seen_day = '2026-03-01'
         AND state = 'active' AND manager_resolved = 0 AND manager_checked_at IS NULL
         AND entra_object_id IS NULL AND email IS NULL AND department IS NULL
     ) THROW 50123, N'Metrics did not create an observation-only user with trusted defaults', 1;

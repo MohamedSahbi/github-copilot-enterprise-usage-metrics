@@ -12,7 +12,10 @@ SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 
-IF SCHEMA_ID(N'portal') IS NULL OR SCHEMA_OWNER(N'portal') <> N'dbo'
+IF NOT EXISTS (
+    SELECT 1 FROM sys.schemas
+    WHERE name = N'portal' AND principal_id = DATABASE_PRINCIPAL_ID(N'dbo')
+)
     THROW 50100, N'The portal schema must exist and be owned by dbo for the ingestion permission contract', 1;
 GO
 
@@ -76,6 +79,7 @@ GRANT SELECT, INSERT, DELETE ON OBJECT::portal.fact_user_daily_usage TO portal_m
 GRANT INSERT ON OBJECT::portal.fact_usage_breakdown TO portal_metrics_ingest;
 GRANT INSERT ON OBJECT::portal.fact_usage_family_count TO portal_metrics_ingest;
 GRANT INSERT, DELETE ON OBJECT::portal.agg_daily_usage TO portal_metrics_ingest;
+GRANT SELECT (organization_id, usage_day) ON OBJECT::portal.agg_daily_usage TO portal_metrics_ingest;
 GO
 
 -- Directory-owned identity, profile, lifecycle, hierarchy and per-user resolution evidence.
