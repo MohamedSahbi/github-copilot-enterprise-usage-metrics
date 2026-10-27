@@ -37,6 +37,15 @@ export async function writeMetricsUsers(transaction: sql.Transaction, runId: str
                           WHERE h.user_id = s.user_id AND h.login = s.login)`);
 }
 
+export function directoryIdentityConflict(candidate: "parameters" | "row"): string {
+  const userId = candidate === "parameters" ? "@userId" : "candidate.user_id";
+  const entraOid = candidate === "parameters" ? "@entraOid" : "candidate.entra_object_id";
+  return `EXISTS (SELECT 1 FROM portal.dim_user WITH (UPDLOCK, HOLDLOCK)
+                   WHERE user_id = ${userId} AND entra_object_id IS NOT NULL AND entra_object_id <> ${entraOid})
+           OR EXISTS (SELECT 1 FROM portal.dim_user WITH (UPDLOCK, HOLDLOCK)
+                      WHERE entra_object_id = ${entraOid} AND user_id <> ${userId})`;
+}
+
 export async function writeDirectoryUsers(transaction: sql.Transaction, profiles: readonly DirectoryProfile[]): Promise<void> {
   for (const { user, managerResolved } of profiles) {
     await transaction.request()
@@ -52,10 +61,7 @@ export async function writeDirectoryUsers(transaction: sql.Transaction, profiles
       .input("department", sql.NVarChar(100), user.department)
       .input("businessArea", sql.NVarChar(50), user.business_area)
       .query(`
-        IF EXISTS (SELECT 1 FROM portal.dim_user WITH (UPDLOCK, HOLDLOCK)
-                   WHERE user_id = @userId AND entra_object_id IS NOT NULL AND entra_object_id <> @entraOid)
-           OR EXISTS (SELECT 1 FROM portal.dim_user WITH (UPDLOCK, HOLDLOCK)
-                      WHERE entra_object_id = @entraOid AND user_id <> @userId)
+        IF ${directoryIdentityConflict("parameters")}
           THROW 51000, 'DIRECTORY_IDENTITY_CONFLICT', 1;
         UPDATE portal.dim_user WITH (UPDLOCK, HOLDLOCK)
         SET login = @login, email = @email, display_name = @displayName, entra_object_id = @entraOid,
