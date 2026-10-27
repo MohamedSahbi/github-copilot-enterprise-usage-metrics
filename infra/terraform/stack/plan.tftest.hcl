@@ -22,6 +22,14 @@ run "demo_example" {
     error_message = "No vault-wide operator access may be granted by default."
   }
 
+  override_resource {
+    target          = azurerm_resource_group.this[0]
+    override_during = plan
+    values = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example"
+    }
+  }
+
   override_module {
     target = module.key_vault
 
@@ -134,6 +142,42 @@ run "demo_example" {
     condition     = length(local.portal_auth_trust_host_setting) == 0
     error_message = "Auth.js host trust must be omitted when it is disabled; the string false is truthy."
   }
+
+  assert {
+    condition = (
+      local.portal_app_settings.AUTH_URL == "https://app-${local.name}-${local.suffix}.azurewebsites.net" &&
+      !contains(keys(local.portal_app_settings), "AUTH_TRUST_HOST")
+    )
+    error_message = "The portal must have a canonical HTTPS AUTH_URL without enabling forwarded-host trust."
+  }
+}
+
+run "portal_custom_origin" {
+  command = plan
+
+  variables {
+    portal_public_url = "https://portal.example.com"
+  }
+
+  assert {
+    condition = (
+      local.portal_app_settings.AUTH_URL == "https://portal.example.com" &&
+      !contains(keys(local.portal_app_settings), "AUTH_TRUST_HOST") &&
+      !contains(keys(local.ingestion_app_settings), "AUTH_URL") &&
+      !contains(keys(local.directory_app_settings), "AUTH_URL")
+    )
+    error_message = "The custom origin must override only the portal AUTH_URL without enabling forwarded-host trust."
+  }
+}
+
+run "portal_rejects_non_origin_url" {
+  command = plan
+
+  variables {
+    portal_public_url = "https://portal.example.com/api/auth"
+  }
+
+  expect_failures = [var.portal_public_url]
 }
 
 run "explicit_secret_operators" {

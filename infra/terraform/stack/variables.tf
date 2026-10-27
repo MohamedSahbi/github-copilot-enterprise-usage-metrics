@@ -95,6 +95,21 @@ variable "organization" {
   }
 }
 
+variable "portal_public_url" {
+  description = "Optional HTTPS origin for portal sign-in callbacks; null uses the App Service default hostname."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.portal_public_url == null ? true : (
+      can(regex("^https://[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]{1,5})?/?$", var.portal_public_url)) &&
+      try(tonumber(regex(":([0-9]+)/?$", var.portal_public_url)[0]), 443) >= 1 &&
+      try(tonumber(regex(":([0-9]+)/?$", var.portal_public_url)[0]), 443) <= 65535
+    )
+    error_message = "Use an HTTPS origin only, or null for the default hostname."
+  }
+}
+
 variable "auth_trust_host" {
   description = "Whether Auth.js trusts the forwarded host. Enable only behind a trusted forwarding ingress."
   type        = bool
