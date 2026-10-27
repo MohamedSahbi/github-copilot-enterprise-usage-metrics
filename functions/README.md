@@ -29,12 +29,16 @@ status and parsed, untrusted body data. The directory path never falls back to
 SCIM `userName`, expands to the whole tenant, or calls consumed licenses.
 Provider exceptions and response bodies are not included in logs/errors.
 
-`authoritativeNoManager` is an explicit transport classification, **not**
-something inferred from a Graph 404. The production transport must justify that
-classification with endpoint-specific evidence before activation. An ordinary
-404, missing manager recognition email, malformed response or failed request
-preserves the cached relationship and prevents successful freshness advancement.
-Synthetic tests do not establish Graph application-auth support or consent.
+The owner accepted the risk that the production transport treats a Graph direct
+manager 404 as no manager only when its JSON error code is exactly
+`Request_ResourceNotFound`. This relies on observed endpoint behavior:
+[Microsoft documents app-only access to the manager relationship as unsupported](https://learn.microsoft.com/graph/api/user-list-manager?view=graph-rest-1.0).
+Other 404 codes, absent/unparseable error bodies, non-404 failures, missing
+manager recognition email and malformed responses remain incomplete reads;
+they preserve the cached relationship and prevent successful freshness
+advancement. Synthetic fixtures exercise the exact-code allow case and these
+fail-closed alternatives; they do not prove Graph application-auth support,
+least privilege or consent.
 
 `src/ingestion/user-writer.ts` is the shared logical user-write boundary:
 metrics retain their existing login/date/history writes; directory writes only

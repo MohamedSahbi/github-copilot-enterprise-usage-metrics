@@ -1,5 +1,6 @@
 import { ManagedIdentityCredential } from "@azure/identity";
 import sql from "mssql";
+import { z } from "zod";
 import { isGuid } from "../../../shared/src/access.js";
 import { DirectoryProviderSchema } from "../../../shared/src/ingestion-settings.js";
 import { validateSettings } from "../../../shared/src/settings.js";
@@ -9,6 +10,10 @@ import { createDirectorySqlWriter, DirectoryWriteError } from "./sql-writer.js";
 import type { DirectorySyncInput, DirectoryWriter } from "./sync.js";
 
 type Environment = Readonly<Record<string, string | undefined>>;
+const graphManagerNotFound = z.object({
+  error: z.object({ code: z.literal("Request_ResourceNotFound") }).passthrough(),
+}).passthrough();
+
 export interface DirectoryRuntimeConfig {
   provider: "entra" | "csv";
   enterprise: string;
@@ -72,6 +77,17 @@ export function createDirectoryTransport(
           ...(correlationId ? { "X-Correlation-ID": correlationId } : {}),
         },
       });
+      const managerRequest = /^\/v1\.0\/users\/([^/]+)\/manager$/.exec(url.pathname);
+      if (provider === "graph" && response.status === 404 && managerRequest && isGuid(managerRequest[1] ?? "")) {
+        try {
+          if (graphManagerNotFound.safeParse(await response.json()).success) {
+            return { status: 404, body: null, authoritativeNoManager: true };
+          }
+        } catch {
+          // An unreadable error response is not evidence that the user has no manager.
+        }
+        return { status: 404, body: null };
+      }
       return { status: response.status, body: response.status === 200 ? await response.json() : null };
     } catch {
       throw new DirectoryProviderError("source_read_failed");
