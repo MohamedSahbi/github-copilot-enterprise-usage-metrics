@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.12](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.11...v0.2.12) (2026-10-27)
+
+
+### Features
+
+* acquire metrics reports and package the gated timer ([#150](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/150)) ([cdf69bb](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/cdf69bbb5070e211f3988e37446d15c1eff3a4af))
+* add metrics reconciliation comparison contract ([#163](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/163)) ([556b183](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/556b183257f2acb0447f2cc83e305e3b9878ed80))
+* add one-time legacy metrics importer ([#161](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/161)) ([502a1c4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/502a1c4583418cf542c65d252402d830c0afcbd0))
+* **db:** add component-scoped ingestion SQL contract ([#158](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/158)) ([2d0e600](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/2d0e600f420330fee7649fe325d10bc808c6d85e))
+* register directory Functions timer ([#148](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/148)) ([433f589](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/433f58939655e7800c708de2c5b7ebbb0992daa6))
+* switch metrics user writer to component procedure ([#160](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/160)) ([7db0298](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/7db02980de54321e62e1b5f7b6eb7fd7e18431e2))
+
+
+### Bug Fixes
+
+* include validated peers in metrics artifact closure ([4a4151a](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/4a4151a1d85dfdbc360f0560c0c570c04855c2a4))
+* key reference mapper family rows by their own name field ([#140](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/140)) ([08a974e](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/08a974e034ba736c726c8cb646ae929f0b58fa83)), closes [#133](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/133)
+* lock directory artifact dependencies ([41be19b](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/41be19b90db04765d4555e99c193b03d45bd5f9a))
+
 ## [0.2.11](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.10...v0.2.11) (2026-10-27)
 
 
