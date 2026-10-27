@@ -11,7 +11,7 @@ The integration CI job runs this test through `npm run test:integration`.
 | --- | --- |
 | Usage overview series | Daily active users, interactions, code generations, code acceptances, LOC added and LOC deleted |
 | Usage overview adoption | All 14 `AdoptionSummary` fields |
-| Breakdown: feature, model and IDE | Dimension key, user-initiated interactions and distinct users; IDE parity covers persisted dimensions and a separate feature-backed Copilot App cohort |
+| Breakdown: feature, model and IDE | Dimension key, user-initiated interactions and distinct users; IDE parity covers persisted dimensions and separate five-user feature-backed and prompt-count-only Copilot App cohorts |
 | Breakdown: client | Client key and distinct users; the SQL DTO's interaction field is asserted to remain zero because ingestion stores zero for client rows |
 | Breakdown: language | Dimension key and distinct users |
 | Users | Per-user active days, user-initiated interactions and AI credits used |
@@ -20,11 +20,10 @@ The test uses the synthetic fixture's two organization IDs to isolate its SQL re
 the SQL usage functions directly. `getUsageBreakdown` applies `suppressForScope(..., false)`;
 `namesVisible: true` does not bypass that aggregate suppression. The requested `minGroupSize: 1`
 is clamped to the shared minimum of five, so groups below five users remain suppressed. The
-fixture's one-user `copilot_app` prompt fallback is not a visible parity assertion: the API cannot
-return that group visibly, and ingestion does not preserve its `prompt_count`. The oracle separately
-generates a five-user feature-backed scenario, runs the pinned upstream parser/calculator over those
-exact lines, and compares the visible SQL IDE aggregate; a one-user feature-backed scenario checks
-that suppression remains in force.
+fixture's one-user `copilot_app` prompt fallback is not a visible parity assertion: the API
+suppresses that group. The oracle separately generates five-user feature-backed and prompt-count-only
+scenarios, runs the pinned upstream parser/calculator over those exact lines, and compares each
+visible SQL IDE aggregate; one-user cases continue to check suppression.
 
 Language `UsageBreakdownRow.interactions` values are not treated as an upstream parity metric:
 the ingestion mapper stores zero for that breakdown kind, and the upstream language calculators
@@ -42,25 +41,28 @@ feature interactions when those feature rows exist; otherwise it can use
 `totals_by_copilot_app.prompt_count`. The checked fixture has five app rows for one distinct user,
 each with `prompt_count: 2`, and no app feature or raw app IDE rows. Its upstream result
 `{key: "copilot_app", interactions: 10, userCount: 1}` therefore uses the prompt-count fallback.
-That field is not staged by `functions/src/metrics/day-parser.ts` or persisted in curated SQL, and
-the one-user group is below the enforced minimum of five; it is not valid evidence for a visible
-API parity expectation. The IDE check compares the remaining persisted dimensions, and the prompt
-fallback gap stays explicit in the source-field inventory below.
+The nullable App `prompt_count` is staged as a client row and persisted to curated SQL. The
+fixture's one-user group remains below the enforced minimum of five, so it is not evidence for a
+visible API parity expectation. A separate five-user prompt-count-only scenario uses counts
+`[2, 0, 3, 2, 3]` (including a measured zero), with no App feature or raw App IDE rows. The pinned
+upstream result and SQL API both report
+`{key: "copilot_app", interactions: 10, userCount: 5}`. The existing fixture prompt row is reused
+once; the synthetic client rows complete the distinct five-user cohort.
 
 The distinct feature-backed path is covered with five fixture users whose app-feature interaction
 counts are `[10, 0, 3, 2, 4]`. The pinned parser/calculators derive the expected visible aggregate
 `{key: "copilot_app", interactions: 19, userCount: 5}` from those exact synthetic lines; the SQL
-comparison maps those same lines through the production staging mapper and inserts the mapped
-feature rows into the isolated curated test database. The API's matching feature-backed-to-IDE
-reconstruction was merged in #123; #119 remains open for the unavailable prompt-count fallback.
+comparison maps those same lines through the contract-reference staging mapper and inserts the
+mapped feature rows into the isolated curated test database. The API's matching feature-backed-to-IDE
+reconstruction was merged in #123. The SQL oracle covers both supported synthesis sources.
 The source fixture is
 `users-1-day.ndjson` (SHA-256
 `9c9604204b083021db929f4950dfe29ea3b54a5c7b252ec5ca69b1c844b609d4`); the generated rows remove
 the prompt-only and raw IDE inputs and add only the feature values above. Upstream's parser gives
 feature rows precedence over raw app IDE counts (including a zero feature value). #123 implements
-that bounded SQL reconstruction but does not restore `prompt_count`, which remains unavailable
-for the original one-user fallback. Neither source gap nor suppression is treated as a reason to
-weaken parity or expose a small cohort.
+that bounded feature-backed reconstruction; the current SQL read model also uses persisted App
+`prompt_count` for the prompt-only fallback. The original one-user group remains suppressed, and
+neither source behavior weakens privacy suppression or substitutes another metric.
 
 ## Not covered by the current API DTOs
 
@@ -89,7 +91,6 @@ not zero-valued parity assertions and must not be replaced with a similar-lookin
 | Upstream input | Current SQL mapping | Consequence |
 | --- | --- | --- |
 | `ai_adoption_phase.version` | `functions/src/metrics/day-parser.ts` emits only phase number and name; curated fact rows have no version column | Adoption-phase version is unavailable |
-| CLI and Copilot App `prompt_count` | The ingestion parser stages client sessions/requests/tokens/version, but not `prompt_count` | CLI/app prompt metrics cannot be compared |
 | VS Code agent `total_user_messages` | Not mapped into curated facts | VS Code agent message metrics cannot be compared; session counts are not a substitute |
 | `enterprise_id` | Retained in staging, omitted from curated fact rows | Enterprise-level upstream metrics are unavailable from the SQL API |
 
@@ -98,6 +99,10 @@ Evidence is in `functions/src/metrics/day-parser.ts`, `shared/src/rows.ts`,
 consumers include `portal/upstream/src/domain/calculators/aiAdoptionPhaseCalculator.ts`,
 `cliUsageCalculator.ts`, and `vscodeAgentUsageCalculator.ts`. These gaps are recorded for future
 contract and ingestion work, not silently filled or treated as accepted parity.
+
+CLI and Copilot App `prompt_count` are persisted as nullable client breakdown values; the App IDE
+read model uses the App value for its prompt-count fallback. The current client API DTO does not
+expose prompt counts directly, and this oracle makes no CLI prompt-count parity claim.
 
 Negative `ai_credits_used` values are rejected by the ingestion parser and SQL schema as a
 non-negative domain constraint. Although the upstream parser accepts finite numeric values, this
