@@ -310,7 +310,7 @@ export function mapUsersDayLine(line: string, lineNumber: number, ctx: StagingCo
       continue;
     }
     arr.forEach((e: unknown, idx: number) => {
-      const name = isObj(e) ? str(e.name) : null;
+      const name = isObj(e) ? str(e[family]) : null;
       if (!isObj(e) || !name) {
         issue("extra_nested_item", `${field}[${idx}]`, "nested item has an unknown shape");
         return;
