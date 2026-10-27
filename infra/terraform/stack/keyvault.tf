@@ -69,3 +69,12 @@ resource "azurerm_role_assignment" "secret_readers" {
   principal_id         = module.identity[each.value].principal_id
   principal_type       = "ServicePrincipal"
 }
+
+resource "azurerm_role_assignment" "secret_operators" {
+  for_each = toset([for id in var.key_vault_operator_object_ids : lower(id)])
+
+  scope                = module.key_vault.resource_id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = each.value
+  principal_type       = "User"
+}

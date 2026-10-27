@@ -227,6 +227,21 @@ variable "private_endpoints_enabled" {
   default     = true
 }
 
+variable "key_vault_operator_object_ids" {
+  description = "Entra user object IDs allowed to manage vault secrets as Secrets Officer; no operators by default."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = (
+      length(distinct([for id in var.key_vault_operator_object_ids : lower(id)])) == length(var.key_vault_operator_object_ids) &&
+      alltrue([for id in var.key_vault_operator_object_ids : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    )
+    error_message = "Operator object IDs must be unique Entra user GUIDs."
+  }
+}
+
 variable "key_vault_allowed_ipv4_addresses" {
   description = "IPv4 egress addresses permitted by the public Key Vault firewall; each is emitted as a /32 rule."
   type        = list(string)
