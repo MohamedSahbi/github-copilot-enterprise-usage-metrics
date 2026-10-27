@@ -20,7 +20,7 @@ const ROOT_COUNTS = {
 } as const;
 const MEASURES = [...METRICS_DAY_MEASURES, "ai_credits_used"] as const;
 const positiveId = z.union([z.number(), z.string().regex(/^\d+$/)])
-  .pipe(z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER));
+  .transform((value) => Number(value)).pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
 const measure = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const rootSchema = z.object({
   user_id: positiveId, organization_id: positiveId, day: z.string(),
