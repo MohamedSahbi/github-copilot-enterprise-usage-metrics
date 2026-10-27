@@ -39,6 +39,54 @@ variable "modules" {
   default = {}
 }
 
+variable "github_app_id" {
+  description = "Positive-decimal identifier of the GitHub App used only by metrics ingestion; not a secret."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_app_id)) && can(regex("[1-9]", var.github_app_id))
+    error_message = "github_app_id must be a positive decimal identifier."
+  }
+}
+
+variable "backfill_from" {
+  description = "Optional inclusive metrics API backfill start date (YYYY-MM-DD). The runtime enforces the moving API-start and 365-day window."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.backfill_from == null || (can(regex("^\\d{4}-\\d{2}-\\d{2}$", var.backfill_from)) && can(formatdate("YYYY-MM-DD", "${var.backfill_from}T00:00:00Z")) && formatdate("YYYY-MM-DD", "${var.backfill_from}T00:00:00Z") == var.backfill_from)
+    error_message = "backfill_from must be a valid calendar date in YYYY-MM-DD format or omitted."
+  }
+}
+
+variable "metrics_sync_schedule" {
+  description = "Required six-field UTC NCRONTAB schedule for the metrics timer Function. No default cadence is applied; activation remains gated on #64."
+  type        = string
+
+  validation {
+    condition = length(split(" ", trimspace(var.metrics_sync_schedule))) == 6 && alltrue([
+      for index, field in split(" ", trimspace(var.metrics_sync_schedule)) :
+      can(regex("^(\\*|[0-9]+)(-[0-9]+)?(/[1-9][0-9]*)?(,(\\*|[0-9]+)(-[0-9]+)?(/[1-9][0-9]*)?)*$", field)) &&
+      alltrue([
+        for token in split(",", field) :
+        split("/", token)[0] == "*" || (
+          alltrue([
+            for value in split("-", split("/", token)[0]) :
+            try(tonumber(value), -1) >= try([0, 0, 0, 1, 1, 0][index], 0) &&
+            try(tonumber(value), -1) <= try([59, 59, 23, 31, 12, 6][index], -1)
+          ]) &&
+          (
+            length(split("-", split("/", token)[0])) == 1 ||
+            try(tonumber(split("-", split("/", token)[0])[0]), -1) <= try(tonumber(split("-", split("/", token)[0])[1]), -1)
+          )
+        )
+      ])
+    ])
+    error_message = "metrics_sync_schedule must be a six-field UTC NCRONTAB expression."
+  }
+}
+
 variable "organization" {
   description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
   type = object({
@@ -63,6 +111,29 @@ variable "organization" {
   validation {
     condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.organization.entra_tenant_id))
     error_message = "organization.entra_tenant_id must be a GUID."
+  }
+
+  validation {
+    condition = length(var.organization.organizations) > 0 && alltrue([
+      for organization in var.organization.organizations :
+      length(organization) <= 39 && can(regex("^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$", organization))
+    ]) && length(distinct([for organization in var.organization.organizations : lower(organization)])) == length(var.organization.organizations)
+    error_message = "organization.organizations must be unique valid GitHub logins."
+  }
+}
+
+variable "portal_public_url" {
+  description = "Optional HTTPS origin for portal sign-in callbacks; null uses the App Service default hostname."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.portal_public_url == null ? true : (
+      can(regex("^https://[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]{1,5})?/?$", var.portal_public_url)) &&
+      try(tonumber(regex(":([0-9]+)/?$", var.portal_public_url)[0]), 443) >= 1 &&
+      try(tonumber(regex(":([0-9]+)/?$", var.portal_public_url)[0]), 443) <= 65535
+    )
+    error_message = "Use an HTTPS origin only, or null for the default hostname."
   }
 }
 
@@ -169,6 +240,33 @@ variable "directory_business_area_attribute" {
   }
 }
 
+variable "directory_sync_schedule" {
+  description = "Required six-field UTC NCRONTAB schedule for the directory timer Function. No default cadence is applied."
+  type        = string
+
+  validation {
+    condition = length(split(" ", trimspace(var.directory_sync_schedule))) == 6 && alltrue([
+      for index, field in split(" ", trimspace(var.directory_sync_schedule)) :
+      can(regex("^(\\*|[0-9]+)(-[0-9]+)?(/[1-9][0-9]*)?(,(\\*|[0-9]+)(-[0-9]+)?(/[1-9][0-9]*)?)*$", field)) &&
+      alltrue([
+        for token in split(",", field) :
+        split("/", token)[0] == "*" || (
+          alltrue([
+            for value in split("-", split("/", token)[0]) :
+            try(tonumber(value), -1) >= try([0, 0, 0, 1, 1, 0][index], 0) &&
+            try(tonumber(value), -1) <= try([59, 59, 23, 31, 12, 6][index], -1)
+          ]) &&
+          (
+            length(split("-", split("/", token)[0])) == 1 ||
+            try(tonumber(split("-", split("/", token)[0])[0]), -1) <= try(tonumber(split("-", split("/", token)[0])[1]), -1)
+          )
+        )
+      ])
+    ])
+    error_message = "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
+  }
+}
+
 variable "alert_emails" {
   description = "Email receivers for the Azure Monitor action group (D-50)."
   type        = list(string)
@@ -196,6 +294,41 @@ variable "private_endpoints_enabled" {
   description = "Private endpoints on by default; disable only for development (D-19)."
   type        = bool
   default     = true
+}
+
+variable "key_vault_operator_object_ids" {
+  description = "Entra user object IDs allowed to manage vault secrets as Secrets Officer; no operators by default."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = (
+      length(distinct([for id in var.key_vault_operator_object_ids : lower(id)])) == length(var.key_vault_operator_object_ids) &&
+      alltrue([for id in var.key_vault_operator_object_ids : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    )
+    error_message = "Operator object IDs must be unique Entra user GUIDs."
+  }
+}
+
+variable "key_vault_allowed_ipv4_addresses" {
+  description = "IPv4 egress addresses permitted by the public Key Vault firewall; each is emitted as a /32 rule."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      length(var.key_vault_allowed_ipv4_addresses) <= 1000,
+      length(distinct(var.key_vault_allowed_ipv4_addresses)) == length(var.key_vault_allowed_ipv4_addresses),
+      alltrue([for address in var.key_vault_allowed_ipv4_addresses : can(cidrnetmask("${address}/32"))]),
+    ])
+    error_message = "Addresses must be unique bare IPv4 literals (maximum 1000)."
+  }
+
+  validation {
+    condition     = var.private_endpoints_enabled || length(var.key_vault_allowed_ipv4_addresses) > 0
+    error_message = "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
+  }
 }
 
 variable "network" {

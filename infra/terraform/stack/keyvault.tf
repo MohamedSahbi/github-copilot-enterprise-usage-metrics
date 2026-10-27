@@ -19,16 +19,20 @@ locals {
     local.secret_names_by_component.directory,
   )
 
+  key_vault_network_acls = {
+    bypass                     = "None"
+    default_action             = "Deny"
+    ip_rules                   = [for address in var.key_vault_allowed_ipv4_addresses : "${address}/32"]
+    virtual_network_subnet_ids = []
+  }
+
+  key_vault_public_network_access_enabled = !var.private_endpoints_enabled
+
   secret_identity_by_name = merge([
     for component, names in local.secret_names_by_component : {
       for name in names : name => component
     }
   ]...)
-
-  missing_secret_names = setsubtract(
-    toset(local.secret_names),
-    toset(data.azurerm_key_vault_secrets.existing.names),
-  )
 }
 
 module "key_vault" {
@@ -42,7 +46,8 @@ module "key_vault" {
   tags                = local.tags
 
   purge_protection_enabled      = true
-  public_network_access_enabled = !var.private_endpoints_enabled
+  public_network_access_enabled = local.key_vault_public_network_access_enabled
+  network_acls                  = local.key_vault_network_acls
 
   private_endpoints = local.private_endpoints_enabled ? {
     vault = {
@@ -56,29 +61,6 @@ module "key_vault" {
   enable_telemetry = false
 }
 
-# Reading only the names checks bootstrap ordering without placing secret values in Terraform state.
-data "azurerm_client_config" "current" {}
-
-data "azurerm_key_vault_secrets" "existing" {
-  key_vault_id = format(
-    "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s",
-    data.azurerm_client_config.current.subscription_id,
-    local.resource_group_name,
-    local.key_vault_name,
-  )
-}
-
-resource "terraform_data" "required_key_vault_secrets" {
-  input = local.secret_names
-
-  lifecycle {
-    precondition {
-      condition     = length(local.missing_secret_names) == 0
-      error_message = "Create the required Key Vault secrets before planning the full stack: ${join(", ", sort(tolist(local.missing_secret_names)))}."
-    }
-  }
-}
-
 resource "azurerm_role_assignment" "secret_readers" {
   for_each = local.secret_identity_by_name
 
@@ -86,6 +68,13 @@ resource "azurerm_role_assignment" "secret_readers" {
   role_definition_name = "Key Vault Secrets User"
   principal_id         = module.identity[each.value].principal_id
   principal_type       = "ServicePrincipal"
+}
 
-  depends_on = [terraform_data.required_key_vault_secrets]
+resource "azurerm_role_assignment" "secret_operators" {
+  for_each = toset([for id in var.key_vault_operator_object_ids : lower(id)])
+
+  scope                = module.key_vault.resource_id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = each.value
+  principal_type       = "User"
 }

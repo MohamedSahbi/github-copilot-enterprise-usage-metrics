@@ -1,13 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 import { randomUUID } from "node:crypto";
-import { DEFAULT_MIN_GROUP_SIZE } from "@shared/api";
-import type { Scope } from "@shared/rows";
 import PortalShell from "@/components/PortalShell";
-import UpstreamCoreView from "@/adapters/UpstreamCoreView";
 import ApiCoreView from "@/adapters/ApiCoreView";
-import { getPortalViewerContext, resolvePortalScope, type PortalScopeKind } from "@/access/portalAccess";
+import { getPortalViewerContext, resolvePortalScope } from "@/access/portalAccess";
 import { getCorePage, visibleCorePages } from "@/navigation/corePages";
-import { getApiCoreData, getPortalDataSource } from "@/data/portalDataSource";
+import { getApiCoreData, projectCorePageData } from "@/data/apiCoreDataSource";
+import { getPortalDataSource } from "@/data/portalDataSource";
 import { logUsageFailure } from "@/usage/api";
 
 const REPORTING_PERIOD = { period: "last_7_days" } as const;
@@ -21,21 +19,9 @@ function dataUnavailable() {
   );
 }
 
-function scopeForApi(scope: PortalScopeKind): Scope {
-  if (scope === "all") return "company";
-  return scope;
-}
-
-function parseScopeToken(token: string | undefined): { kind?: string; value?: string } {
-  if (!token) return {};
-  const separator = token.indexOf(":");
-  if (separator < 0) return {};
-  return { kind: token.slice(0, separator), value: token.slice(separator + 1) };
-}
-
 export async function renderCorePage(
   slug: string,
-  searchParams: Promise<{ scope?: string }>,
+  searchParams: Promise<{ scope?: string | string[] }>,
 ) {
   const correlationId = randomUUID();
   const { viewer, access } = await getPortalViewerContext(correlationId);
@@ -46,8 +32,7 @@ export async function renderCorePage(
   const page = getCorePage(slug);
   if (!page || !visibleCorePages(viewer).some(({ slug: visibleSlug }) => visibleSlug === slug)) notFound();
 
-  const token = parseScopeToken((await searchParams).scope);
-  const selection = resolvePortalScope(viewer, token.kind, token.value);
+  const selection = resolvePortalScope(viewer, (await searchParams).scope);
   if (!selection) notFound();
 
   if (access.state === "authorized") {
@@ -59,15 +44,11 @@ export async function renderCorePage(
         request: REPORTING_PERIOD,
       });
       if (apiData) {
-        const suppressed = apiData.page !== "users" && apiData.overview.adoption.suppressed;
-        const userCount = apiData.overview.adoption.value?.totalUsers ?? null;
         return (
           <PortalShell
             viewer={viewer}
             pageSlug={slug}
             selection={selection}
-            userCount={userCount}
-            suppressed={suppressed}
           >
             <ApiCoreView data={apiData} pageTitle={page.title} />
           </PortalShell>
@@ -83,26 +64,14 @@ export async function renderCorePage(
   if (!dataSource) return dataUnavailable();
   const data = await dataSource.getCoreData({
     request: REPORTING_PERIOD,
-    scope: scopeForApi(selection.kind),
+    scope: selection.kind === "all" ? "company" : selection.kind,
     allowedUserIds: selection.userIds,
     perUserDetailEnabled: viewer.perUserDetailEnabled,
   });
-  const isSuppressed = data.suppressed || data.visibleUserCount < DEFAULT_MIN_GROUP_SIZE;
-
+  const pageData = projectCorePageData(page.slug, data.overview.data);
   return (
-    <PortalShell
-      viewer={viewer}
-      pageSlug={slug}
-      selection={selection}
-      userCount={isSuppressed ? null : data.visibleUserCount}
-      suppressed={isSuppressed}
-    >
-      <UpstreamCoreView
-        view={page.view}
-        metrics={data.aggregatedMetrics}
-        pageTitle={page.title}
-        selection={selection}
-      />
+    <PortalShell viewer={viewer} pageSlug={slug} selection={selection}>
+      <ApiCoreView data={pageData} pageTitle={page.title} />
     </PortalShell>
   );
 }
