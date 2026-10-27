@@ -207,6 +207,21 @@ describe("explicit Entra access bootstrap", () => {
     await expect(apply()).rejects.toMatchObject({ code: "lifecycle_conflict" });
   });
 
+  it("denies previously unlinked identity history instead of restoring access", async () => {
+    await seedTarget();
+    await pool.request()
+      .input("tenant", sql.UniqueIdentifier, TENANT)
+      .input("target", sql.UniqueIdentifier, TARGET)
+      .input("githubUserId", sql.BigInt, TARGET_USER)
+      .query(`
+        INSERT INTO portal.PrincipalLinkState
+          (entra_tenant_id, entra_object_id, github_user_id, linked_at, unlinked_at, unlink_seq, unlink_reason)
+        VALUES
+          (@tenant, @target, @githubUserId, DATEADD(second, -1, SYSUTCDATETIME()),
+           SYSUTCDATETIME(), NEXT VALUE FOR portal.seq_access_event, 'github_removed')`);
+    await expect(apply()).rejects.toMatchObject({ code: "lifecycle_conflict" });
+  });
+
   it("refuses an exact historical revoked grant instead of silently regranting it", async () => {
     await seedTarget();
     await pool.request()
