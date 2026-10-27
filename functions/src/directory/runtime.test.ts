@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { createDirectoryRuntimeHandler, readDirectoryRuntimeConfig, createDirectoryTransport } from "./runtime.js";
 import type { DirectoryCommit } from "./sync.js";
@@ -57,6 +58,60 @@ describe("injected directory HTTP transport", () => {
     expect(await get(`/v1.0/users/${clientId}/manager`)).toEqual({ status: 404, body: null });
   });
 
+  it("classifies only the exact Graph manager not-found fixture without retaining its body", async () => {
+    const fixture = JSON.parse(readFileSync(new URL("../../../fixtures/graph/manager-404-request-resource-not-found.json", import.meta.url), "utf8")) as {
+      status: number;
+      body: unknown;
+    };
+    const get = createDirectoryTransport("graph", async () => "fixture-token",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(fixture.body), { status: fixture.status })));
+
+    expect(await get(`/v1.0/users/${clientId}/manager?$select=id,mail,userPrincipalName`)).toEqual({
+      status: 404, body: null, authoritativeNoManager: true,
+    });
+  });
+
+  it("parses the successful manager fixture without marking it as manager absence", async () => {
+    const fixture = JSON.parse(readFileSync(new URL("../../../fixtures/graph/manager-success.json", import.meta.url), "utf8")) as {
+      status: number;
+      body: unknown;
+    };
+    const get = createDirectoryTransport("graph", async () => "fixture-token",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(fixture.body), { status: fixture.status })));
+
+    expect(await get(`/v1.0/users/${clientId}/manager?$select=id,mail,userPrincipalName`)).toEqual({
+      status: 200, body: fixture.body,
+    });
+  });
+
+  it("keeps the negative 404 fixture incomplete", async () => {
+    const fixture = JSON.parse(readFileSync(new URL("../../../fixtures/graph/manager-404-other-code.json", import.meta.url), "utf8")) as {
+      status: number;
+      body: unknown;
+    };
+    const get = createDirectoryTransport("graph", async () => "fixture-token",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(fixture.body), { status: fixture.status })));
+
+    expect(await get(`/v1.0/users/${clientId}/manager?$select=id,mail,userPrincipalName`)).toEqual({
+      status: 404, body: null,
+    });
+  });
+
+  it.each([
+    ["different error code", 404, new Response('{"error":{"code":"Authorization_RequestDenied"}}', { status: 404 }), `/v1.0/users/${clientId}/manager`],
+    ["missing error code", 404, new Response('{"error":{"message":"not found"}}', { status: 404 }), `/v1.0/users/${clientId}/manager`],
+    ["malformed error body", 404, new Response("{", { status: 404 }), `/v1.0/users/${clientId}/manager`],
+    ["non-manager endpoint", 404, new Response('{"error":{"code":"Request_ResourceNotFound"}}', { status: 404 }), `/v1.0/users/${clientId}`],
+    ["forbidden response", 403, new Response('{"error":{"code":"Request_ResourceNotFound"}}', { status: 403 }), `/v1.0/users/${clientId}/manager`],
+    ["throttled response", 429, new Response('{"error":{"code":"Request_ResourceNotFound"}}', { status: 429 }), `/v1.0/users/${clientId}/manager`],
+    ["server error", 500, new Response('{"error":{"code":"Request_ResourceNotFound"}}', { status: 500 }), `/v1.0/users/${clientId}/manager`],
+  ])("does not classify %s as authoritative no-manager", async (_name, status, response, path) => {
+    const get = createDirectoryTransport("graph", async () => "fixture-token",
+      vi.fn<typeof fetch>().mockResolvedValue(response));
+
+    expect(await get(path)).toEqual({ status, body: null });
+  });
+
   it.each(["network", "parse", "token"] as const)("sanitizes %s errors", async (failure) => {
     const fetcher = failure === "network"
       ? vi.fn<typeof fetch>().mockRejectedValue(new Error("person@example.invalid"))
@@ -94,6 +149,44 @@ describe("production handler composition using injected side-effect boundaries",
       new Headers(init?.headers).get("X-Correlation-ID") === context.invocationId)).toBe(true);
     expect(commits[0]?.users[0]?.user.manager_email).toBe("manager@example.invalid");
     expect(JSON.stringify(context.info.mock.calls)).not.toContain("profile@example.invalid");
+  });
+
+  it("clears cached manager adjacency and advances source freshness for the exact no-manager fixture", async () => {
+    const fixture = JSON.parse(readFileSync(new URL("../../../fixtures/graph/manager-404-request-resource-not-found.json", import.meta.url), "utf8")) as {
+      status: number;
+      body: unknown;
+    };
+    const commits: DirectoryCommit[] = [];
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/scim/")) {
+        return new Response(JSON.stringify({ totalResults: 1, startIndex: 1, itemsPerPage: 1, Resources: [{
+          externalId: clientId, active: true, profileUrl: "https://github.com/fixture-user",
+        }] }), { status: 200 });
+      }
+      if (url.includes("/seats?")) {
+        return new Response(JSON.stringify({ total_seats: 1, seats: [{ assignee: { id: 42, login: "fixture-user" } }] }), { status: 200 });
+      }
+      if (url.includes("/manager?")) return new Response(JSON.stringify(fixture.body), { status: fixture.status });
+      return new Response(JSON.stringify({ id: clientId, accountEnabled: true, mail: "profile@example.invalid" }), { status: 200 });
+    });
+    const handler = createDirectoryRuntimeHandler(env, {
+      fetch: fetcher, graphToken: async () => "fixture-graph-token",
+      writer: { commit: async (command) => { commits.push(command); } },
+      now: () => new Date("2026-10-26T12:00:00Z"),
+    });
+    const context = { invocationId: "00000000-0000-0000-0000-000000000003", info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    await handler({}, context);
+
+    expect(commits[0]?.run).toMatchObject({ status: "published", rows_loaded: 1, error_code: null });
+    expect(commits[0]?.users[0]).toMatchObject({
+      managerResolved: true, errorCode: null,
+      user: { manager_entra_object_id: null, manager_email: null },
+    });
+    expect(commits[0]?.sync).toHaveLength(3);
+    expect(commits[0]?.sync.every((state) => state.last_success_at === "2026-10-26T12:00:00.000Z" && state.last_error_code === null)).toBe(true);
+    expect(context.error).not.toHaveBeenCalled();
   });
 
   it("fails closed for configured CSV without an explicit byte source rather than fetching Graph", () => {

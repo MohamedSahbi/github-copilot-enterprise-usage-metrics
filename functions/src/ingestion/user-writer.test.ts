@@ -56,12 +56,15 @@ describe("single logical ingestion user writer", () => {
     expect(text).not.toContain("fixture-user");
   });
 
-  it("checks immutable mapping conflicts before any assignment and permits authoritative manager clearing", async () => {
+  it("clears cached manager columns when manager resolution is authoritative", async () => {
     const { transaction, request, query } = fakeTransaction();
     await writeDirectoryUsers(transaction, [{ user: row, managerResolved: true, errorCode: null }]);
     expect(request.parameters.managerResolved?.value).toBe(true);
     expect(request.parameters.managerOid?.value).toBe(null);
+    expect(request.parameters.managerEmail?.value).toBe(null);
     const text = String(query.mock.calls[0]?.[0]);
+    expect(text).toContain("manager_entra_object_id = CASE WHEN @managerResolved = 1 THEN @managerOid ELSE manager_entra_object_id END");
+    expect(text).toContain("manager_email = CASE WHEN @managerResolved = 1 THEN @managerEmail ELSE manager_email END");
     expect(text.indexOf("DIRECTORY_IDENTITY_CONFLICT")).toBeLessThan(text.indexOf("UPDATE portal.dim_user"));
     expect(text).toContain("entra_object_id <> @entraOid");
     expect(text).toContain("user_id <> @userId");
