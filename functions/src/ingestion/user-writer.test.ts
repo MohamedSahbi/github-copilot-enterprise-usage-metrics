@@ -50,6 +50,8 @@ describe("single logical ingestion user writer", () => {
     expect(request.parameters.userId?.value).toBe(42);
     expect(request.parameters.managerResolved?.value).toBe(false);
     const text = String(query.mock.calls[0]?.[0]);
+    expect(text).toContain("manager_resolved = @managerResolved");
+    expect(text).toContain("manager_checked_at = ");
     expect(text).toContain("CASE WHEN @managerResolved = 1");
     expect(text).toContain("WITH (UPDLOCK, HOLDLOCK)");
     expect(text).not.toMatch(/first_seen_day|last_seen_day|dim_user_login_history|portal\.Principal|GrantRevocation|DELETE|MERGE/);
@@ -65,6 +67,7 @@ describe("single logical ingestion user writer", () => {
     const text = String(query.mock.calls[0]?.[0]);
     expect(text).toContain("manager_entra_object_id = CASE WHEN @managerResolved = 1 THEN @managerOid ELSE manager_entra_object_id END");
     expect(text).toContain("manager_email = CASE WHEN @managerResolved = 1 THEN @managerEmail ELSE manager_email END");
+    expect(text).toContain("manager_resolved = @managerResolved");
     expect(text.indexOf("DIRECTORY_IDENTITY_CONFLICT")).toBeLessThan(text.indexOf("UPDATE portal.dim_user"));
     expect(text).toContain("entra_object_id <> @entraOid");
     expect(text).toContain("user_id <> @userId");

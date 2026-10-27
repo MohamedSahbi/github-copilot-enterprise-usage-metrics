@@ -6,6 +6,7 @@ import type { DirectoryCommit } from "./sync.js";
 
 const now = "2026-10-26T12:00:00.000Z";
 const command: DirectoryCommit = {
+  managerCheckUserIds: [],
   run: {
     run_id: "00000000-0000-0000-0000-000000000003", source_kind: "directory", scope_key: "fixture-enterprise",
     report_day: null, range_start: null, range_end: null, status: "failed", is_current: false, transform_version: "1",
@@ -56,6 +57,19 @@ describe("directory SQL transaction", () => {
     expect(state).toContain("COALESCE(@lastSuccess, last_success_at)");
     expect(fake.requests.find((request) => request.parameters.source)?.parameters.lastSuccess?.value).toBe(null);
     expect(fake.statements.join("\n")).not.toMatch(/dbo\.|portal\.Principal|GrantRevocation|GRANT |DELETE/);
+  });
+
+  it("invalidates attempted users before refreshing successful individual profiles without clearing cached links", async () => {
+    const fake = setup();
+    await fake.writer.commit({ ...command, managerCheckUserIds: [42, 43] });
+    const invalidation = fake.statements.findIndex((text) => text.includes("manager_resolved = 0"));
+    const profile = fake.statements.findIndex((text) => text.includes("DIRECTORY_IDENTITY_CONFLICT"));
+    expect(invalidation).toBeGreaterThan(0);
+    expect(invalidation).toBeLessThan(profile);
+    expect(fake.statements[invalidation]).not.toMatch(/manager_entra_object_id\s*=|manager_email\s*=/);
+    expect(fake.statements[invalidation]).toContain("manager_checked_at = SYSUTCDATETIME()");
+    const request = fake.requests.find((item) => item.parameters.managerCheckUserIds);
+    expect(request?.parameters.managerCheckUserIds?.value).toBe("[42,43]");
   });
 
   it("rolls back every user/state/run write on SQL failure and sanitizes errors", async () => {

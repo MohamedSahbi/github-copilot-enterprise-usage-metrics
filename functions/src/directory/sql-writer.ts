@@ -12,7 +12,7 @@ export class DirectoryWriteError extends Error {
 // The caller supplies a transaction on its already connected, explicitly configured new-database pool.
 export function createDirectorySqlWriter(createTransaction: () => sql.Transaction): DirectoryWriter {
   return {
-    async commit({ run, users, sync }) {
+    async commit({ run, users, sync, managerCheckUserIds }) {
       const transaction = createTransaction();
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
       try {
@@ -40,6 +40,16 @@ export function createDirectorySqlWriter(createTransaction: () => sql.Transactio
               transform_version, rows_read, rows_loaded, rows_quarantined, error_code, correlation_id, started_at, completed_at)
             VALUES (@runId, 'directory', @scope, NULL, @status, 0, @version,
               @rowsRead, @rowsLoaded, @rowsQuarantined, @errorCode, @correlationId, @startedAt, @completedAt)`);
+        if (managerCheckUserIds.length > 0) {
+          await transaction.request()
+            .input("managerCheckUserIds", sql.NVarChar(sql.MAX), JSON.stringify(managerCheckUserIds))
+            .query(`
+              UPDATE portal.dim_user WITH (UPDLOCK, HOLDLOCK)
+              SET manager_resolved = 0, manager_checked_at = SYSUTCDATETIME()
+              WHERE user_id IN (
+                SELECT user_id FROM OPENJSON(@managerCheckUserIds) WITH (user_id BIGINT '$')
+              )`);
+        }
         await writeDirectoryUsers(transaction, users);
         for (const state of sync) {
           await transaction.request()

@@ -16,6 +16,7 @@ import {
 import { FEATURE_TAXONOMY } from "../../../shared/src/features";
 import type { Scope } from "../../../shared/src/rows";
 import type { AuthorizedUsageAccess } from "./api";
+import { bindTeamFreshness, eligibleManagerEdge } from "../authz/sql-team-freshness";
 
 interface ScopedRequest {
   request: sql.Request;
@@ -55,6 +56,7 @@ function scopedRequest(
     .input("principalEntraObjectId", sql.UniqueIdentifier, access.principal.entra_object_id)
     .input("correlationId", sql.UniqueIdentifier, correlationId)
     .input("organizationIds", sql.NVarChar(sql.MAX), JSON.stringify(organizationIds));
+  bindTeamFreshness(request);
   const grantValues = access.grants.map((grant, index) => {
     request.input(`scope${index}`, sql.VarChar(24), grant.scope);
     request.input(`scopeValue${index}`, sql.NVarChar(128), grant.scope_value);
@@ -74,6 +76,7 @@ function scopedRequest(
       FROM portal.dim_user AS u
       INNER JOIN TeamMembers AS tm ON u.manager_entra_object_id = tm.manager_object_id
       WHERE u.state = 'active'
+        AND ${eligibleManagerEdge("u")}
         AND (u.entra_object_id IS NULL OR CHARINDEX(
           '|' + LOWER(CONVERT(VARCHAR(36), u.entra_object_id)) + '|', tm.visited
         ) = 0)

@@ -63,13 +63,16 @@ export async function writeDirectoryUsers(transaction: sql.Transaction, profiles
             deleted_at = CASE WHEN @state = 'deleted' THEN COALESCE(deleted_at, SYSUTCDATETIME()) ELSE NULL END,
             manager_entra_object_id = CASE WHEN @managerResolved = 1 THEN @managerOid ELSE manager_entra_object_id END,
             manager_email = CASE WHEN @managerResolved = 1 THEN @managerEmail ELSE manager_email END,
+            manager_resolved = @managerResolved,
+            manager_checked_at = SYSUTCDATETIME(),
             updated_at = SYSUTCDATETIME()
         WHERE user_id = @userId;
         IF @@ROWCOUNT = 0
           INSERT INTO portal.dim_user (user_id, login, email, display_name, entra_object_id, state, deleted_at,
-                                       manager_entra_object_id, manager_email, department, business_area)
+                                       manager_entra_object_id, manager_email, department, business_area,
+                                       manager_resolved, manager_checked_at)
           VALUES (@userId, @login, @email, @displayName, @entraOid, @state,
                   CASE WHEN @state = 'deleted' THEN SYSUTCDATETIME() ELSE NULL END,
-                  @managerOid, @managerEmail, @department, @businessArea)`);
+                  @managerOid, @managerEmail, @department, @businessArea, @managerResolved, SYSUTCDATETIME())`);
   }
 }
