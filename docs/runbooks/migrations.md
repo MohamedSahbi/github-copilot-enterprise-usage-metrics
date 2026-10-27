@@ -57,7 +57,7 @@ Before applying this migration, check whether `portal.BreakGlassConfig` exists a
 
 If database recovery is necessary, the recovery plan must restore from the verified pre-migration backup or copy, reconcile the migration history with the restored schema, and validate the compatible application and break-glass configuration before traffic resumes. Restoring the database can lose writes made after the restore point; stop writers and obtain owner approval before recovery. Do not recreate only the dropped table, edit merged migrations, or patch `portal.schema_version` to simulate rollback.
 
-The full restore, rollback and cut-over procedures, including recovery ownership, verification and an exercised non-production restore, remain tracked in [#55](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/55) (D-49, D-50). **Data-bearing deployment is blocked until that runbook is completed and reviewed.** This prerequisite is not a replacement runbook or evidence that a restore has been exercised.
+Use [restore and rollback](restore-rollback.md) for pre-change markers, recovery ownership, SQL/raw recovery and the quarterly exercise, and [cut-over gates](cutover.md) for D-49 go/no-go and traffic rollback. [#55](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/55) remains open pending the private operator's exercised non-production restore evidence. **Data-bearing deployment, including the first legacy raw import, is blocked until the runbook is completed and reviewed and that evidence is accepted.** These documents do not prove a restore has been exercised or authorize deployment.
 
 ## Failures
 
