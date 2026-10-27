@@ -227,6 +227,26 @@ variable "private_endpoints_enabled" {
   default     = true
 }
 
+variable "key_vault_allowed_ipv4_addresses" {
+  description = "IPv4 egress addresses permitted by the public Key Vault firewall; each is emitted as a /32 rule."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      length(var.key_vault_allowed_ipv4_addresses) <= 1000,
+      length(distinct(var.key_vault_allowed_ipv4_addresses)) == length(var.key_vault_allowed_ipv4_addresses),
+      alltrue([for address in var.key_vault_allowed_ipv4_addresses : can(cidrnetmask("${address}/32"))]),
+    ])
+    error_message = "Addresses must be unique bare IPv4 literals (maximum 1000)."
+  }
+
+  validation {
+    condition     = var.private_endpoints_enabled || length(var.key_vault_allowed_ipv4_addresses) > 0
+    error_message = "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
+  }
+}
+
 variable "network" {
   description = "How each network dependency is provided: create (demo), existing (enterprise default), or import (D-35)."
   type = object({

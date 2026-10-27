@@ -30,3 +30,18 @@ if [[ "$assignment_count" != "1" ]] ||
   echo "::error::Key Vault Secrets User must be granted only at per-secret scope to that secret's component identity"
   exit 1
 fi
+
+if ! grep -Eq 'network_acls[[:space:]]*=[[:space:]]*local\.key_vault_network_acls' "$keyvault_file" ||
+  ! grep -Eq 'bypass[[:space:]]*=[[:space:]]*"None"' "$keyvault_file" ||
+  ! grep -Eq 'default_action[[:space:]]*=[[:space:]]*"Deny"' "$keyvault_file" ||
+  ! grep -Eq 'ip_rules[[:space:]]*=[[:space:]]*\[for address in var\.key_vault_allowed_ipv4_addresses' "$keyvault_file" ||
+  grep -Eq 'bypass[[:space:]]*=[[:space:]]*"AzureServices"|default_action[[:space:]]*=[[:space:]]*"Allow"' "$keyvault_file"; then
+  echo "::error::Key Vault networking must use explicit Deny/None ACLs and the validated app IPv4 allowlist"
+  exit 1
+fi
+
+if grep -REn '(data|resource)[[:space:]]+"azurerm_key_vault_secrets?"' "$stack_dir" --include='*.tf' --exclude-dir=.terraform --exclude-dir=.git ||
+  grep -REn 'az[[:space:]]+keyvault[[:space:]]+secret[[:space:]]+(list|show)|Get-AzKeyVaultSecret' scripts pipelines .github/workflows --exclude=check-e2e-auth-flag.sh; then
+  echo "::error::Terraform plan/apply and deployment scripts must not perform Key Vault data-plane secret lookups"
+  exit 1
+fi
