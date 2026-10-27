@@ -19,6 +19,7 @@
     "build": "npm run build --workspaces --if-present",
     "test:e2e": "playwright test",
     "db:migrate": "tsx scripts/db/migrate-cli.ts",
+    "import:legacy-metrics": "tsx scripts/import/legacy-metrics.ts",
     "db:fixtures": "tsx scripts/stack/stack.ts fixtures",
     "stack:up": "tsx scripts/stack/stack.ts up",
     "stack:down": "tsx scripts/stack/stack.ts down",
