@@ -17,6 +17,8 @@ module "app_service_plan" {
 }
 
 locals {
+  portal_app_name = "app-${local.name}-${local.suffix}"
+
   common_app_settings = {
     ENTERPRISE_SLUG                   = var.organization.enterprise_slug
     ORGANIZATIONS                     = join(",", var.organization.organizations)
@@ -50,6 +52,7 @@ locals {
   })
 
   portal_app_settings = merge(local.common_app_settings, {
+    AUTH_URL                            = coalesce(var.portal_public_url, "https://${local.portal_app_name}.azurewebsites.net")
     AZURE_CLIENT_ID                     = module.identity["portal"].client_id
     AUTH_MICROSOFT_ENTRA_ID_ID          = var.auth_microsoft_entra_id_id
     AUTH_MICROSOFT_ENTRA_ID_SECRET      = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-microsoft-entra-id-secret)", trimsuffix(module.key_vault.uri, "/"))
@@ -79,7 +82,7 @@ module "portal" {
   source  = "Azure/avm-res-web-site/azurerm"
   version = "0.24.1"
 
-  name                     = "app-${local.name}-${local.suffix}"
+  name                     = local.portal_app_name
   location                 = var.location
   parent_id                = local.resource_group_id
   kind                     = "webapp"
