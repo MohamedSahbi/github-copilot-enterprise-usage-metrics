@@ -1,7 +1,7 @@
 import sql from "mssql";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { readAccessSettings } from "../../portal/src/auth/settings";
-import { BootstrapError, parseAccessBootstrapInput, runAccessBootstrap } from "../../portal/src/access/bootstrap";
+import { parseAccessBootstrapInput, runAccessBootstrap } from "../../portal/src/access/bootstrap";
 import { SqlAccessRepository } from "../../portal/src/authz/sql-access";
 import { resolveAccess } from "../../portal/src/authz/access";
 import { openPool } from "./db";
