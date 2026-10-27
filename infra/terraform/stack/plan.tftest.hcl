@@ -17,6 +17,11 @@ mock_provider "azapi" {}
 run "demo_example" {
   command = plan
 
+  assert {
+    condition     = length(azurerm_role_assignment.secret_operators) == 0
+    error_message = "No vault-wide operator access may be granted by default."
+  }
+
   override_resource {
     target          = azurerm_resource_group.this[0]
     override_during = plan
@@ -173,6 +178,51 @@ run "portal_rejects_non_origin_url" {
   }
 
   expect_failures = [var.portal_public_url]
+}
+
+run "explicit_secret_operators" {
+  command = plan
+
+  variables {
+    key_vault_operator_object_ids = [
+      "00000000-0000-0000-0000-000000000001",
+      "AAAAAAAA-0000-0000-0000-000000000002",
+    ]
+  }
+
+  override_module {
+    target = module.key_vault
+    outputs = {
+      uri         = "https://kv-example.vault.azure.net/"
+      resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.KeyVault/vaults/kv-example"
+    }
+  }
+
+  assert {
+    condition = (
+      length(azurerm_role_assignment.secret_operators) == 2 &&
+      alltrue([for id, assignment in azurerm_role_assignment.secret_operators :
+        assignment.scope == module.key_vault.resource_id &&
+        assignment.role_definition_name == "Key Vault Secrets Officer" &&
+        assignment.principal_type == "User" &&
+        assignment.principal_id == id
+      ]) &&
+      toset(keys(azurerm_role_assignment.secret_operators)) == toset([
+        "00000000-0000-0000-0000-000000000001",
+        "aaaaaaaa-0000-0000-0000-000000000002",
+      ])
+    )
+    error_message = "Only the explicitly configured users may receive vault-scoped Secrets Officer grants."
+  }
+
+  assert {
+    condition = alltrue([for name, assignment in azurerm_role_assignment.secret_readers :
+      assignment.scope == "${module.key_vault.resource_id}/secrets/${name}" &&
+      assignment.role_definition_name == "Key Vault Secrets User" &&
+      assignment.principal_type == "ServicePrincipal"
+    ])
+    error_message = "Runtime identities must retain only per-secret Secrets User grants."
+  }
 }
 
 run "enterprise_existing_resources" {

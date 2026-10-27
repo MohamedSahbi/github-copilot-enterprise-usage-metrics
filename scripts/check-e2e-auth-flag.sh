@@ -22,12 +22,41 @@ if [[ "$keyvault_role_assignment_count" != "1" ]] ||
   exit 1
 fi
 
+# Compare whole blocks so an operator exception cannot mask a runtime grant.
+assignment_block() {
+  awk -v name="$1" '
+    /^resource "azurerm_role_assignment" / { active = ($3 == "\"" name "\"") }
+    active { print }
+    active && /^}/ { exit }
+  ' "$keyvault_file" | tr -d '[:space:]'
+}
+
+expected_readers="$(tr -d '[:space:]' <<'EOF'
+resource "azurerm_role_assignment" "secret_readers" {
+  for_each = local.secret_identity_by_name
+  scope = format("%s/secrets/%s", module.key_vault.resource_id, each.key)
+  role_definition_name = "Key Vault Secrets User"
+  principal_id = module.identity[each.value].principal_id
+  principal_type = "ServicePrincipal"
+}
+EOF
+)"
+expected_operators="$(tr -d '[:space:]' <<'EOF'
+resource "azurerm_role_assignment" "secret_operators" {
+  for_each = toset([for id in var.key_vault_operator_object_ids : lower(id)])
+  scope = module.key_vault.resource_id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id = each.value
+  principal_type = "User"
+}
+EOF
+)"
+
 assignment_count="$(grep -hE 'resource[[:space:]]+"azurerm_role_assignment"' "$stack_dir"/*.tf | wc -l | tr -d ' ')"
-if [[ "$assignment_count" != "1" ]] ||
-  ! grep -Eq 'for_each[[:space:]]*=[[:space:]]*local\.secret_identity_by_name' "$keyvault_file" ||
-  ! grep -Eq 'scope[[:space:]]*=[[:space:]]*format\("%s/secrets/%s", module\.key_vault\.resource_id, each\.key\)' "$keyvault_file" ||
-  ! grep -Eq 'principal_id[[:space:]]*=[[:space:]]*module\.identity\[each\.value\]\.principal_id' "$keyvault_file"; then
-  echo "::error::Key Vault Secrets User must be granted only at per-secret scope to that secret's component identity"
+if [[ "$assignment_count" != "2" ]] ||
+  [[ "$(assignment_block secret_readers)" != "$expected_readers" ]] ||
+  [[ "$(assignment_block secret_operators)" != "$expected_operators" ]]; then
+  echo "::error::Only per-secret runtime Secrets User and explicit user-only vault Secrets Officer grants are permitted"
   exit 1
 fi
 
