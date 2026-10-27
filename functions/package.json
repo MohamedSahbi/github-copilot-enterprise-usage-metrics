@@ -3,13 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/artifact/dist/function.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "dependencies": {
+    "@azure/functions": "^4.17.0",
     "@azure/identity": "^4.13.1",
     "@azure/storage-blob": "^12.28.0",
-    "mssql": "^12.7.11"
+    "mssql": "^12.7.11",
+    "zod": "^4.6.7"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build": "tsc -p tsconfig.json"
+    "build": "npm run build:directory && npm run build:metrics",
+    "build:directory": "node build-artifact.mjs directory",
+    "build:metrics": "node build-artifact.mjs metrics",
+    "test:artifact": "vitest run src/directory/artifact.test.ts src/metrics/artifact.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

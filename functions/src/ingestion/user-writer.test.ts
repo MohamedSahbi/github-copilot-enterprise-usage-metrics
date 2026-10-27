@@ -1,0 +1,91 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import sql from "mssql";
+import { writeMetricsUsers, writeDirectoryUsers } from "./user-writer.js";
+import type { DirectoryProfile } from "../directory/providers.js";
+import { DirectoryUserSchema } from "../../../shared/src/directory-input.js";
+
+const runId = "00000000-0000-0000-0000-000000000003";
+const row = DirectoryUserSchema.parse({
+  user_id: 42, entra_object_id: "00000000-0000-0000-0000-000000000001",
+  entra_account_enabled: true, state: "active", login: "fixture-user",
+});
+
+function fakeTransaction() {
+  const transaction = new sql.Transaction();
+  const request = new sql.Request(transaction);
+  const query = vi.spyOn(request, "query").mockImplementation(() =>
+    Promise.resolve({ recordset: [], recordsets: [], output: {}, rowsAffected: [] }));
+  const execute = vi.spyOn(request, "execute").mockImplementation(() =>
+    Promise.resolve({ recordset: [], recordsets: [], output: {}, rowsAffected: [] }));
+  let calls = 0;
+  vi.spyOn(transaction, "request").mockImplementation(() => {
+    if (calls++ === 0) return request;
+    const next = new sql.Request(transaction);
+    vi.spyOn(next, "query").mockImplementation(request.query);
+    return next;
+  });
+  return { transaction, request, query, execute };
+}
+
+describe("single logical ingestion user writer", () => {
+  it("executes the fixed metrics procedure before retaining the existing login-history write", async () => {
+    const { transaction, request, query, execute } = fakeTransaction();
+    await writeMetricsUsers(transaction, runId);
+    expect(request.parameters.run_id?.value).toBe(runId);
+    expect(request.parameters.run_id?.type).toBe(sql.UniqueIdentifier);
+    expect(execute).toHaveBeenCalledExactlyOnceWith("portal.usp_write_metrics_users");
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(execute.mock.invocationCallOrder[0]).toBeLessThan(query.mock.invocationCallOrder[0]!);
+    const statements = query.mock.calls.map(([text]) => text);
+    expect(statements.join("\n")).toContain("INSERT INTO portal.dim_user_login_history");
+    expect(statements.join("\n")).not.toMatch(/(?:UPDATE|INSERT INTO) portal\.dim_user\b/);
+    expect(createHash("sha256").update(JSON.stringify(statements)).digest("hex"))
+      .toBe("cd6b202fda2206a4fc3f9b23fce6b793ee36dae6db05ef4e92de01c997723748");
+    const caller = readFileSync(new URL("../metrics/day-loader.ts", import.meta.url), "utf8");
+    expect(caller).toContain("await writeMetricsUsers(transaction, runId);");
+    expect(caller).not.toContain("INSERT INTO portal.dim_user (");
+    expect(statements.join("\n")).not.toMatch(/manager_email|manager_entra_object_id|department|business_area|Principal|GrantRevocation/);
+  });
+
+
+  it("uses fixed parameterized directory columns without rewriting metric dates or history", async () => {
+    const { transaction, request, query } = fakeTransaction();
+    const profile: DirectoryProfile = { user: row, managerResolved: false, errorCode: "manager_read_failed" };
+    await writeDirectoryUsers(transaction, [profile]);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(request.parameters.userId?.value).toBe(42);
+    expect(request.parameters.managerResolved?.value).toBe(false);
+    const text = String(query.mock.calls[0]?.[0]);
+    expect(text).toContain("manager_resolved = @managerResolved");
+    expect(text).toContain("manager_checked_at = ");
+    expect(text).toContain("CASE WHEN @managerResolved = 1");
+    expect(text).toContain("WITH (UPDLOCK, HOLDLOCK)");
+    expect(text).not.toMatch(/first_seen_day|last_seen_day|dim_user_login_history|portal\.Principal|GrantRevocation|DELETE|MERGE/);
+    expect(text).not.toContain("fixture-user");
+  });
+
+  it("clears cached manager columns when manager resolution is authoritative", async () => {
+    const { transaction, request, query } = fakeTransaction();
+    await writeDirectoryUsers(transaction, [{ user: row, managerResolved: true, errorCode: null }]);
+    expect(request.parameters.managerResolved?.value).toBe(true);
+    expect(request.parameters.managerOid?.value).toBe(null);
+    expect(request.parameters.managerEmail?.value).toBe(null);
+    const text = String(query.mock.calls[0]?.[0]);
+    expect(text).toContain("manager_entra_object_id = CASE WHEN @managerResolved = 1 THEN @managerOid ELSE manager_entra_object_id END");
+    expect(text).toContain("manager_email = CASE WHEN @managerResolved = 1 THEN @managerEmail ELSE manager_email END");
+    expect(text).toContain("manager_resolved = @managerResolved");
+    expect(text.indexOf("DIRECTORY_IDENTITY_CONFLICT")).toBeLessThan(text.indexOf("UPDATE portal.dim_user"));
+    expect(text).toContain("entra_object_id <> @entraOid");
+    expect(text).toContain("user_id <> @userId");
+  });
+
+  it("honors the existing deleted-state timestamp constraint for CSV records", async () => {
+    const { transaction, query } = fakeTransaction();
+    await writeDirectoryUsers(transaction, [{ user: { ...row, state: "deleted" }, managerResolved: true, errorCode: null }]);
+    const text = String(query.mock.calls[0]?.[0]);
+    expect(text).toContain("deleted_at = CASE WHEN @state = 'deleted'");
+    expect(text).toContain("CASE WHEN @state = 'deleted' THEN SYSUTCDATETIME() ELSE NULL END");
+  });
+});

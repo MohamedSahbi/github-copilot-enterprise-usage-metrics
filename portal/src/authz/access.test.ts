@@ -15,6 +15,7 @@ const repo = (roles: ("admin" | "manager" | "user")[] = ["user"]): AccessReposit
     principal: { principal_id: "00000000-0000-4000-8000-000000000003", entra_tenant_id: identity.tenantId,
       entra_object_id: identity.objectId, github_user_id: 1001, status: "active" },
     grants: roles.map((role) => ({ role, scope: role === "admin" ? "company" : role === "manager" ? "team" : "self", scope_value: "" })),
+    teamAvailable: true,
     sync: ["scim", "graph", "seats"].map((source) => ({ source, last_success_at: now })),
   }),
 });
@@ -64,6 +65,16 @@ describe("fail-closed access resolution", () => {
     if (result.state === "authorized") expect(result.namesVisible).toBe(false);
     const detail = await resolveAccess(identity, repo(), { ...settings, perUserDetailEnabled: true }, now);
     if (detail.state === "authorized") expect(detail.namesVisible).toBe(true);
+  });
+  it.each([false, undefined])("denies team grants when resolved report availability is %s without changing self access", async (teamAvailable) => {
+    const base = await repo(["manager", "user"]).read(identity);
+    const result = await resolveAccess(identity, { read: async () => ({ ...base, teamAvailable }) }, settings, now);
+    expect(result.state).toBe("authorized");
+    if (result.state === "authorized") expect(result.grants.map(({ scope }) => scope)).toEqual(["self"]);
+  });
+  it("retains team grants with fresh reports despite unrelated source-level failure or staleness", async () => {
+    const base = await repo(["manager"]).read(identity);
+    expect((await resolveAccess(identity, { read: async () => ({ ...base, sync: [] }) }, settings, now)).state).toBe("authorized");
   });
   it("break-glass reaches only admin and health during an outage", async () => {
     const group = "00000000-0000-4000-8000-000000000004";

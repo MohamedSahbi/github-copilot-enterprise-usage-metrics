@@ -17,6 +17,8 @@ module "app_service_plan" {
 }
 
 locals {
+  portal_app_name = "app-${local.name}-${local.suffix}"
+
   common_app_settings = {
     ENTERPRISE_SLUG                   = var.organization.enterprise_slug
     ORGANIZATIONS                     = join(",", var.organization.organizations)
@@ -42,6 +44,9 @@ locals {
   ingestion_key_vault_reference_identity = module.identity["ingestion"].resource_id
 
   directory_app_settings = merge(local.common_app_settings, {
+    DIRECTORY_SYNC_SCHEDULE          = var.directory_sync_schedule
+    FUNCTIONS_EXTENSION_VERSION      = "~4"
+    FUNCTIONS_WORKER_RUNTIME         = "node"
     AZURE_CLIENT_ID                  = module.identity["directory"].client_id
     AzureWebJobsStorage__accountName = module.directory_host_storage.name
     AzureWebJobsStorage__credential  = "managedidentity"
@@ -50,6 +55,7 @@ locals {
   })
 
   portal_app_settings = merge(local.common_app_settings, {
+    AUTH_URL                            = coalesce(var.portal_public_url, "https://${local.portal_app_name}.azurewebsites.net")
     AZURE_CLIENT_ID                     = module.identity["portal"].client_id
     AUTH_MICROSOFT_ENTRA_ID_ID          = var.auth_microsoft_entra_id_id
     AUTH_MICROSOFT_ENTRA_ID_SECRET      = format("@Microsoft.KeyVault(SecretUri=%s/secrets/auth-microsoft-entra-id-secret)", trimsuffix(module.key_vault.uri, "/"))
@@ -65,11 +71,18 @@ locals {
   }, local.portal_auth_trust_host_setting)
 
   ingestion_app_settings = merge(local.common_app_settings, {
-    AZURE_CLIENT_ID        = module.identity["ingestion"].client_id
-    GITHUB_APP_ID          = var.github_app_id
-    GITHUB_APP_PRIVATE_KEY = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)", trimsuffix(module.key_vault.uri, "/"))
-    RAW_ARCHIVE_ACCOUNT    = module.storage.name
-    RAW_ARCHIVE_CONTAINER  = "raw"
+    METRICS_SYNC_SCHEDULE               = var.metrics_sync_schedule
+    FUNCTIONS_EXTENSION_VERSION         = "~4"
+    FUNCTIONS_WORKER_RUNTIME            = "node"
+    "AzureWebJobs.metricsSync.Disabled" = "true"
+    AzureWebJobsStorage__accountName    = module.storage.name
+    AzureWebJobsStorage__credential     = "managedidentity"
+    AzureWebJobsStorage__clientId       = module.identity["ingestion"].client_id
+    AZURE_CLIENT_ID                     = module.identity["ingestion"].client_id
+    GITHUB_APP_ID                       = var.github_app_id
+    GITHUB_APP_PRIVATE_KEY              = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-app-private-key)", trimsuffix(module.key_vault.uri, "/"))
+    RAW_ARCHIVE_ACCOUNT                 = module.storage.name
+    RAW_ARCHIVE_CONTAINER               = "raw"
     }, var.backfill_from == null ? {} : {
     BACKFILL_FROM = var.backfill_from
   })
@@ -79,7 +92,7 @@ module "portal" {
   source  = "Azure/avm-res-web-site/azurerm"
   version = "0.24.1"
 
-  name                     = "app-${local.name}-${local.suffix}"
+  name                     = local.portal_app_name
   location                 = var.location
   parent_id                = local.resource_group_id
   kind                     = "webapp"
@@ -93,10 +106,7 @@ module "portal" {
   key_vault_reference_identity           = module.identity["portal"].resource_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["portal"].resource_id] }
-  depends_on = [
-    terraform_data.required_key_vault_secrets,
-    azurerm_role_assignment.secret_readers,
-  ]
+  depends_on         = [azurerm_role_assignment.secret_readers]
 
   site_config = {
     application_stack = { node = { node_version = "22-lts" } }
@@ -129,10 +139,7 @@ module "ingestion" {
   storage_user_assigned_identity_client_id = module.identity["ingestion"].client_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["ingestion"].resource_id] }
-  depends_on = [
-    terraform_data.required_key_vault_secrets,
-    azurerm_role_assignment.secret_readers,
-  ]
+  depends_on         = [azurerm_role_assignment.secret_readers]
 
   site_config = {
     application_stack = { node = { node_version = "22" } }
@@ -168,7 +175,6 @@ module "directory" {
 
   managed_identities = { user_assigned_resource_ids = [module.identity["directory"].resource_id] }
   depends_on = [
-    terraform_data.required_key_vault_secrets,
     azurerm_role_assignment.secret_readers,
     module.directory_host_storage,
   ]

@@ -1,0 +1,6 @@
+{
+  "report_day": "2026-10-25",
+  "download_links": [
+    "https://reports.blob.core.windows.net/reports/part?sig=SECRET_MARKER"
+  ]
+}

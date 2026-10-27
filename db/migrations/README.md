@@ -53,9 +53,33 @@ Migration headers already name these writers; none is changed by this inventory.
 
 | Existing SQL role | Directory and access permissions after all migrations |
 | --- | --- |
-| `portal_ingest` | INSERT/UPDATE `dim_user`, login history and `DirectorySyncState`; login-history DELETE only through `usp_purge_login_history`. INSERT `PrincipalLinkState`, UPDATE only its unlink fields; INSERT `GrantRevocation` and `IngestionAuditEvent`; UPDATE on the access-event sequence |
+| `portal_ingest` | Unchanged until consumer: existing `dim_user` permissions remain so the current loader continues publishing. A later hardening migration removes direct writes after the procedure consumer merges; do not map either component identity to this broad role |
+| `portal_metrics_ingest` | Metrics run store, constrained staging bulk, dimensions, login history, facts, aggregate and checkpoint permissions; no direct `dim_user` DML. `dim_user` observations go only through `portal.usp_write_metrics_users(@run_id)` |
+| `portal_directory_ingest` | SELECT/INSERT/UPDATE on `IngestionRun` and `DirectorySyncState`; SELECT/INSERT on `dim_user` and column-limited UPDATE for directory profile, lifecycle, hierarchy and resolution evidence. No grants to portal-owned principal/grant/revocation/audit surfaces |
 | `portal_ingest` exclusions | No INSERT/UPDATE/DELETE grants on `Principal`, `PrincipalIdentity` or `AccessGrant`; explicit SELECT denial on those tables and `v_active_grant`. No INSERT on portal-owned `AuditLog`; audit/revocation UPDATE/DELETE and link DELETE are denied |
 | `portal_writer` / `portal_reader` | Read active grants through the existing view. Portal writer owns principal/grant changes, but principal Entra columns cannot be directly updated and grants can only be updated at `revoked_at`; existing one-time `usp_link_principal_entra` handles initial linking |
+
+`portal.usp_write_metrics_users` is a static same-owner procedure. It reads only `user_id`,
+`user_login` and `usage_day` from metrics staging for the supplied run, preserves the existing
+grouping/COALESCE/date behavior, and changes only the observation columns on `dim_user`.
+It requires the caller's SERIALIZABLE publication transaction and does not commit it or acquire,
+release or change the caller's day lock. Table-level DENYs protect direct writes; explicit
+column-level DENYs protect directory fields from SQL Server's column-GRANT exception. The
+contained-user contract tests execute the procedure and denied writes as real database users.
+
+The component roles are permissions only, not a deployment or identity mapping. A runtime
+principal must not inherit `portal_ingest`, the other component role, any unrelated database
+role, direct grants, or schema/object ownership. The operator preflight in
+[`database-grants.md`](../../docs/runbooks/database-grants.md) checks recursive membership,
+PUBLIC, direct permissions, ownership, effective DDL and procedure execution, and protected
+column rights before mapping. It fails on unsafe state; it never removes unrelated role
+memberships. An additive component-role membership does not narrow broader inherited access.
+
+Under D-47, this contract merges first without changing legacy `portal_ingest` rights.
+The separate Functions consumer PR then switches the metrics loader to the procedure.
+A subsequent small hardening migration PR removes `portal_ingest`'s direct `dim_user`
+writes. Until that hardening lands, this contract does not isolate a runtime identity
+that still uses the legacy role. Deployment and runtime mapping remain separately gated.
 
 The existing principal tenant/object pairing, unique identity indexes,
 `PrincipalIdentity` principal FK and `AccessGrant` principal/Entra composite FK
@@ -69,7 +93,23 @@ existing maintenance-window gate still apply.
 `npm run test:sql` uses the existing disposable SQL Server 2022 container harness:
 random container name and password, dynamically allocated loopback port, isolated
 test databases, and cleanup of that container only. It never uses the local
-stack's database or an Azure/old database.
+stack's database or an Azure/old database. The component effective-permission
+assertions are shared with an explicit, externally allocated SQL adapter; that
+adapter never creates or deletes a database or manages a container.
+
+The hosted `sql-migrations` CI job runs `npm run test:sql`; its access-model suite
+invokes the shared component assertions as separate `EXECUTE AS USER` principals.
+For an allocator-owned local SQL window only, the opt-in command is
+`COMPONENT_INGESTION_SQL_TESTS=1 npx vitest run scripts/contracts/component-ingestion-sql.test.ts`.
+Supply `COMPONENT_INGESTION_SQL_CONNECTION_STRING`,
+`COMPONENT_INGESTION_SQL_CONTAINER_ID`, `COMPONENT_INGESTION_SQL_CONFIG_HASH`,
+`COMPONENT_INGESTION_SQL_LAUNCHER_PID` and
+`COMPONENT_INGESTION_SQL_LAUNCHER_START_UTC` through the session's ephemeral
+environment, never as logged command text. The adapter verifies the exact
+allocator-labelled container, loopback endpoint and empty synthetic DB before
+applying migrations. It performs no Docker lifecycle or database create/drop.
+The opt-in suite is not part of ordinary local tests; hosted CI executes the
+shared assertions through `npm run test:sql`.
 
 The added test, **reuses the directory contract tables after two applies and
 isolates ingestion writes from portal ownership**, compares all six directory

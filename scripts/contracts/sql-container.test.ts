@@ -8,6 +8,7 @@ import { join } from "node:path";
 import sql from "mssql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TABLE_COLUMNS } from "../../shared/src/rows";
+import { assertComponentIngestionPermissions } from "./component-ingestion-permissions";
 import { migrate } from "../db/migrate";
 import { splitBatches } from "../db/split-go";
 import { createStagingContext, mapUsersDayLine } from "./reference/staging";
@@ -87,11 +88,25 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(count?.n).toBe(realFiles.length);
   }, 240_000);
 
+  it("fails closed when a component role name is occupied by a non-role principal", async () => {
+    const db = await freshDb();
+    const migration = "20261027095703.do.component-ingestion-user-write.sql";
+    const oldDir = copyMigrations();
+    rmSync(join(oldDir, migration));
+    await migrate({ connectionString: cs(db), dir: oldDir });
+    await query(db, "CREATE USER portal_metrics_ingest WITHOUT LOGIN");
+    const batches = splitBatches(readFileSync(join(realMigrations, migration), "utf8"));
+    await query(db, batches[0] ?? "");
+    await query(db, batches[1] ?? "");
+    await expect(query(db, batches[2] ?? "")).rejects.toThrow(/role name is occupied by a non-role principal/i);
+  }, 240_000);
+
   it("upgrades populated restoration tables without fabrication and accepts nullable bounded storage", async () => {
     const db = await freshDb();
     const migration = "20261026010000.do.restoration-nullable-contract.sql";
     const oldDir = copyMigrations();
-    rmSync(join(oldDir, migration));
+    const pendingFiles = realFiles.filter((file) => file >= migration);
+    for (const file of pendingFiles) rmSync(join(oldDir, file));
     await migrate({ connectionString: cs(db), dir: oldDir });
     await query(db, `
       DECLARE @run UNIQUEIDENTIFIER = '00000000-0000-4000-8000-000000000120';
@@ -132,7 +147,7 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
          loc_suggested_to_delete, loc_added, loc_deleted, run_id, source_artifact_id, transform_version)
         VALUES (120, 120, '2026-03-02', 'client', 'copilot_cli', '', 0, 0, 0, 0, 0, 0, 0, @run, @artifact, '1');
     `);
-    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(1);
+    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(pendingFiles.length);
     expect((await migrate({ connectionString: cs(db) })).applied).toEqual([]);
     for (const batch of splitBatches(readFileSync(join(realMigrations, migration), "utf8"))) await query(db, batch);
     for (const table of ["stg_user_daily", "fact_user_daily_usage"]) {
@@ -174,6 +189,62 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
         is_nullable: true, default_object_id: 0,
       });
     }
+  }, 240_000);
+
+  it("adds unresolved manager defaults to populated users and preserves evidence on rerun", async () => {
+    const db = await freshDb();
+    const migration = "20261027092500.do.user-manager-resolution-contract.sql";
+    const oldDir = copyMigrations();
+    const pendingFiles = realFiles.filter((file) => file >= migration);
+    for (const file of pendingFiles) rmSync(join(oldDir, file));
+    await migrate({ connectionString: cs(db), dir: oldDir });
+    await query(db, `
+      INSERT INTO portal.dim_user (user_id, login, entra_object_id, manager_entra_object_id,
+        manager_email, department, business_area)
+      VALUES (7101, N'directory-fixture', 'aaaaaaaa-0000-0000-0000-000000007101',
+        'aaaaaaaa-0000-0000-0000-000000007102', N'manager@example.test', N'department', N'area');
+      INSERT INTO portal.dim_user (user_id) VALUES (7102);
+    `);
+    const before = await query(db, "SELECT * FROM portal.dim_user ORDER BY user_id");
+    expect((await migrate({ connectionString: cs(db) })).applied).toHaveLength(pendingFiles.length);
+    expect(await query(db, "SELECT * FROM portal.dim_user ORDER BY user_id"))
+      .toEqual(before.map((row) => ({ ...row, manager_resolved: false, manager_checked_at: null })));
+
+    await query(db, `
+      INSERT INTO portal.dim_user (user_id) VALUES (7103);
+      UPDATE portal.dim_user SET manager_resolved = 1, manager_checked_at = '2026-10-27T09:00:00'
+        WHERE user_id IN (7101, 7102);
+      UPDATE portal.dim_user SET manager_checked_at = '2026-10-27T09:01:00' WHERE user_id = 7103;
+    `);
+    expect(await query(db, `SELECT user_id, manager_resolved, manager_checked_at
+      FROM portal.dim_user ORDER BY user_id`)).toEqual([
+      { user_id: "7101", manager_resolved: true, manager_checked_at: new Date("2026-10-27T09:00:00Z") },
+      { user_id: "7102", manager_resolved: true, manager_checked_at: new Date("2026-10-27T09:00:00Z") },
+      { user_id: "7103", manager_resolved: false, manager_checked_at: new Date("2026-10-27T09:01:00Z") },
+    ]);
+    await query(db, "INSERT INTO portal.dim_user (user_id) VALUES (7104)");
+    expect(await query(db, `SELECT manager_resolved, manager_checked_at
+      FROM portal.dim_user WHERE user_id = 7104`))
+      .toEqual([{ manager_resolved: false, manager_checked_at: null }]);
+    await expect(query(db, "UPDATE portal.dim_user SET manager_resolved = NULL WHERE user_id = 7104"))
+      .rejects.toThrow(/NULL/i);
+    const populated = await query(db, "SELECT * FROM portal.dim_user ORDER BY user_id");
+    expect((await migrate({ connectionString: cs(db) })).applied).toEqual([]);
+    for (const batch of splitBatches(readFileSync(join(realMigrations, migration), "utf8"))) await query(db, batch);
+    expect(await query(db, "SELECT * FROM portal.dim_user ORDER BY user_id")).toEqual(populated);
+
+    const columns = await query(db, `
+      SELECT c.name, TYPE_NAME(c.user_type_id) AS type_name, c.is_nullable, c.scale,
+        dc.name AS default_name, dc.definition AS default_definition
+      FROM sys.columns c LEFT JOIN sys.default_constraints dc ON dc.object_id = c.default_object_id
+      WHERE c.object_id = OBJECT_ID('portal.dim_user')
+        AND c.name IN ('manager_resolved', 'manager_checked_at') ORDER BY c.column_id`);
+    expect(columns).toEqual([
+      { name: "manager_resolved", type_name: "bit", is_nullable: false, scale: 0,
+        default_name: "DF_dim_user_manager_resolved", default_definition: "((0))" },
+      { name: "manager_checked_at", type_name: "datetime2", is_nullable: true, scale: 0,
+        default_name: null, default_definition: null },
+    ]);
   }, 240_000);
 
   it("keeps delimiter-containing billing keys distinct across staging, facts and aggregates", async () => {
@@ -628,6 +699,43 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
       asUserFails("t_ingest", "DELETE FROM portal.dim_user_login_history WHERE user_id = 3004");
       expect(() => asUser("t_ingest", "EXEC portal.usp_purge_login_history @max_age_months = 24")).not.toThrow();
       expect(run("SELECT COUNT(*) FROM portal.dim_user_login_history WHERE user_id = 3004")).toBe("0");
+    });
+
+    it("preserves legacy ingestion user writes until the procedure consumer merges", () => {
+      expect(() => asUser("t_ingest", `
+        BEGIN TRANSACTION;
+        INSERT INTO portal.dim_user (user_id, login) VALUES (3005, N'legacy-observation');
+        UPDATE portal.dim_user SET login = N'legacy-updated' WHERE user_id = 3005;
+        IF NOT EXISTS (SELECT 1 FROM portal.dim_user WHERE user_id = 3005 AND login = N'legacy-updated')
+          THROW 50146, N'The contract broke the legacy metrics user writer', 1;
+        ROLLBACK TRANSACTION;
+      `)).not.toThrow();
+    });
+
+    it("reapplies the component ingestion migration without changing its permission catalog", () => {
+      const migration = "20261027095703.do.component-ingestion-user-write.sql";
+      const batches = splitBatches(readFileSync(join(realMigrations, migration), "utf8"));
+      const permissions = (): string => run(`
+        SELECT COUNT(*) FROM sys.database_permissions
+        WHERE grantee_principal_id IN (
+          DATABASE_PRINCIPAL_ID(N'portal_metrics_ingest'),
+          DATABASE_PRINCIPAL_ID(N'portal_directory_ingest'),
+          DATABASE_PRINCIPAL_ID(N'portal_ingest')
+        )
+      `);
+      const before = permissions();
+      for (const batch of batches) sqlcmd("-d", "portal_test", "-Q", batch);
+      expect(permissions()).toBe(before);
+    });
+
+    it("enforces the component-scoped metrics and directory ingestion contract", async () => {
+      await assertComponentIngestionPermissions({
+        execute: async (statement) => { run(statement); },
+        expectDenied: async (statement) => {
+          fails(statement, /permission (?:was )?denied|do not have permission|permission denied/i);
+        },
+        expectError: async (statement, message) => { fails(statement, message); },
+      });
     });
 
     it("lets ingestion unlink but not relink or delete, and keeps the audit tables append-only", () => {

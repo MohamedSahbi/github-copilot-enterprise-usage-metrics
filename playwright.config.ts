@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { AUTH_TENANT } from "./scripts/integration/auth-seed";
+import { e2eWebServerCommand } from "./scripts/e2e/web-server";
 
 const port = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = process.env.BASE_URL ?? `http://127.0.0.1:${port}`;
@@ -26,7 +27,7 @@ export default defineConfig({
   webServer: process.env.BASE_URL
     ? undefined
     : {
-        command: "npm run dev -w portal -- --port " + port,
+        command: e2eWebServerCommand(port, process.env.E2E_DEV_BUNDLER),
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
         env: {

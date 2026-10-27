@@ -1,0 +1,9 @@
+{
+  "status": 404,
+  "body": {
+    "error": {
+      "code": "Request_ResourceNotFound",
+      "message": "Synthetic fixture: no manager assigned."
+    }
+  }
+}

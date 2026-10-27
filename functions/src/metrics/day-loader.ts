@@ -6,6 +6,7 @@ import { computeAdoption, type AdoptionRow } from "../../../shared/src/metrics.j
 import { FEATURE_TAXONOMY } from "../../../shared/src/features.js";
 import { TABLE_COLUMNS, type StgUserBreakdownRow, type StgUserDailyRow, type StgUserFamilyCountRow } from "../../../shared/src/rows.js";
 import { parseMetricsDay, type MetricsValidationIssue } from "./day-parser.js";
+import { writeMetricsUsers } from "../ingestion/user-writer.js";
 
 const TRANSFORM_VERSION = "1";
 const BLOB_PREFIX = "raw/users_1_day";
@@ -434,39 +435,7 @@ async function publish(
         IF @@ROWCOUNT = 0
           INSERT INTO portal.dim_organization (organization_id, login) VALUES (@organizationId, @organizationLogin)`);
 
-    await request()
-      .input("runId", sql.UniqueIdentifier, runId)
-      .query(`
-        UPDATE u WITH (UPDLOCK, HOLDLOCK)
-        SET login = COALESCE(s.user_login, u.login),
-            first_seen_day = CASE WHEN u.first_seen_day IS NULL OR s.usage_day < u.first_seen_day THEN s.usage_day ELSE u.first_seen_day END,
-            last_seen_day = CASE WHEN u.last_seen_day IS NULL OR s.usage_day > u.last_seen_day THEN s.usage_day ELSE u.last_seen_day END,
-            updated_at = SYSUTCDATETIME()
-        FROM portal.dim_user AS u
-        JOIN (SELECT user_id, MAX(user_login) AS user_login, MIN(usage_day) AS usage_day FROM portal.stg_user_daily WHERE run_id = @runId GROUP BY user_id) AS s
-          ON s.user_id = u.user_id;
-        INSERT INTO portal.dim_user (user_id, login, first_seen_day, last_seen_day)
-        SELECT s.user_id, s.user_login, s.usage_day, s.usage_day
-        FROM (SELECT user_id, MAX(user_login) AS user_login, MIN(usage_day) AS usage_day FROM portal.stg_user_daily WHERE run_id = @runId GROUP BY user_id) AS s
-        WHERE NOT EXISTS (SELECT 1 FROM portal.dim_user AS u WITH (UPDLOCK, HOLDLOCK) WHERE u.user_id = s.user_id)`);
-
-    await request()
-      .input("runId", sql.UniqueIdentifier, runId)
-      .query(`
-        UPDATE h WITH (UPDLOCK, HOLDLOCK)
-        SET first_seen_day = CASE WHEN s.usage_day < h.first_seen_day THEN s.usage_day ELSE h.first_seen_day END,
-            last_seen_day = CASE WHEN s.usage_day > h.last_seen_day THEN s.usage_day ELSE h.last_seen_day END
-        FROM portal.dim_user_login_history AS h
-        JOIN (SELECT user_id, user_login AS login, MIN(usage_day) AS usage_day FROM portal.stg_user_daily
-              WHERE run_id = @runId AND user_login IS NOT NULL GROUP BY user_id, user_login) AS s
-          ON s.user_id = h.user_id AND s.login = h.login;
-        INSERT INTO portal.dim_user_login_history (user_id, login, first_seen_day, last_seen_day, is_hashed_login)
-        SELECT s.user_id, s.login, s.usage_day, s.usage_day,
-               CASE WHEN s.login LIKE REPLICATE('[0-9a-f]', 20) + '%' THEN 1 ELSE 0 END
-        FROM (SELECT user_id, user_login AS login, MIN(usage_day) AS usage_day FROM portal.stg_user_daily
-              WHERE run_id = @runId AND user_login IS NOT NULL GROUP BY user_id, user_login) AS s
-        WHERE NOT EXISTS (SELECT 1 FROM portal.dim_user_login_history AS h WITH (UPDLOCK, HOLDLOCK)
-                          WHERE h.user_id = s.user_id AND h.login = s.login)`);
+    await writeMetricsUsers(transaction, runId);
 
     await seedDimensions(transaction, runId);
     await request()
