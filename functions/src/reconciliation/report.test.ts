@@ -146,7 +146,7 @@ describe("metrics day reconciliation", () => {
       organizationId, reportDay, manifest, ...current,
       rejects: [{ lineNumber: 2, sha256: createHash("sha256").update(content.toString().split("\n")[1]!).digest("hex") }],
     });
-    expect(result.summary.status).toBe("unexplained");
+    expect(result.summary.status).toBe("incomplete");
     expect(result.summary.checks.find((check) => check.check === "totals")!.explanation).toBeNull();
   });
   it("never matches accepted-only manifest claims against a larger same-digest raw archive", () => {

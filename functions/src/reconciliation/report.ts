@@ -185,6 +185,8 @@ export function compareMetricsDay(input: DayInput): { summary: MetricsDayReconci
   let archiveValid = false;
   let accepted: MetricsUserEvidence[] = [];
   let rawUsers: MetricsUserEvidence[] = [];
+  let rawTotals: MetricsDayTotals | null = null;
+  let acceptedTotals: MetricsDayTotals | null = null;
   let rejectionProof = false;
   if (archive && artifact && run && runValid) {
     try {
@@ -192,6 +194,8 @@ export function compareMetricsDay(input: DayInput): { summary: MetricsDayReconci
       rawUsers = raw.rows;
       const loaded = parseMetricsDay(raw.text, { organizationId, reportDay, runId: run.runId, artifactId: artifact.artifactId });
       accepted = loaded.rows.map((row) => row.daily);
+      rawTotals = sumMetrics(raw.rows);
+      acceptedTotals = sumMetrics(accepted);
       const rejected = loaded.issues.filter((issue) => issue.severity === "reject");
       const uniqueRejects = new Set(rejected.map((issue) => issue.line_number));
       const rejectLines = new Set(rejects.map((issue) => issue.lineNumber));
@@ -206,7 +210,13 @@ export function compareMetricsDay(input: DayInput): { summary: MetricsDayReconci
       archiveValid = false;
     }
   }
-  const ready = evidenceCheck.outcome === "matched" && runValid && artifact !== null && archiveValid && available !== null;
+  const rawClaimsConsistent = available !== null && artifact !== null && rawTotals !== null &&
+    (available.artifact.sha256 !== artifact.sha256 || (
+      available.artifact.nonEmptyLines === rawUsers.length && available.artifact.jsonObjects === rawUsers.length &&
+      available.artifact.distinctUserKeys === rawUsers.length && equalTotals(available.totals, rawTotals)
+    ));
+  const ready = evidenceCheck.outcome === "matched" && runValid && artifact !== null && archiveValid &&
+    available !== null && rawClaimsConsistent;
   const scalar = (check: MetricsCheck, left: string | number | null, right: string | number | null) =>
     add(check, !ready ? "incomplete" : left === right ? "matched" : "unexplained", left, right);
   scalar("lineage_sha256", available?.artifact.sha256 ?? null, artifact?.sha256 ?? null);
@@ -214,10 +224,10 @@ export function compareMetricsDay(input: DayInput): { summary: MetricsDayReconci
   scalar("row_count", available?.artifact.nonEmptyLines ?? null, artifact?.rowCount ?? null);
   scalar("rows_accounted", available?.artifact.nonEmptyLines ?? null, run?.rowsRead ?? null);
 
-  const sqlMatchesArchive = ready && facts !== null && facts.rowCount === accepted.length && equalTotals(facts.totals, sumMetrics(accepted));
+  const sqlMatchesArchive = ready && facts !== null && acceptedTotals !== null &&
+    facts.rowCount === accepted.length && equalTotals(facts.totals, acceptedTotals);
   const sameArtifact = ready && available.artifact.sha256 === artifact.sha256 && available.artifact.sizeBytes === artifact.sizeBytes &&
-    available.artifact.nonEmptyLines === rawUsers.length && available.artifact.jsonObjects === rawUsers.length &&
-    available.artifact.distinctUserKeys === rawUsers.length && equalTotals(available.totals, sumMetrics(rawUsers));
+    rawClaimsConsistent;
   // An explanation needs exact bytes, accepted-row agreement and the rejected line/hash multiset, not just a count.
   const canExplain = sameArtifact && sqlMatchesArchive && rejectionProof && run.rowsQuarantined! > 0;
   const userDelta = available && facts ? Math.abs(available.artifact.distinctUserKeys - facts.rowCount) : 0;
@@ -230,7 +240,7 @@ export function compareMetricsDay(input: DayInput): { summary: MetricsDayReconci
   if (ready && !sqlMatchesArchive && checks.every((check) => check.check !== "totals" || check.outcome === "matched")) {
     const check = checks.find((check) => check.check === "totals")!;
     check.outcome = "unexplained";
-    check.differingCount = Math.max(1, facts ? differences(facts.totals, sumMetrics(accepted)).length : 1);
+    check.differingCount = Math.max(1, facts && acceptedTotals ? differences(facts.totals, acceptedTotals).length : 1);
   }
   const perUserDifferences: MetricsDayReconciliationDetail["perUserDifferences"] = [];
   if (available?.perUser) {
