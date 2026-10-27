@@ -9,7 +9,7 @@ import {
 import type {
   BudgetLookupBudget,
   BudgetLookupRequest,
-  BudgetLookupResponse,
+  DeferredBudgetLookupResponse,
   CoreViewCohort,
   CoreViewMetric,
   CoreViewScopeSelection,
@@ -216,14 +216,14 @@ describe("Budget Lookup contract", () => {
     });
   });
 
-  it("accepts numeric GitHub user IDs and cost-center names as distinct lookup keys", () => {
-    const userRequest: BudgetLookupRequest = { userId: 123 };
-    const costCenterRequest: BudgetLookupRequest = { costCenterName: "{cost-center}" };
+  it("accepts normalized self and numeric targets, not deferred center lookups", () => {
+    const userRequest: BudgetLookupRequest = { target: "user", userId: 123 };
+    const selfRequest: BudgetLookupRequest = { target: "self" };
 
     expect(validateBudgetLookupRequest(userRequest)).toEqual({ ok: true, request: userRequest });
-    expect(validateBudgetLookupRequest({ costCenterName: " {cost-center} " })).toEqual({
+    expect(validateBudgetLookupRequest(selfRequest)).toEqual({
       ok: true,
-      request: costCenterRequest,
+      request: selfRequest,
     });
   });
 
@@ -245,11 +245,11 @@ describe("Budget Lookup contract", () => {
     expect(validateBudgetLookupRequest(request)).toEqual({ ok: false, code: "invalid_request" });
   });
 
-  it("accepts cost-center names at GitHub's 255-character limit", () => {
+  it("rejects deferred cost-center lookups even at GitHub's valid name limit", () => {
     const costCenterName = "c".repeat(255);
     expect(validateBudgetLookupRequest({ costCenterName })).toEqual({
-      ok: true,
-      request: { costCenterName },
+      ok: false,
+      code: "invalid_request",
     });
   });
 
@@ -332,7 +332,7 @@ describe("Budget Lookup contract", () => {
         ],
         costCenterMemberships: [{ id: "center-id", name: "{cost-center}", state: "active" }],
       },
-    } satisfies BudgetLookupResponse;
+    } satisfies DeferredBudgetLookupResponse;
 
     expect(exactDecimal18_9(response.data.budgets[0]!.amount)).toBe("1250");
     expect(exactDecimal18_9(response.data.effectiveBudget!.amount)).toBe("1250");
@@ -360,7 +360,7 @@ describe("Budget Lookup contract", () => {
         ],
         costCenterMemberships: [],
       },
-    } satisfies BudgetLookupResponse;
+    } satisfies DeferredBudgetLookupResponse;
     expect(unmappedUserResponse.data.userId).toBeNull();
     expect(unmappedUserResponse.data.userStates[0]!.userId).toBeNull();
   });
@@ -402,7 +402,7 @@ describe("Budget Lookup contract", () => {
           },
         ],
       },
-    } satisfies BudgetLookupResponse;
+    } satisfies DeferredBudgetLookupResponse;
 
     expect(response.data.members[0]!.userId).toBe(123);
     expect(response.data.members[1]!.userId).toBeNull();
