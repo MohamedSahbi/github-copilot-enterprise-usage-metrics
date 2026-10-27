@@ -1,22 +1,12 @@
 import sql from "mssql";
+import { createMetricsUserWriteCommand } from "../../../shared/src/metrics-user-write.js";
 import type { DirectoryProfile } from "../directory/providers.js";
 
 export async function writeMetricsUsers(transaction: sql.Transaction, runId: string): Promise<void> {
+  const command = createMetricsUserWriteCommand(runId);
   await transaction.request()
-      .input("runId", sql.UniqueIdentifier, runId)
-      .query(`
-        UPDATE u WITH (UPDLOCK, HOLDLOCK)
-        SET login = COALESCE(s.user_login, u.login),
-            first_seen_day = CASE WHEN u.first_seen_day IS NULL OR s.usage_day < u.first_seen_day THEN s.usage_day ELSE u.first_seen_day END,
-            last_seen_day = CASE WHEN u.last_seen_day IS NULL OR s.usage_day > u.last_seen_day THEN s.usage_day ELSE u.last_seen_day END,
-            updated_at = SYSUTCDATETIME()
-        FROM portal.dim_user AS u
-        JOIN (SELECT user_id, MAX(user_login) AS user_login, MIN(usage_day) AS usage_day FROM portal.stg_user_daily WHERE run_id = @runId GROUP BY user_id) AS s
-          ON s.user_id = u.user_id;
-        INSERT INTO portal.dim_user (user_id, login, first_seen_day, last_seen_day)
-        SELECT s.user_id, s.user_login, s.usage_day, s.usage_day
-        FROM (SELECT user_id, MAX(user_login) AS user_login, MIN(usage_day) AS usage_day FROM portal.stg_user_daily WHERE run_id = @runId GROUP BY user_id) AS s
-        WHERE NOT EXISTS (SELECT 1 FROM portal.dim_user AS u WITH (UPDLOCK, HOLDLOCK) WHERE u.user_id = s.user_id)`);
+    .input(command.parameterName, sql.UniqueIdentifier, command.parameters.run_id)
+    .execute(command.procedure);
 
   await transaction.request()
       .input("runId", sql.UniqueIdentifier, runId)

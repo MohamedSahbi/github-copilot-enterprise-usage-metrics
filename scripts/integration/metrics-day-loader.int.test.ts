@@ -5,6 +5,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "../db/migrate";
 import { localConnectionString } from "../stack/config";
 import { loadMetricsDay } from "../../functions/src/metrics/day-loader";
+import { writeMetricsUsers } from "../../functions/src/ingestion/user-writer";
+import { TABLE_COLUMNS } from "../../shared/src/rows";
 
 const database = `metrics_loader_${process.pid}`;
 const testConnection = localConnectionString(process.env, database);
@@ -343,7 +345,7 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
     expect(checkpoint?.last_run_id?.toLowerCase()).toBe(baseline.runId);
   });
 
-  it("publishes with the portal_ingest role's SourceArtifact permissions", async () => {
+  it("publishes and replays as portal_metrics_ingest while denying direct user writes and preserving observations", async () => {
     const login = `metrics_ingest_${randomUUID().replaceAll("-", "")}`;
     const password = randomBytes(24).toString("base64url");
     const master = await new sql.ConnectionPool(localConnectionString(process.env, "master")).connect();
@@ -354,20 +356,115 @@ describe("metrics day loader (SQL Server + Azurite)", () => {
       loginCreated = true;
       await pool.request().query(`
         CREATE USER [${login}] FOR LOGIN [${login}];
-        ALTER ROLE portal_ingest ADD MEMBER [${login}]`);
+        ALTER ROLE portal_metrics_ingest ADD MEMBER [${login}]`);
       userCreated = true;
-      const input = newInput(ndjson([userIds[0]!]));
+      await pool.request().input("userId", sql.BigInt, userIds[1]).query(`
+        INSERT INTO portal.dim_user
+          (user_id, login, first_seen_day, last_seen_day, department, manager_resolved, manager_checked_at)
+        VALUES (@userId, N'directory-login', '2026-03-01', '2026-03-03', N'fixture department', 1, '2026-03-01')`);
+      const input = newInput(ndjson(userIds));
       const restrictedConfig: sql.config = { ...sqlConfig, user: login, password, pool: { min: 1, max: 1 } };
       const result = await loadMetricsDay(input, { sqlConfig: restrictedConfig, blobContainer });
-
       expect(result.status).toBe("published");
+      const replay = newInput(ndjson(userIds, { user_login: "renamed-fixture" }));
+      expect((await loadMetricsDay(replay, { sqlConfig: restrictedConfig, blobContainer })).status).toBe("published");
+      const nullLogin = newInput(ndjson(userIds, { user_login: null }));
+      expect((await loadMetricsDay(nullLogin, { sqlConfig: restrictedConfig, blobContainer })).status).toBe("published");
       const artifact = (await pool.request().input("runId", sql.UniqueIdentifier, input.runId).query<{ row_count: number }>(
         "SELECT row_count FROM portal.SourceArtifact WHERE run_id = @runId",
       )).recordset[0];
-      expect(Number(artifact?.row_count)).toBe(1);
+      expect(Number(artifact?.row_count)).toBe(userIds.length);
+      const restricted = await new sql.ConnectionPool(restrictedConfig).connect();
+      try {
+        const membership = await restricted.request().query<{ role_name: string }>(`
+          SELECT role.name AS role_name FROM sys.database_role_members AS membership
+          JOIN sys.database_principals AS role ON role.principal_id = membership.role_principal_id
+          WHERE membership.member_principal_id = USER_ID()`);
+        expect(membership.recordset.map((row) => row.role_name)).toEqual(["portal_metrics_ingest"]);
+        const replayedUsers = await restricted.request()
+          .input("user1", sql.BigInt, userIds[0]).input("user2", sql.BigInt, userIds[1])
+          .query<{ login: string }>("SELECT login FROM portal.dim_user WHERE user_id IN (@user1, @user2)");
+        expect(replayedUsers.recordset.map((row) => row.login)).toEqual(["renamed-fixture", "renamed-fixture"]);
+        for (const statement of [
+          "INSERT INTO portal.dim_user (user_id, login) VALUES (@userId, N'forbidden')",
+          "UPDATE portal.dim_user SET login = N'forbidden' WHERE user_id = @userId",
+          "DELETE FROM portal.dim_user WHERE user_id = @userId",
+        ]) {
+          await expect(restricted.request().input("userId", sql.BigInt, sourceUserIds[2])
+            .query(statement)).rejects.toMatchObject({ number: 229 });
+        }
+
+        // Exercise the production writer on multiple staged observations, which the day parser rejects in one report.
+        const columns = TABLE_COLUMNS["portal.stg_user_daily"];
+        const projections = columns.map((column) => {
+          if (column === "user_id") return "@userId";
+          if (column === "line_number") return "@line";
+          if (column === "user_login") return "@login";
+          if (column === "usage_day") return "@day";
+          return `[${column}]`;
+        });
+        for (const [line, loginValue, day] of [
+          [10, "alpha-fixture", "2026-03-04"],
+          [11, "zulu-fixture", "2026-03-01"],
+        ] as const) {
+          await restricted.request()
+            .input("runId", sql.UniqueIdentifier, input.runId)
+            .input("userId", sql.BigInt, sourceUserIds[2])
+            .input("line", sql.Int, line)
+            .input("login", sql.NVarChar(255), loginValue)
+            .input("day", sql.Date, day)
+            .query(`INSERT INTO portal.stg_user_daily (${columns.map((column) => `[${column}]`).join(", ")})
+              SELECT ${projections.join(", ")} FROM portal.stg_user_daily
+              WHERE run_id = @runId AND line_number = 1`);
+        }
+        const transaction = new sql.Transaction(restricted);
+        await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+        try {
+          await writeMetricsUsers(transaction, input.runId);
+          await transaction.commit();
+        } catch (error) {
+          await transaction.rollback();
+          throw error;
+        }
+      } finally {
+        await restricted.close();
+      }
+
+      const observations = await pool.request()
+        .input("user1", sql.BigInt, userIds[0])
+        .input("user2", sql.BigInt, userIds[1])
+        .input("user3", sql.BigInt, sourceUserIds[2])
+        .query(`
+          SELECT user_id, login, CONVERT(char(10), first_seen_day, 23) AS first_day,
+            CONVERT(char(10), last_seen_day, 23) AS last_day, department, manager_resolved,
+            CONVERT(char(10), manager_checked_at, 23) AS manager_day
+          FROM portal.dim_user WHERE user_id IN (@user1, @user2, @user3) ORDER BY user_id`);
+      expect(observations.recordset.map((row) => ({
+        ...row, user_id: Number(row.user_id), manager_resolved: Boolean(row.manager_resolved),
+      }))).toEqual([
+        { user_id: userIds[0], login: `example-user-${userIds[0]}`, first_day: reportDay, last_day: reportDay,
+          department: null, manager_resolved: false, manager_day: null },
+        { user_id: userIds[1], login: `example-user-${userIds[1]}`, first_day: "2026-03-01", last_day: "2026-03-03",
+          department: "fixture department", manager_resolved: true, manager_day: "2026-03-01" },
+        { user_id: sourceUserIds[2], login: "zulu-fixture", first_day: "2026-03-01", last_day: "2026-03-01",
+          department: null, manager_resolved: false, manager_day: null },
+      ]);
+      const history = await pool.request().input("userId", sql.BigInt, userIds[0]).query(`
+        SELECT login, CONVERT(char(10), first_seen_day, 23) AS first_day,
+          CONVERT(char(10), last_seen_day, 23) AS last_day
+        FROM portal.dim_user_login_history WHERE user_id = @userId ORDER BY login`);
+      expect(history.recordset).toEqual([
+        { login: `example-user-${userIds[0]}`, first_day: reportDay, last_day: reportDay },
+        { login: "renamed-fixture", first_day: reportDay, last_day: reportDay },
+      ]);
+      expect(await count("SELECT COUNT(*) AS count FROM portal.fact_user_daily_usage WHERE organization_id = @value",
+        "value", sql.BigInt, orgId)).toBe(userIds.length);
+      const checkpoint = await pool.request().input("scopeKey", sql.NVarChar(100), scopeKey)
+        .query<{ last_run_id: string }>("SELECT last_run_id FROM portal.SourceCheckpoint WHERE scope_key = @scopeKey");
+      expect(checkpoint.recordset[0]?.last_run_id.toLowerCase()).toBe(nullLogin.runId);
     } finally {
       if (userCreated) {
-        await pool.request().query(`ALTER ROLE portal_ingest DROP MEMBER [${login}]; DROP USER [${login}]`);
+        await pool.request().query(`ALTER ROLE portal_metrics_ingest DROP MEMBER [${login}]; DROP USER [${login}]`);
       }
       if (loginCreated) await master.request().query(`DROP LOGIN [${login}]`);
       await master.close();

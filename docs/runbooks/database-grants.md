@@ -4,12 +4,32 @@ Migrations create permission roles, not runtime users. The portal uses `portal_r
 `portal_writer`; the metrics and directory ingestion identities use the separate
 `portal_metrics_ingest` and `portal_directory_ingest` roles. `portal_ingest` remains a legacy
 broad role for other consumers and is not a substitute for either component role.
-Its `dim_user` permissions are unchanged until consumer: this contract lands first,
-the separate Functions consumer PR switches the metrics loader to the procedure,
-then a small hardening migration PR removes legacy direct `dim_user` writes.
+Its `dim_user` permissions remain unchanged: the contract lands first, then the
+Functions consumer switches the metrics loader to the procedure (implemented in
+`functions/src/ingestion/user-writer.ts`), then a later small hardening migration
+PR removes legacy direct `dim_user` writes. This consumer adds no migration or revoke.
 Do not claim isolation for a runtime identity that still uses `portal_ingest`.
 These roles constrain object and column permissions, not row-level access; they do not
 isolate a component to particular runs, organizations, or users.
+
+The day loader calls `portal.usp_write_metrics_users(@run_id)` inside its existing
+SERIALIZABLE publication transaction, after the organization upsert and before
+login history, other dimensions and facts. It retains the session day lock and
+transaction-owned row/range locks until publication commits or rolls back. The
+procedure preserves `MAX(user_login)` and `MIN(usage_day)` per numeric user ID,
+including the minimum day as both initial observation dates for a new user.
+Only directory ingestion writes directory-owned attributes.
+
+Before any separately authorized deployment, quiesce consumers and coordinate
+the reviewed contract migration, consumer package and role-mapping switch. Do not
+run an old direct-write package under `portal_metrics_ingest`. The one-time legacy
+Blob import must use this consumer's normal loader/replay path and **only**
+`portal_metrics_ingest`, never the legacy broad role. The scheduled API timer
+uses the same loader; timer packaging is unchanged here. Hosted integration
+tests run the real loader with a separate SQL login in only the narrow role,
+including publication/replay, history, bulk, checkpoints and denied direct writes.
+This is not evidence of applied grants or managed-identity authentication;
+#55/#56, maintenance-window and separate owner deployment/import authorization remain required.
 
 ## Rules
 
