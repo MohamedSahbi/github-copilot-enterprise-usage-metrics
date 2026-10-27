@@ -30,6 +30,9 @@ describe("owner-approved private evidence output", () => {
     const link = join(directory, "link");
     await symlink(directory, link);
     await expect(guardPrivateOutput({ directory: link, approvalRef: "approved" })).rejects.toThrow();
+    const repositoryLink = join(directory, "repository-link");
+    await symlink(process.cwd(), repositoryLink);
+    await expect(guardPrivateOutput({ directory: join(repositoryLink, "portal"), approvalRef: "approved" })).rejects.toThrow();
   });
   it("creates private evidence exclusively with owner-only permissions and never overwrites", async () => {
     const directory = await privateDirectory();

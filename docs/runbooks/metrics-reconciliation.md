@@ -13,7 +13,11 @@ There is **no default or currently approved private evidence location**. Before
 using real evidence, the owner must explicitly approve an existing private
 directory and its access/retention policy. The operator supplies that directory
 and an opaque approval reference at runtime. The tool does not create it or infer
-approval from a path. It rejects repository-contained directories, symlink
+approval from a path. The path, resource configuration and approval reference are
+**trusted operator declarations, not independently verified authorization**.
+There is no approval registry or resource-inventory service. Do not run any real
+evidence operation until the owner has approved the actual destination and
+resource access outside this tool. It rejects repository-contained directories, symlink
 destinations and group/other-accessible directories. Output files are created
 exclusively with mode `0600`; existing files are never overwritten.
 
@@ -68,7 +72,8 @@ regular file**; it has no source API/Blob client.
    fatal validation never becomes explained.
 
 Private `detail-{correlationId}.json` contains the approval reference, per-check
-values, totals and optional per-user differences. It is written before the public
+values, totals and optional per-user differences, and explicitly labels the
+destination approval as an operator declaration only. It is written before the public
 summary. The summary passes `assertPublicSummary` immediately before writing;
 only dates, check outcomes and aggregate counts can leave the private boundary.
 Public/private output paths cannot overlap. Neither hashes, identity values,

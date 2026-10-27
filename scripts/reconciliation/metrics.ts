@@ -130,7 +130,10 @@ export async function runMetricsReconciliationCommand(value: unknown): Promise<v
     createMetricsBlobContainerClient(config.archive.accountUrl, config.archive.container, config.sql.managedIdentityClientId),
   );
   const result = await reconcileMetricsRange({ ...config, correlationId, manifests }, { read, logger });
-  await writePrivateJson(directory, `detail-${correlationId}.json`, { approvalRef: config.privateOutput.approvalRef, days: result.details });
+  await writePrivateJson(directory, `detail-${correlationId}.json`, {
+    privateOutputApproval: { approvalRef: config.privateOutput.approvalRef, verification: "operator_declaration_only" },
+    days: result.details,
+  });
   await writePublicSummary(config.publicSummaryFile, result.summary);
   if (result.summary.status !== "matched" && result.summary.status !== "explained") throw new Error("reconciliation_not_matched");
 }

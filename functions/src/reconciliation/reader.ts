@@ -18,6 +18,7 @@ const artifactSchema = z.object({
   blob_path: z.string().regex(/^raw\/users_1_day\/[A-Za-z0-9][A-Za-z0-9-]*\/\d{4}\/\d{2}\/\d{2}\/[0-9a-f-]{36}\.ndjson$/i),
 });
 const issueSchema = z.object({
+  artifact_id: id.nullable(),
   severity: z.enum(["reject", "warn", "fatal"]), line_number: count.nullable(), raw_row_sha256: sha256.nullable(),
 });
 const factSchema = z.object({
@@ -79,14 +80,16 @@ export function createMetricsReconciliationReader(config: sql.config, archiveCon
           blobPath = artifact.blob_path;
         }
         const issues = await transaction.request().input("run", sql.UniqueIdentifier, run.run_id)
-          .query("SELECT severity, line_number, raw_row_sha256 FROM portal.ValidationIssue WHERE run_id = @run");
+          .query("SELECT artifact_id, severity, line_number, raw_row_sha256 FROM portal.ValidationIssue WHERE run_id = @run");
         for (const value of issues.recordset) {
           const parsedIssue = issueSchema.safeParse(value);
           if (!parsedIssue.success) throw new ReconciliationReadError("incomplete");
           const issue = parsedIssue.data;
           observed.issueCounts[issue.severity]++;
           if (issue.severity === "reject") {
-            if (issue.line_number === null || issue.raw_row_sha256 === null) throw new ReconciliationReadError("incomplete");
+            if (issue.artifact_id !== observed.artifact?.artifactId || issue.line_number === null || issue.raw_row_sha256 === null) {
+              throw new ReconciliationReadError("incomplete");
+            }
             rejects.push({ lineNumber: issue.line_number, sha256: issue.raw_row_sha256 });
           }
         }

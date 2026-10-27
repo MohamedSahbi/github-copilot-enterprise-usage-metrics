@@ -95,6 +95,9 @@ describe("metrics reconciliation (SQL Server + Azurite, synthetic only)", () => 
     await pool.request().input("run", sql.UniqueIdentifier, fixture.loaded.runId)
       .query("UPDATE portal.ValidationIssue SET raw_row_sha256 = REPLICATE('0',64) WHERE run_id = @run AND severity = 'reject'");
     expect((await report(fixture.reportDay, [fixture.manifest])).summary.status).toBe("incomplete");
+    await pool.request().input("run", sql.UniqueIdentifier, fixture.loaded.runId)
+      .query("UPDATE portal.ValidationIssue SET artifact_id = NULL WHERE run_id = @run AND severity = 'reject'");
+    expect((await report(fixture.reportDay, [fixture.manifest])).summary.status).toBe("incomplete");
   });
   it("keeps a quarantined duplicate day incomplete", async () => {
     const fixture = await seed(false, true);
