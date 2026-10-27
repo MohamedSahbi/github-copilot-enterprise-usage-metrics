@@ -3,7 +3,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sql from "mssql";
@@ -12,37 +11,18 @@ import { TABLE_COLUMNS } from "../../shared/src/rows";
 import { migrate } from "../db/migrate";
 import { splitBatches } from "../db/split-go";
 import { createStagingContext, mapUsersDayLine } from "./reference/staging";
-import "./component-runtime-grants";
 
 const enabled = process.env.RUN_SQL_TESTS === "1";
 const realMigrations = join(__dirname, "..", "..", "db", "migrations");
 const realFiles = readdirSync(realMigrations).filter((f) => f.endsWith(".sql"));
-const owner = process.env.COMPONENT_GRANTS_OWNER ?? randomBytes(8).toString("hex");
-const name = `portal-component-grants-${process.pid}-${owner}`;
+const name = `portal-sql-test-${randomBytes(4).toString("hex")}`;
 const sa = `Aa1!${randomBytes(12).toString("hex")}`;
-const image = "mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718";
-const manifest = process.env.COMPONENT_GRANTS_MANIFEST;
-const reservedPorts = [10000, 10001, 10002, 14330, 14501, 14504];
 let port = 0;
-let containerId: string | undefined;
 const tmpDirs: string[] = [];
 
 const docker = (...args: string[]): string => execFileSync("docker", args, { encoding: "utf8" });
-function guardTarget(database: string): void {
-  if (!containerId || port < 1024 || reservedPorts.includes(port) ||
-      (database !== "master" && !/^portal_test_[1-9]\d*$/.test(database))) {
-    throw new Error("sql_container_test_connection_not_isolated");
-  }
-  const identity = docker("inspect", "--format",
-    '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}} {{index .Config.Labels "portal.component-grants-pid"}}',
-    containerId).trim();
-  if (identity !== `${containerId} ${owner} ${process.pid}`) throw new Error("sql_container_test_owner_mismatch");
-}
-
-const connectionString = (database: string): string => {
-  guardTarget(database);
-  return `Server=127.0.0.1,${port};Database=${database};User Id=sa;Password=${sa};Encrypt=true;TrustServerCertificate=true`;
-};
+const connectionString = (database: string): string =>
+  `Server=127.0.0.1,${port};Database=${database};User Id=sa;Password=${sa};Encrypt=true;TrustServerCertificate=true`;
 
 async function query<T = Record<string, unknown>>(database: string, text: string): Promise<T[]> {
   const pool = await new sql.ConnectionPool(connectionString(database)).connect();
@@ -72,60 +52,16 @@ const cs = (db: string) => connectionString(db);
 describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)", () => {
   beforeAll(async () => {
     expect(spawnSync("docker", ["info"]).status, "docker daemon must be running").toBe(0);
-    if (!/^[a-f0-9]{16}$/.test(owner)) {
-      throw new Error("invalid_component_grants_runner_identity");
-    }
-    for (const key of [
-      "DATABASE_URL", "DB_URL", "DB_HOST", "DB_SERVER", "DB_CONNECTION_STRING",
-      "SQL_URL", "SQL_HOST", "SQL_SERVER", "SQL_CONNECTION_STRING",
-      "AZURE_SQL_CONNECTION_STRING", "MSSQL_CONNECTION_STRING", "SQLSERVER_CONNECTION_STRING",
-    ]) {
-      if (process.env[key]) throw new Error(`refusing_inherited_sql_target:${key}`);
-    }
-    if (docker("ps", "-aq", "--filter", `name=^/${name}$`).trim() !== "") {
-      throw new Error("refusing_existing_component_sql_container");
-    }
-    if (manifest) writeFileSync(manifest, JSON.stringify({ owner, containerName: name, testPid: process.pid }), { flag: "wx", mode: 0o600 });
-    containerId = execFileSync("docker", [
-      "run", "-d", "--rm", "--platform", "linux/amd64", "--name", name,
-      "--label", `portal.component-grants-owner=${owner}`,
-      "--label", `portal.component-grants-pid=${process.pid}`,
-      "-p", "127.0.0.1::1433", "-e", "ACCEPT_EULA=Y", "-e", "MSSQL_SA_PASSWORD", image,
-    ], { encoding: "utf8", env: { ...process.env, MSSQL_SA_PASSWORD: sa } }).trim();
-    const binding = docker("port", containerId, "1433/tcp").trim();
-    const portMatch = /^127\.0\.0\.1:(\d+)$/.exec(binding);
-    if (!portMatch) throw new Error("component_sql_container_not_loopback_bound");
-    port = Number(portMatch[1]);
-    guardTarget("master");
-    if (manifest) writeFileSync(manifest, JSON.stringify({ owner, containerName: name, testPid: process.pid, containerId, port }), { mode: 0o600 });
+    docker("run", "-d", "--rm", "--platform", "linux/amd64", "--name", name, "-p", "127.0.0.1::1433", "-e", "ACCEPT_EULA=Y", "-e", `MSSQL_SA_PASSWORD=${sa}`, "mcr.microsoft.com/mssql/server:2022-latest");
+    port = Number(docker("port", name, "1433/tcp").trim().split("\n")[0]?.split(":").pop());
     for (let i = 0; i < 90; i++) {
       try { await query("master", "SELECT 1 AS ok"); break; } catch { await new Promise((r) => setTimeout(r, 2000)); }
     }
     await query("master", "SELECT 1 AS ok");
   }, 240_000);
 
-  afterAll(async () => {
-    if (containerId) {
-      const identity = spawnSync("docker", ["inspect", "--format",
-        '{{.Id}} {{index .Config.Labels "portal.component-grants-owner"}} {{index .Config.Labels "portal.component-grants-pid"}}',
-        containerId], { encoding: "utf8" });
-      if (identity.status === 0) {
-        if (identity.stdout.trim() !== `${containerId} ${owner} ${process.pid}`) throw new Error("refusing_unowned_component_sql_cleanup");
-        const removed = spawnSync("docker", ["rm", "-f", containerId], { stdio: "ignore" });
-        if (removed.status !== 0) throw new Error("component_sql_container_cleanup_failed");
-      } else if (docker("ps", "-aq", "--filter", `name=^/${name}$`).trim() !== "") {
-        throw new Error("component_sql_container_inspection_failed");
-      }
-      const remaining = spawnSync("docker", ["ps", "-aq", "--no-trunc", "--filter", `id=${containerId}`], { encoding: "utf8" });
-      if (remaining.status !== 0 || remaining.stdout.trim() !== "") throw new Error("component_sql_container_still_present");
-    }
-    if (port > 0) {
-      await new Promise<void>((resolve, reject) => {
-        const server = createServer();
-        server.once("error", reject);
-        server.listen(port, "127.0.0.1", () => server.close((error) => error ? reject(error) : resolve()));
-      });
-    }
+  afterAll(() => {
+    spawnSync("docker", ["rm", "-f", name]);
     for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
   });
 
@@ -571,20 +507,13 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
   describe("access model and runtime permissions", () => {
     const sqlcmd = (...args: string[]): string =>
       docker("exec", "-e", `SQLCMDPASSWORD=${sa}`, name, "/opt/mssql-tools18/bin/sqlcmd", "-C", "-I", "-b", "-S", "localhost", "-U", "sa", ...args);
-    let runtimePermissionsDb: string | undefined;
 
     beforeAll(async () => {
-      runtimePermissionsDb = await freshDb();
-      expect(runtimePermissionsDb).toMatch(/^portal_test_[1-9]\d*$/);
-      await migrate({ connectionString: cs(runtimePermissionsDb) });
+      sqlcmd("-Q", "CREATE DATABASE portal_test");
+      await migrate({ connectionString: cs("portal_test") });
     }, 240_000);
 
-    const run = (q: string): string => {
-      if (!runtimePermissionsDb || !/^portal_test_[1-9]\d*$/.test(runtimePermissionsDb)) {
-        throw new Error("runtime_permissions_database_not_isolated");
-      }
-      return sqlcmd("-d", runtimePermissionsDb, "-h", "-1", "-W", "-Q", `SET NOCOUNT ON; ${q}`).trim();
-    };
+    const run = (q: string): string => sqlcmd("-d", "portal_test", "-h", "-1", "-W", "-Q", `SET NOCOUNT ON; ${q}`).trim();
     const fails = (q: string, pattern: RegExp): void => {
       let message = "";
       try { run(q); } catch (e) { message = String((e as { stdout?: unknown; message?: string }).stdout ?? "") + String((e as Error).message); }
@@ -600,13 +529,6 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     };
     const grant = (pid: string, oid: string, role: string, scope: string, value = ""): string =>
       `INSERT INTO portal.AccessGrant (principal_id, principal_entra_oid, role, scope, scope_value) VALUES ('${pid}', '${oid}', '${role}', '${scope}', N'${value}')`;
-
-    afterAll(() => {
-      if (runtimePermissionsDb) {
-        sqlcmd("-Q", `IF DB_ID(N'${runtimePermissionsDb}') IS NOT NULL
-          BEGIN ALTER DATABASE [${runtimePermissionsDb}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [${runtimePermissionsDb}]; END;`);
-      }
-    });
 
     it("accepts exactly the valid role/scope pairs", () => {
       const pid = principal(O1, 1001);

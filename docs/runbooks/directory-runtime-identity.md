@@ -41,6 +41,11 @@ frequency is substituted.
 The timer remains unavailable while the Function App is disabled regardless
 of a valid schedule.
 
+Slice B contains only the timer/package and schedule configuration. It creates
+no component SQL roles or grants. The component permissions contract, its
+effective-permission tests, and the later consumer changes remain separate
+prerequisites; the buildable package does not prove that SQL access is ready.
+
 The target continues to use the new solution's separate database (D-29, D-34).
 The identity split is not permission to create a second logical writer:
 `portal.dim_user`, login history, and `portal.DirectorySyncState` retain the
