@@ -3,6 +3,7 @@ import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "no
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimePackageClosure } from "./runtime-package-closure.mjs";
 
 const functionsRoot = path.dirname(fileURLToPath(import.meta.url));
 const component = process.argv[2];
@@ -13,10 +14,36 @@ const requiredRuntimeDependencies = [
   "@azure/functions", "@azure/identity", "mssql", "zod",
   ...(component === "metrics" ? ["@azure/storage-blob"] : []),
 ];
+const rootLock = JSON.parse(await readFile(path.join(functionsRoot, "..", "package-lock.json"), "utf8"));
 
 for (const dependency of requiredRuntimeDependencies) {
   if (!manifest.dependencies?.[dependency]) throw new Error(`missing_runtime_dependency:${dependency}`);
 }
+
+function resolveLockedPackage(fromPackagePath, dependencyName) {
+  let parent = fromPackagePath;
+  while (true) {
+    const candidate = parent ? `${parent}/node_modules/${dependencyName}` : `node_modules/${dependencyName}`;
+    if (rootLock.packages[candidate]) return candidate;
+
+    const nodeModulesIndex = parent.lastIndexOf("/node_modules/");
+    if (nodeModulesIndex >= 0) parent = parent.slice(0, nodeModulesIndex);
+    else if (parent.startsWith("node_modules/")) parent = "";
+    else return undefined;
+  }
+}
+
+const runtimeDependencies = Object.fromEntries(requiredRuntimeDependencies.map((name) => {
+  const packagePath = resolveLockedPackage("", name);
+  const version = packagePath && rootLock.packages[packagePath]?.version;
+  if (!version) throw new Error(`missing_locked_runtime_dependency:${name}`);
+  return [name, version];
+}));
+const runtimePackagePaths = resolveRuntimePackageClosure(
+  requiredRuntimeDependencies.map((name) => resolveLockedPackage("", name)),
+  rootLock,
+  resolveLockedPackage,
+);
 
 let artifactRoot;
 if (customArtifactRoot) {
@@ -70,12 +97,34 @@ await build({
   logLevel: "silent",
 });
 await cp(path.join(functionsRoot, "host.json"), path.join(artifactRoot, "host.json"));
-await writeFile(path.join(artifactRoot, "package.json"), `${JSON.stringify({
+const artifactManifest = {
   name: `${manifest.name}-${component}`,
   version: manifest.version,
   private: true,
   type: "module",
   main: "dist/function.js",
   engines: manifest.engines,
-  dependencies: Object.fromEntries(requiredRuntimeDependencies.map((name) => [name, manifest.dependencies[name]])),
+  dependencies: runtimeDependencies,
+};
+const lockedPackages = Object.fromEntries([...runtimePackagePaths].sort().map((packagePath) => {
+  const packageEntry = { ...rootLock.packages[packagePath] };
+  delete packageEntry.dev;
+  delete packageEntry.devOptional;
+  return [packagePath, packageEntry];
+}));
+await writeFile(path.join(artifactRoot, "package.json"), `${JSON.stringify(artifactManifest, null, 2)}\n`);
+await writeFile(path.join(artifactRoot, "package-lock.json"), `${JSON.stringify({
+  name: artifactManifest.name,
+  version: artifactManifest.version,
+  lockfileVersion: rootLock.lockfileVersion,
+  requires: rootLock.requires,
+  packages: {
+    "": {
+      name: artifactManifest.name,
+      version: artifactManifest.version,
+      engines: artifactManifest.engines,
+      dependencies: artifactManifest.dependencies,
+    },
+    ...lockedPackages,
+  },
 }, null, 2)}\n`);

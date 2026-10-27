@@ -24,11 +24,29 @@ async function buildAndInspect(outputDirectory: string): Promise<[string, string
     cwd: functionsRoot,
     stdio: "ignore",
   });
-  expect(await listFiles(outputDirectory)).toEqual(["dist/function.js", "host.json", "package.json"]);
+  expect(await listFiles(outputDirectory)).toEqual([
+    "dist/function.js", "host.json", "package-lock.json", "package.json",
+  ]);
 
   const manifest = JSON.parse(await readFile(path.join(outputDirectory, "package.json"), "utf8")) as {
     main: string;
     dependencies: Record<string, string>;
+  };
+  const lock = JSON.parse(await readFile(path.join(outputDirectory, "package-lock.json"), "utf8")) as {
+    lockfileVersion: number;
+    packages: Record<string, {
+      version?: string;
+      resolved?: string;
+      integrity?: string;
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+      link?: boolean;
+    }>;
+  };
+  const rootLock = JSON.parse(await readFile(path.join(functionsRoot, "..", "package-lock.json"), "utf8")) as {
+    lockfileVersion: number;
+    packages: Record<string, { version?: string; resolved?: string; integrity?: string }>;
   };
   const workspaceManifest = JSON.parse(await readFile(path.join(functionsRoot, "package.json"), "utf8")) as {
     main: string;
@@ -42,6 +60,37 @@ async function buildAndInspect(outputDirectory: string): Promise<[string, string
   expect(Object.keys(manifest.dependencies).sort()).toEqual([
     "@azure/functions", "@azure/identity", "mssql", "zod",
   ].sort());
+  expect(lock.lockfileVersion).toBe(rootLock.lockfileVersion);
+  expect(createHash("sha256").update(await readFile(path.join(outputDirectory, "package-lock.json"))).digest("hex"))
+    .toBe("4b8cbf0a9409c298e46ea0a599c8d9ff9514fa20542925fabf76175f1d1dfc78");
+  expect(lock.packages[""]?.dependencies).toEqual(manifest.dependencies);
+  for (const [name, version] of Object.entries(manifest.dependencies)) {
+    expect(version).toBe(rootLock.packages[`node_modules/${name}`]?.version);
+    expect(lock.packages[`node_modules/${name}`]?.version).toBe(version);
+    expect(version).not.toMatch(/^[~^*]|[<>=| ]/);
+  }
+  for (const [packagePath, entry] of Object.entries(lock.packages)) {
+    if (packagePath === "") continue;
+    expect(Object.keys(entry.peerDependencies ?? {})).toHaveLength(0);
+    expect(entry.link).not.toBe(true);
+    expect(entry.version).toBe(rootLock.packages[packagePath]?.version);
+    expect(entry.resolved).toBe(rootLock.packages[packagePath]?.resolved);
+    expect(entry.integrity).toBe(rootLock.packages[packagePath]?.integrity);
+    for (const dependencyName of Object.keys({
+      ...entry.dependencies,
+      ...entry.optionalDependencies,
+    })) {
+      const candidates = [];
+      let parent = packagePath;
+      while (parent) {
+        candidates.push(`${parent}/node_modules/${dependencyName}`);
+        const nodeModulesIndex = parent.lastIndexOf("/node_modules/");
+        parent = nodeModulesIndex >= 0 ? parent.slice(0, nodeModulesIndex) : "";
+      }
+      candidates.push(`node_modules/${dependencyName}`);
+      expect(candidates.some((candidate) => lock.packages[candidate])).toBe(true);
+    }
+  }
   expect(entrypoint).toContain("directorySync");
   expect(entrypoint).toContain("%DIRECTORY_SYNC_SCHEDULE%");
   expect(entrypoint).not.toMatch(/day-loader|day-parser|metrics\/|@azure\/storage-blob/);

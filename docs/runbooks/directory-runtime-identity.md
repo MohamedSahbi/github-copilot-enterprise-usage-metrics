@@ -30,6 +30,15 @@ directory-only Functions v4 timer artifact is now buildable, but no artifact
 has been deployed. Do not claim deployed isolation until a separately
 authorized deployment is performed and its target state is verified.
 
+The emitted artifact includes a `package-lock.json` derived from the reviewed
+root lockfile, with exact runtime dependency versions and their locked
+transitive dependency closure. Deployment must preserve that lockfile and run
+`npm ci --omit=dev` from the artifact directory before packaging or starting
+the app. Do not run `npm install` or otherwise resolve dependencies from the
+manifest at deployment time. The deployment wrapper is not part of this
+change; verify that it follows this locked-install procedure before any
+separately authorized deployment.
+
 The timer uses the required `DIRECTORY_SYNC_SCHEDULE` deployment setting,
 expressed as a six-field UTC NCRONTAB expression. Terraform has no default for
 this input and validates its syntax and numeric field ranges. Operators must

@@ -10,23 +10,33 @@ const functionsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 
 async function buildAndInspect(output: string): Promise<string[]> {
   execFileSync(process.execPath, ["build-artifact.mjs", "metrics", output], { cwd: functionsRoot, stdio: "pipe" });
-  expect((await readdir(output)).sort()).toEqual(["dist", "host.json", "package.json"]);
+  expect((await readdir(output)).sort()).toEqual(["dist", "host.json", "package-lock.json", "package.json"]);
   expect(await readdir(path.join(output, "dist"))).toEqual(["function.js"]);
   const manifest = JSON.parse(await readFile(path.join(output, "package.json"), "utf8")) as {
     name: string; main: string; dependencies: Record<string, string>;
+  };
+  const lock = JSON.parse(await readFile(path.join(output, "package-lock.json"), "utf8")) as {
+    packages: Record<string, { version?: string; peerDependencies?: Record<string, string> }>;
   };
   expect(manifest.name).toBe("@cmp/functions-metrics");
   expect(manifest.main).toBe("dist/function.js");
   expect(Object.keys(manifest.dependencies).sort()).toEqual([
     "@azure/functions", "@azure/identity", "@azure/storage-blob", "mssql", "zod",
   ]);
+  expect(lock.packages["node_modules/@azure/core-http-compat"]?.version).toBe("2.5.0");
+  expect(lock.packages["node_modules/@azure/core-http-compat"]?.peerDependencies).toEqual({
+    "@azure/core-client": "^1.10.0",
+    "@azure/core-rest-pipeline": "^1.22.0",
+  });
+  expect(lock.packages["node_modules/@azure/core-client"]?.version).toBe("1.11.1");
+  expect(lock.packages["node_modules/@azure/core-rest-pipeline"]?.version).toBe("1.25.0");
   const content = await readFile(path.join(output, manifest.main), "utf8");
   expect(content).toContain("metricsSync");
   expect(content).toContain("%METRICS_SYNC_SCHEDULE%");
   expect(content).toContain("metrics_day_started");
   expect(content).toContain("users-1-day?day=");
   expect(content).not.toMatch(/directorySync|GITHUB_DIRECTORY_PAT|graph\.microsoft\.com|SCIM/);
-  return Promise.all(["dist/function.js", "host.json", "package.json"].map(async (file) =>
+  return Promise.all(["dist/function.js", "host.json", "package-lock.json", "package.json"].map(async (file) =>
     createHash("sha256").update(await readFile(path.join(output, file))).digest("hex")));
 }
 
