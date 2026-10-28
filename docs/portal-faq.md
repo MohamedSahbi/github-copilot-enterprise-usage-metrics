@@ -53,13 +53,25 @@ Your assigned scope matters as well as your role. A role never grants access to 
 - **Member:** self scope (your own data), still subject to aggregate-only restrictions and suppression.
 - **Manager:** self or team scope, when assigned. A team uses direct and indirect reports in the current hierarchy, not the hierarchy from the date of the activity.
 - **Executive:** the assigned department, business area, or company scope.
-- **Admin:** company scope. Administration capabilities are part of the design, but admin management pages are not yet provided by this release.
+- **Admin:** company scope. The Administration area manages explicit grants for existing principals and provides audit, login-history, issues-inbox, hierarchy and operational views.
 
 The current alpha offers only Overview and Copilot Impact. Scope options are the effective direct grants you actually hold: company, canonical reports, self, or the exact assigned department or business area. It does not discover additional small groups from directory data. Invalid or stale selections are rejected instead of falling back to broader access. The Users page and direct detail URLs remain unavailable regardless of the detail setting. Changing a scope selector cannot expand your permissions.[^roles]
 
 ### How do I request access?
 
 Use the request link or contact configured on the No access page. Your deployment's access administrators decide which role and scope to assign; this public project does not define your organization's approval policy or support address. If you already have access but need a wider scope, use the same internal access process.[^request]
+
+### How do administrators manage access?
+
+Open **Administration → Access Control**. Select an existing principal to inspect effective grants, or choose **Grant Access** and enter its Entra object ID and an explicit role/scope. Department and business-area choices come from the active directory and are available only when configured. The server independently validates the stored identity and directory facts. An email or login is never an access key; this page does not create principals.
+
+Revocation requires **Revoke → Confirm revoke**. Grants are immutable assignments: changing a role means revoking the old assignment and explicitly granting a new one. The final effective administrator grant cannot be revoked. Each accepted change and its audit row commit together; failures do not imply a successful change. **Audit Log** includes portal and ingestion events, with raw ingestion detail withheld. **Login History** is administrator-only even when named usage metrics are disabled.
+
+The **Issues Inbox** records a confirmed, type-appropriate action for ingestion; it does not execute reprocessing. Forcing an empty day also requires typing the report date. An already-actioned issue cannot be submitted again.
+
+**Manager Hierarchy** reads the current directory. **Sync now** is disabled because no durable manual-request receiver is implemented; it does not enqueue a job. **Upstream Version** shows the build's pinned submodule commit and portal release, with no runtime sync. **Health** shows actual SQL/ingestion observations. Secret and permission health remain explicitly unknown where their owning workers do not supply observations. The public `/api/health` is application liveness only; it is not operational or credential-health evidence.
+
+Fresh, verified break-glass membership permits the administration area during a permission outage, but never supplies usage or feedback access. If SQL is unavailable, the area reports data unavailable rather than showing successful reads or changes.
 
 ### Why do I sign in with my company account or a linked GitHub account?
 
