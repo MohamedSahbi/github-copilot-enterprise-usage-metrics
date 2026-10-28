@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.13](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.12...v0.2.13) (2026-10-28)
+
+
+### Features
+
+* add explicit Entra initial-access bootstrap ([#180](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/180)) ([02aa431](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/02aa4315a54c8854a9755783f6ebcfb8b0c96427))
+* add partial feedback list and vote slice ([#177](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/177)) ([d789f61](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/d789f61366618d3637d6aa36f9446649761d8b65))
+* add read-only Budget Lookup module ([#176](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/176)) ([d09363a](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/d09363aa8d3bab49814653073ff512a0baadd010))
+* budget mvp contract ([#165](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/165)) ([973991d](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/973991df9a4e81280f84cc3aa3a1fef9b0a30370))
+* **db:** add bounded historical grant-conflict contract ([#179](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/179)) ([d474dd1](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/d474dd14be2032c06d3b5bd2385853bc033c4cf8)), closes [#172](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/172)
+* implement metrics reconciliation report ([#166](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/166)) ([b996221](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/b9962218c00f26415fa3a5b4ec469a6ed9483496))
+* port existing-principal administration workflows ([#178](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/178)) ([25bf1da](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/25bf1daa70dd70be84e07408a2a0f4e44192b0ae))
+
+
+### Bug Fixes
+
+* bound local E2E sign-in route readiness ([#175](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/175)) ([365d6c4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/365d6c4cc2c2270a6a3fd6a7857685a502c99846))
+* limit break-glass authorization to SQL outages ([#174](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/174)) ([29f7801](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/29f7801cb642797b7ab7188fec7388a0f0a8eac0))
+
 ## [0.2.12](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.11...v0.2.12) (2026-10-27)
 
 
