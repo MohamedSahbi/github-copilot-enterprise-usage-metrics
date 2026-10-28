@@ -39,7 +39,7 @@ Run the runner once per environment, before the app deploys, from a job that has
 1. Resolve the connection string for that environment from Key Vault into the job's secret environment (not into a repository variable or a log).
 2. `npm ci && npm run db:migrate`. Exit code 0 means applied or already up to date; 1 means failure (read the message; it never contains the connection string); 2 means bad input.
 3. Run the grants step in [database-grants.md](database-grants.md).
-4. Deploy the app and run smoke tests.
+4. Deploy the app from a checkout of the pinned release tag with `scripts/deploy-portal.sh <resource-group> <web-app-name>` (zip deploy of the Next.js standalone build; `--package-only` builds the zip without deploying), then run smoke tests.
 
 Do not run two pipelines against one database at once; the applock serialises them, but the second will fail with `LOCK_TIMEOUT` rather than queue indefinitely.
 
