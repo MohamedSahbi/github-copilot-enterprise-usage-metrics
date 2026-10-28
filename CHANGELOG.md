@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.23](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.22...v0.2.23) (2026-10-28)
+
+
+### Features
+
+* **infra:** add a metrics_sync_enabled switch, off by default ([#203](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/203)) ([ae83a62](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/ae83a62297a2f9d4ff8ac9a0ffa61e200b49a2f0))
+
+
+### Bug Fixes
+
+* **deploy:** also skip a Function App that Azure reports as Disabled ([#213](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/213)) ([2834259](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/2834259508b1a3f3daf27b5573e84b1299d33c48)), closes [#212](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/212)
+
 ## [0.2.22](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.21...v0.2.22) (2026-10-28)
 
 
