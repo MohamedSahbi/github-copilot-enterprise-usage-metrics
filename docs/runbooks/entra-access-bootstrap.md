@@ -12,6 +12,33 @@ original README references `Set-CopilotMetricsAccess.ps1`, but that script was
 not present in the checked-out original repositories and is not claimed as a
 source port.
 
+## Original-flow mapping
+
+The source reference is
+`copilot-metrics-portal/portal/src/lib/database.ts` and
+`copilot-metrics-portal/portal/src/app/api/admin/access/route.ts`:
+
+- `runMigration` ran the legacy DDL and re-promoted configured admin emails
+  during application startup. This command does neither: the new schema is
+  managed by the repository's versioned migrations, and access is provisioned
+  only by this explicit operator action.
+- `upsertAccessControlEntry` used parameterized SQL to `MERGE` role and scope
+  fields by email, including overwriting an existing entry. This command keeps
+  the explicit role/scope selection and parameterized SQL intent, but uses the
+  existing `validateGrantRequest` contract and immutable Entra-keyed Principal
+  and AccessGrant records; it never replaces or upgrades an existing grant.
+- `insertAuditEntry` used parameterized SQL, but ran after the access mutation
+  as a separate database operation. The new `grant.created` audit insert is
+  in the same SQL transaction as the Principal and grant writes, with the
+  SQL-authenticated operator object ID, approval reference, and correlation ID.
+- The route's `POST` checked the signed-in session and then used
+  `verifyAdminFromDb` to recheck the session email against the legacy access
+  table before accepting email/role/scope fields. This is an operator command,
+  not an API route: it accepts an immutable target Entra object ID and requires
+  an already-authorized SQL execution context whose authenticated actor ID
+  matches the private manifest. It does not add a route, session-email
+  authorization, or an alternate access policy.
+
 This is an operator procedure, not automatic provisioning or authorization.
 It does not grant SQL permissions, create credentials, deploy code, run
 directory sync, change the existing role/scope policy, or authorize a live
