@@ -53,7 +53,7 @@ async function seedTarget(): Promise<void> {
       DELETE FROM portal.dim_user WHERE user_id IN (@targetUser, @reportUser);
       INSERT INTO portal.dim_user (user_id, login, state, entra_object_id, department, business_area)
       VALUES (@targetUser, N'bootstrap-target-169', 'active', @target, N'bootstrap-dept', N'bootstrap-area'),
-        (@reportUser, N'bootstrap-report-169', 'active', NULL, NULL, NULL)`);
+        (@reportUser, N'bootstrap-report-169', 'active', NEWID(), NULL, NULL)`);
   await pool.request()
     .input("reportUser", sql.BigInt, REPORT_USER)
     .input("target", sql.UniqueIdentifier, TARGET)

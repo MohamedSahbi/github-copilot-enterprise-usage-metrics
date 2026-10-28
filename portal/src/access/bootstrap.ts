@@ -90,7 +90,8 @@ interface BootstrapOptions {
 
 async function authenticatedActorObjectId(transaction: sql.Transaction): Promise<string> {
   const result = await transaction.request().query<{ actor_object_id: string | null }>(`
-    SELECT TRY_CONVERT(uniqueidentifier, SUSER_SID()) AS actor_object_id`);
+    -- Entra SIDs are 16-byte object IDs; shorter SQL login SIDs (e.g. sa = 0x01) would zero-pad into a GUID.
+    SELECT CASE WHEN DATALENGTH(SUSER_SID()) = 16 THEN TRY_CONVERT(uniqueidentifier, SUSER_SID()) END AS actor_object_id`);
   const actor = result.recordset[0]?.actor_object_id;
   if (!actor || !isGuid(actor)) throw new BootstrapError("operator_identity_unavailable");
   return actor;
