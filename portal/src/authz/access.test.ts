@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import sql from "mssql";
 import { resolveAccess, canAccess, type AccessRepository, type Identity } from "./access";
 import { readAccessSettings } from "../auth/settings";
 
@@ -10,6 +11,14 @@ const identity: Identity = {
 };
 const now = new Date("2026-10-25T12:00:00Z");
 const settings = readAccessSettings({});
+const group = "00000000-0000-4000-8000-000000000004";
+const emergencyIdentity: Identity = { ...identity, groups: [group] };
+const emergencySettings = { ...settings, breakGlassGroupId: group };
+const connectionFailure = () => new sql.ConnectionError(
+  Object.assign(new Error("synthetic connection failure", {
+    cause: Object.assign(new Error("synthetic transport failure"), { code: "ECONNREFUSED" }),
+  }), { code: "ESOCKET" }), "ESOCKET",
+);
 const repo = (roles: ("admin" | "manager" | "user")[] = ["user"]): AccessRepository => ({
   read: vi.fn().mockResolvedValue({
     principal: { principal_id: "00000000-0000-4000-8000-000000000003", entra_tenant_id: identity.tenantId,
@@ -79,7 +88,7 @@ describe("fail-closed access resolution", () => {
   it("break-glass reaches only admin and health during an outage", async () => {
     const group = "00000000-0000-4000-8000-000000000004";
     const result = await resolveAccess({ ...identity, groups: [group] }, {
-      read: async () => { throw new Error("offline"); },
+      read: async () => { throw connectionFailure(); },
     }, { ...settings, breakGlassGroupId: group }, now);
     expect(canAccess(result, "admin")).toBe(true);
     expect(canAccess(result, "health")).toBe(true);
@@ -88,19 +97,79 @@ describe("fail-closed access resolution", () => {
   });
   it("a GitHub identity can never exercise Entra break-glass", async () => {
     const result = await resolveAccess({ provider: "github", userId: 1001 }, {
-      read: async () => { throw new Error("offline"); },
-    }, settings, now);
+      read: async () => { throw connectionFailure(); },
+    }, emergencySettings, now);
     expect(canAccess(result, "admin")).toBe(false);
   });
   it("expires break-glass evidence at the configured freshness boundary", async () => {
     const group = "00000000-0000-4000-8000-000000000004";
     for (const groupsVerifiedAt of [undefined, now.getTime() + 1, now.getTime() - 5 * 60000]) {
       const result = await resolveAccess({ ...identity, groups: [group], groupsVerifiedAt }, {
-        read: async () => { throw new Error("offline"); },
+        read: async () => { throw connectionFailure(); },
       }, { ...settings, breakGlassGroupId: group }, now);
       expect(canAccess(result, "admin")).toBe(false);
     }
   });
+  it.each([
+    new Error("SQL offline ECONNREFUSED"),
+    { code: "ESOCKET", originalError: { code: "ECONNREFUSED" } },
+    new sql.ConnectionError("login failed", "ELOGIN"),
+    new sql.ConnectionError("connection timeout without transport evidence", "ETIMEOUT"),
+    new sql.ConnectionError("TLS validation failed", "ESOCKET"),
+    new sql.RequestError("query failed", "EREQUEST"),
+    new sql.RequestError("request timed out", "ETIMEOUT"),
+    new sql.ConnectionError(Object.assign(new Error("credential failure"), { code: "ELOGIN" }), "ESOCKET"),
+  ])("denies emergency access for non-connectivity failure %#", async (error) => {
+    const result = await resolveAccess(emergencyIdentity, { read: async () => { throw error; } }, emergencySettings, now);
+    expect(result).toEqual({ state: "unavailable", breakGlass: false });
+    for (const surface of ["admin", "health", "data", "feedback"] as const) {
+      expect(canAccess(result, surface)).toBe(false);
+    }
+  });
+  it.each(["missing", "inactive", "unlinked", "no-grants", "revoked", "stale"] as const)(
+    "never overrides a successful SQL %s snapshot with group membership", async (state) => {
+      const base = await repo(["admin"]).read(identity);
+      const snapshot = {
+        ...base,
+        principal: state === "missing" ? null : {
+          ...base.principal!,
+          status: state === "inactive" ? "disabled" as const : "active" as const,
+          entra_object_id: state === "unlinked" ? null : identity.objectId,
+        },
+        grants: state === "no-grants" || state === "revoked" ? [] : base.grants,
+        sync: state === "stale" ? [] : base.sync,
+      };
+      const result = await resolveAccess(emergencyIdentity, { read: async () => snapshot }, emergencySettings, now);
+      expect(result).toEqual({ state: "no-access", breakGlass: false });
+      expect(canAccess(result, "admin")).toBe(false);
+    },
+  );
+  it("uses only SQL roles for a reachable group member, including current SQL admin", async () => {
+    for (const roles of [["user"], ["admin"]] as const) {
+      const result = await resolveAccess(emergencyIdentity, repo([...roles]), emergencySettings, now);
+      expect(result.state).toBe("authorized");
+      expect(result.breakGlass).toBe(false);
+      expect(canAccess(result, "admin")).toBe(roles[0] === "admin");
+    }
+  });
+  it("removes the exception on the first successful SQL read after an outage", async () => {
+    const repository = repo([]);
+    vi.mocked(repository.read).mockRejectedValueOnce(connectionFailure());
+    const outage = await resolveAccess(emergencyIdentity, repository, emergencySettings, now);
+    expect(canAccess(outage, "admin")).toBe(true);
+    const recovered = await resolveAccess(emergencyIdentity, repository, emergencySettings, now);
+    expect(recovered).toEqual({ state: "no-access", breakGlass: false });
+    expect(canAccess(recovered, "admin")).toBe(false);
+    expect(repository.read).toHaveBeenCalledTimes(2);
+  });
+  it.each([{ groups: [] }, { groups: ["00000000-0000-4000-8000-000000000099"] }])(
+    "denies missing/overage group claims and nonmembers", async ({ groups }) => {
+      const result = await resolveAccess({ ...identity, groups }, {
+        read: async () => { throw connectionFailure(); },
+      }, emergencySettings, now);
+      expect(result).toEqual({ state: "unavailable", breakGlass: false });
+    },
+  );
   it("reads permissions on every request, including immediately after revocation", async () => {
     const repository = repo();
     expect((await resolveAccess(identity, repository, settings, now)).state).toBe("authorized");
