@@ -57,6 +57,7 @@ run "demo_example" {
       local.ingestion_app_settings.FUNCTIONS_WORKER_RUNTIME == "node",
       local.ingestion_app_settings["AzureWebJobs.metricsSync.Disabled"] == "true",
       local.ingestion_app_settings.SCM_DO_BUILD_DURING_DEPLOYMENT == "false",
+      var.metrics_sync_enabled == false,
       local.ingestion_app_settings.AzureWebJobsStorage__credential == "managedidentity",
       local.ingestion_app_settings.AzureWebJobsStorage__clientId == "00000000-0000-0000-0000-000000000001",
       !contains(keys(local.directory_app_settings), "METRICS_SYNC_SCHEDULE"),
@@ -193,6 +194,24 @@ run "demo_example" {
       !contains(keys(local.portal_app_settings), "AUTH_TRUST_HOST")
     )
     error_message = "The portal must have a canonical HTTPS AUTH_URL without enabling forwarded-host trust."
+  }
+}
+
+run "metrics_sync_enabled" {
+  command = plan
+
+  variables {
+    metrics_sync_enabled = true
+  }
+
+  assert {
+    condition     = local.ingestion_app_settings["AzureWebJobs.metricsSync.Disabled"] == "false"
+    error_message = "metrics_sync_enabled = true must enable only the metrics timer."
+  }
+
+  assert {
+    condition     = !contains(keys(local.directory_app_settings), "AzureWebJobs.metricsSync.Disabled")
+    error_message = "The directory app must not carry the metrics timer setting."
   }
 }
 

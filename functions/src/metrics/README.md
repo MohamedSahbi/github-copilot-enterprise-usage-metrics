@@ -56,8 +56,9 @@ The metrics entrypoint registers `metricsSync` with `%METRICS_SYNC_SCHEDULE%`
 and `runOnStartup: false`. Its deployable root is
 `functions/dist/metrics-artifact`, with `main: dist/function.js`; build with
 `npm run build:metrics --workspace functions`. The directory artifact stays
-separate at `functions/dist/artifact`. The stack explicitly disables the metrics
-timer using `AzureWebJobs.metricsSync.Disabled = true` until #64 proof and
+separate at `functions/dist/artifact`. The stack disables the metrics timer
+(`AzureWebJobs.metricsSync.Disabled = true`) unless the owner sets
+`metrics_sync_enabled = true`, which needs #64 proof and
 separate activation approval; a packaged timer is not live support evidence.
 SQL integration evidence,
 #55/#56 deployment gates, and #64 live proof remain separate requirements.

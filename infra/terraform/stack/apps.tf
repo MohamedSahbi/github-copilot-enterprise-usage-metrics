@@ -99,7 +99,7 @@ locals {
     FUNCTIONS_EXTENSION_VERSION         = "~4"
     FUNCTIONS_WORKER_RUNTIME            = "node"
     SCM_DO_BUILD_DURING_DEPLOYMENT      = "false"
-    "AzureWebJobs.metricsSync.Disabled" = "true"
+    "AzureWebJobs.metricsSync.Disabled" = tostring(!var.metrics_sync_enabled)
     AzureWebJobsStorage__accountName    = module.metrics_host_storage.name
     AzureWebJobsStorage__credential     = "managedidentity"
     AzureWebJobsStorage__clientId       = module.identity["ingestion"].client_id
