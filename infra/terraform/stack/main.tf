@@ -12,8 +12,10 @@ locals {
   compact_name                  = replace(local.name, "-", "")
   raw_archive_storage_prefix    = "st${local.compact_name}"
   directory_host_storage_prefix = "stdir${substr(local.compact_name, 0, 14)}"
+  metrics_host_storage_prefix   = "stmet${substr(local.compact_name, 0, 14)}"
   storage_name                  = substr("${local.raw_archive_storage_prefix}${local.suffix}", 0, 24)
   directory_host_storage_name   = substr("${local.directory_host_storage_prefix}${local.suffix}", 0, 24)
+  metrics_host_storage_name     = substr("${local.metrics_host_storage_prefix}${local.suffix}", 0, 24)
   key_vault_name                = substr("kv-${local.name}-${local.suffix}", 0, 24)
   private_endpoints_enabled     = var.private_endpoints_enabled
 
@@ -28,6 +30,7 @@ locals {
   }
 
   raw_archive_identity_key            = "ingestion"
+  metrics_host_storage_identity_key   = "ingestion"
   directory_host_storage_identity_key = "directory"
 }
 

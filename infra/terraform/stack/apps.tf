@@ -98,7 +98,7 @@ locals {
     FUNCTIONS_EXTENSION_VERSION         = "~4"
     FUNCTIONS_WORKER_RUNTIME            = "node"
     "AzureWebJobs.metricsSync.Disabled" = "true"
-    AzureWebJobsStorage__accountName    = module.storage.name
+    AzureWebJobsStorage__accountName    = module.metrics_host_storage.name
     AzureWebJobsStorage__credential     = "managedidentity"
     AzureWebJobsStorage__clientId       = module.identity["ingestion"].client_id
     AZURE_CLIENT_ID                     = module.identity["ingestion"].client_id
@@ -161,12 +161,15 @@ module "ingestion" {
   application_insights_connection_string = local.application_insights_connection_string
   key_vault_reference_identity           = local.ingestion_key_vault_reference_identity
 
-  storage_account_name                     = module.storage.name
+  storage_account_name                     = module.metrics_host_storage.name
   storage_uses_managed_identity            = true
   storage_user_assigned_identity_client_id = module.identity["ingestion"].client_id
 
   managed_identities = { user_assigned_resource_ids = [module.identity["ingestion"].resource_id] }
-  depends_on         = [azurerm_role_assignment.secret_readers]
+  depends_on = [
+    azurerm_role_assignment.secret_readers,
+    module.metrics_host_storage,
+  ]
 
   site_config = {
     application_stack             = { node = { node_version = "22" } }
