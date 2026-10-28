@@ -1,6 +1,7 @@
 import type { PrincipalRow, Role, Scope } from "../../../shared/src/rows";
 import { enabledScopes, isValidRoleScope } from "../../../shared/src/access";
 import type { AccessSettings } from "../auth/settings";
+import { isSqlConnectivityOutage } from "./sql-connectivity";
 
 export type Identity =
   | { provider: "entra"; tenantId: string; objectId: string; groups: string[]; groupsVerifiedAt?: number }
@@ -48,12 +49,12 @@ export async function resolveAccess(
   let snapshot: AccessSnapshot;
   try {
     snapshot = await repository.read(identity);
-  } catch {
-    return { state: "unavailable", breakGlass };
+  } catch (error) {
+    return { state: "unavailable", breakGlass: breakGlass && isSqlConnectivityOutage(error) };
   }
   const { principal, sync } = snapshot;
   if (!principal || principal.status !== "active" || !principal.entra_object_id || !principal.entra_tenant_id) {
-    return { state: "no-access", breakGlass };
+    return { state: "no-access", breakGlass: false };
   }
   const directoryFresh = settings.directorySources.every((source) => {
     const success = sync.find((s) => s.source === source)?.last_success_at;
@@ -64,12 +65,12 @@ export async function resolveAccess(
   const grants = snapshot.grants.filter((g) => isValidRoleScope(g.role, g.scope) && scopes.includes(g.scope) &&
     (g.scope !== "team" || snapshot.teamAvailable === true) &&
     (directoryFresh || (g.role !== "executive" && g.role !== "admin")));
-  if (!grants.length) return { state: "no-access", breakGlass };
-  return { state: "authorized", breakGlass, principal, grants, namesVisible: settings.perUserDetailEnabled };
+  if (!grants.length) return { state: "no-access", breakGlass: false };
+  return { state: "authorized", breakGlass: false, principal, grants, namesVisible: settings.perUserDetailEnabled };
 }
 
 export function canAccess(result: AccessResult, surface: "admin" | "health" | "data" | "feedback"): boolean {
-  if ((surface === "admin" || surface === "health") && result.breakGlass) return true;
+  if ((surface === "admin" || surface === "health") && result.state === "unavailable" && result.breakGlass) return true;
   if (result.state !== "authorized") return false;
   return surface === "admin" || surface === "health"
     ? result.grants.some((g) => g.role === "admin") : true;
