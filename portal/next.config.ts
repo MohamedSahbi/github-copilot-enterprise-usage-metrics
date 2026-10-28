@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: repositoryRoot,
   turbopack: { root: repositoryRoot },
   poweredByHeader: false,
+  // Keep request/compilation diagnostics without serializing Server Action arguments.
+  logging: { serverFunctions: false },
   // Playwright drives `next dev` on 127.0.0.1; dev-only, ignored by production builds.
   allowedDevOrigins: ["127.0.0.1"],
 };
