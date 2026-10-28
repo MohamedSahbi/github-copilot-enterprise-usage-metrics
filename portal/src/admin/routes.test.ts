@@ -25,6 +25,7 @@ const routes = [
 ] as const;
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("AUTH_URL", "http://localhost");
   mocks.pool.mockResolvedValue({});
 });
 describe.each(routes)("%s authorization", (_name, route, method) => {

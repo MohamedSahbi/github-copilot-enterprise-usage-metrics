@@ -28,6 +28,14 @@ export async function requireAdmin(correlationId: string): Promise<
   return { ok: true, actor: { principalId: null, entraObjectId: session.identity.objectId } };
 }
 
+// request.url reflects the dev server's bind host (localhost), not the browser origin, so compare
+// against the configured canonical AUTH_URL origin, as Feedback mutations do.
+function mutationOrigin() {
+  const configured = process.env.AUTH_URL;
+  if (!configured) throw new Error("AUTH_URL is required for administration mutations");
+  return new URL(configured).origin;
+}
+
 function tenantId() {
   const tenant = process.env.ENTRA_TENANT_ID;
   if (!tenant || !isGuid(tenant)) throw new Error("ENTRA_TENANT_ID is required");
@@ -52,7 +60,7 @@ export async function adminRoute(
     // Mutation bodies cannot be submitted by cross-origin browser forms or simple fetches.
     if (request.method !== "GET") {
       const origin = request.headers.get("origin");
-      if ((origin && origin !== new URL(request.url).origin) ||
+      if ((origin && origin !== mutationOrigin()) ||
         request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
         throw new AdminError("forbidden", 403);
       }

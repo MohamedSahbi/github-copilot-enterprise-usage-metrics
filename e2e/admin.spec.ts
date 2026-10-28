@@ -61,6 +61,9 @@ for (const persona of ["manager", "member", "no-access"] as const) {
     }
     await expectNoAxeViolations(page);
     await page.screenshot({ path: info.outputPath(`admin-denied-${persona}.png`), fullPage: true });
-    expect(consoleErrors).toEqual([]);
+    // Signed-in non-admins get the 404 document for /admin, which the browser logs once.
+    expect(consoleErrors).toEqual(persona === "no-access" ? [] : [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    ]);
   });
 }
