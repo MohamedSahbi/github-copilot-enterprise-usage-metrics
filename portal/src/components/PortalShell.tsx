@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { signOut } from "@/auth/config";
 import type { PortalScopeSelection, PortalViewer } from "@/access/portalAccess";
 import { visibleCorePages } from "@/navigation/corePages";
+import { feedbackEnabled } from "@/feedback/access";
 
 export default function PortalShell({
   viewer,
@@ -79,6 +80,9 @@ export default function PortalShell({
                 </Link>
               </li>
             ))}
+            {feedbackEnabled() && (
+              <li><Link href="/feedback" className="block rounded px-3 py-2 text-sm hover:bg-neutral-100">Feedback</Link></li>
+            )}
           </ul>
         </nav>
 
