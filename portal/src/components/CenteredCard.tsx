@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 
-export type CenteredCardTone = "brand" | "danger" | "attention";
+export type CenteredCardTone = "brand" | "attention";
 
 const TONE_CLASSES: Record<CenteredCardTone, string> = {
   brand: "bg-[#24292f] text-white",
-  danger: "bg-[#ffebe9] text-[#d1242f]",
   attention: "bg-[#fff8c5] text-[#9a6700]",
 };
 
@@ -16,7 +15,7 @@ export function GitHubMark({ size = 32, className }: { size?: number; className?
   );
 }
 
-// Full-page centered card used by sign-in, no-access and outage pages.
+// Full-page centered card used by the sign-in and no-access pages.
 export default function CenteredCard({
   title,
   description,
