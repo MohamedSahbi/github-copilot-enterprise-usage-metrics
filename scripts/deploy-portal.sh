@@ -4,6 +4,7 @@
 #
 # Usage: scripts/deploy-portal.sh <resource-group> <web-app-name> [--package-only]
 #   --package-only  build and write the zip, print its path, deploy nothing
+# A pipeline reads both names from the stack outputs resource_group_name and portal_app_name.
 # Infrastructure, Key Vault references, migrations and grants must already be in place (docs/runbooks/migrations.md, Pipeline).
 set -euo pipefail
 

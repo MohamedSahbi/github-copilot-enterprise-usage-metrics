@@ -2,6 +2,11 @@ output "resource_group_name" {
   value = local.resource_group_name
 }
 
+output "portal_app_name" {
+  description = "Portal web app name, the target of scripts/deploy-portal.sh."
+  value       = local.portal_app_name
+}
+
 output "enabled_modules" {
   description = "Names of the optional modules turned on in this environment."
   value       = local.enabled_modules
