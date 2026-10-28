@@ -20,7 +20,7 @@ Draft from the current portal's navigation, pages, and API routes. The owner con
 | 14 | CLI Adoption | Core | Yes | |
 | 15 | AI Adoption Phases | Core (upstream AI Adoption Phases view via adapter) | Yes | Phase counts match fixture |
 | 16 | AI Credits view and billing charts | AI Credits module | Yes | Hidden when module off |
-| 17 | Budget Lookup (user, manager, cost center; live GitHub budgets) | Budget Lookup module (read-only GitHub API; no SQL or old-database fallback) | Yes | Effective budget and cost-center membership render from live GitHub data; hidden when module off |
+| 17 | Budget Lookup (self and scoped users; live GitHub budgets) | MVP: individual + default-per-user AI-credit budgets; center lookup deferred (#137, D-55); no SQL/old-database fallback | Yes | Source-reported effective and separate USD definitions; self detail exception, other users require scope + detail opt-in; mocked GitHub E2E; hidden when module off |
 | 18 | Administration: access grants | Admin | Yes | Grant and revoke; audit written |
 | 19 | Administration: hierarchy view and manual sync | Admin; "Sync now" triggers the directory sync job, admin-only and audited | Yes | Non-admin denied; trigger writes audit |
 | 20 | Administration: audit view | Admin (`portal.AuditLog`) | Yes | |

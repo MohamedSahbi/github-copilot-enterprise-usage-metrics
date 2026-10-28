@@ -246,7 +246,7 @@ The SQL/upstream oracle coverage and its known limits are tracked in `scripts/co
 | Core usage pages | aggregates by org/day/dimension, suppressed | unchanged |
 | User list / detail | not available (`per_user_detail_disabled`) | rows only within the viewer's scope, paged |
 | AI Credits | aggregates by org/day/model/cost center | per-user rows within scope, paged |
-| Budget Lookup | optional read-only module; live GitHub budget APIs, keyed by numeric GitHub user ID or cost-center name; no SQL or old-database fallback (D-55) | same |
+| Budget Lookup | optional read-only user-budget module; authenticated self or authorized numeric target; Budget-only self detail exception, other users need scope AND detail enabled; live GitHub reads, no SQL/old-database fallback (D-55, §17) | same |
 | Admin | principals and grants (admin role) | same |
 | Feedback | items per visibility; author shown as display name only to admins | same |
 | Health | status only, no data | same |
@@ -488,7 +488,7 @@ Derived values require all their inputs to be available. Suppressed inputs propa
 
 The core-view DTOs use curated SQL only (D-11): `portal.fact_user_daily_usage` for daily usage, user-level feature flags and exact AI-credit facts; `portal.fact_usage_breakdown` for feature, model, client, language and IDE cohorts; and current `portal.dim_user` rows for identity attributes and scope values. The source mappings and adoption definitions in §§2 and 4 remain authoritative. Upstream charts and calculators remain read-only presentation/oracle dependencies (D-14, D-15, D-22); do not edit the submodule or derive authorization from upstream data.
 
-`CoreViewMetrics` separates daily participation, peak-day data, top-decile subsets and shares, top-N entries, CLI totals, IDE/CLI overlap and feature-adoption cohorts. Each metric is independently available, not reported, unavailable or suppressed. In particular, `ai_adoption_phase.version`, client `prompt_count`, and VS Code agent `total_user_messages` are unavailable with reason `source_discarded` until their source fields are restored. Do not represent them as measured zero, infer them from another field, or present a missing source as a suppressed cohort.
+`CoreViewMetrics` separates daily participation, peak-day data, top-decile subsets and shares, top-N entries, CLI totals, IDE/CLI overlap and feature-adoption cohorts. Each metric is independently available, not reported, unavailable or suppressed. It does not expose a direct client `prompt_count` metric: the nullable value is persisted in client breakdown rows and used for the Copilot App `kind=ide` fallback, but is not exposed by the client API DTO or treated as a discarded source. `ai_adoption_phase.version` and VS Code agent `total_user_messages` remain unavailable with reason `source_discarded` until their source fields are restored. Do not represent a missing source as measured zero, infer it from another field, or present it as a suppressed cohort.
 
 ### Exact AI-credit values and arithmetic
 
@@ -542,3 +542,179 @@ Day status precedence is `unavailable` > `incomplete` > `unexplained` > `explain
 ### Out of scope
 
 Directory comparison, cutover, source-access approval or extraction procedure, final data migration, old directory or `dbo` writes, runtime cross-database grants, API/report consumer authorization (L3/L4) and deployment.
+
+## 17. Budget Lookup MVP contract
+
+Owner-approved #137 narrows the D-55 contract before #95 implements a client,
+route, page, module wiring or health check. The existing `BudgetLookupRequest`
+and `BudgetLookupResponse` in `shared/src/api.ts` are the MVP boundary.
+`DeferredBudgetLookupResponse` and the older center/source descriptors are
+historical/deferred types, not supported request or success-response branches.
+No shared SQL, directory, Functions or metrics contract changes.
+
+### Request and target authorization
+
+`GET /api/budget-lookup` normalizes to `{target:"self"}`; exactly one
+`userId=<positive-safe-integer>` normalizes to `{target:"user",userId}`.
+The `target` discriminator is internal, not a URL authority field.
+`parseBudgetLookupRequest` rejects duplicate/extra keys, scope/root/login/email,
+cost-center names, empty IDs, fractions, exponent/hex notation and unsafe IDs.
+`validateBudgetLookupRequest` validates the strict normalized form.
+
+Before any credential/source access require an authenticated active, uniquely
+linked Entra-keyed principal, a valid current portal data grant and fresh,
+complete identity/population evidence. Self derives only from that immutable
+principal; a numeric target equal to resolved self receives the same treatment.
+Self-only Budget amounts are available even with `PER_USER_DETAIL_ENABLED=false`.
+This is not a metrics waiver or module-only entitlement.
+
+Every other target needs BOTH `PER_USER_DETAIL_ENABLED=true` and membership in the
+existing server-resolved authorized population. Manager population is their current
+caller-rooted direct/indirect team; executives/admins use only actual grants.
+No role-global bypass, caller hierarchy root, email/login grant or break-glass
+data entitlement. Module visibility never authorizes data.
+
+`validateBudgetLookupTarget` is a pure contract validator over trusted server
+facts, NOT a replacement for the existing principal/grant/directory resolver.
+Only that resolver may construct `access.state="authorized"` with a uniquely
+mapped self and complete current authorized numeric population. Unavailable/
+stale evidence maps to `permissions_unavailable`, denied/unlinked/no-grant to
+`forbidden`, signed out to `unauthenticated`. The validator checks target
+membership/detail gates and the module flag; it performs no database/network IO.
+
+### Supported definitions, effective allocation and USD
+
+Only `budget_type=BundlePricing`, singular `budget_product_sku=ai_credits`,
+and `budget_scope=user` or `multi_user_customer` are supported.
+`budgetLookupSourceClassificationSchema` checks these fields only: it does not
+prove applicability, identity, permissions or pagination. Unknown/other scopes
+are not aliases; cost-center per-user defaults and shared enterprise pools are
+outside MVP. Plural SKU-only/ambiguous variants are not documented guarantees
+and cannot substitute for the exact singular classification.
+
+Response data has `userId`, `budgets`, `effectiveBudget`, `amountUnit:"USD"` and
+`cycle:"calendar_month_utc"`. Each record has stable `id`,
+`kind:"individual"|"default_per_user"`, exact-decimal `amount`, `consumedAmount`
+and `expiresAt` (nullable date for individual; null for default). Consumption is
+`{status:"reported",amount,unit:"USD"}` or `{status:"not_reported"}`. Zero is a
+reported value, never a substitute for missing data. No roster, recipient list,
+raw source login or cost-center descriptor reaches this DTO.
+
+Effective allocation is `{status:"reported",budgetId,amount,consumedAmount}` only
+when its ID identifies a validated supported record. Absent source metadata is
+`{status:"not_reported"}`; an effective allocation outside the supported collection
+is `{status:"outside_mvp"}` with no leaked ID/amount. Complete empty supported
+definitions do not prove that no budget of any kind applies. Return separate
+definitions, never sum overlaps, select newest/largest, synthesize precedence or
+stamp effective consumption onto every record. `override_budget_id` is internal
+source evidence, not local fallback authority. `budgetLookupDataSchema` validates
+the strict browser shape, unique IDs, effective-ID coverage, expiry dates and
+canonical exact decimals; it cannot prove source attribution.
+
+The owner explicitly attested supported budget/effective/user-state amounts
+(including `consumed_amount` and `target_amount`) are USD and directed direct
+USD display with **no currency or AI-credit conversion**. Preserve lossless
+numeric JSON tokens before `exactDecimal18_9`; never round-trip via JavaScript
+Number. This is owner-attested source semantics, **not independent REST
+field-unit proof**: the schema's generic consumption descriptions do not specify
+USD versus credit units. No unit-based withholding or conversion is introduced.
+
+Calendar-month UTC reset and individual expiration are different events.
+Do not invent response-derived date bounds or claim full-month coverage for
+mid-cycle creation. GitHub creates universal user states after activity, so a
+missing user state neither proves zero consumption nor absence of the default.
+
+### GET-only source and credential boundary
+
+Use the fixed GitHub API host and version `2026-03-10`, deployment enterprise,
+server-resolved current target login, encoded parameters and
+`Accept: application/vnd.github+json`. No caller URL, enterprise or login.
+
+1. Complete the authorization/module/freshness checks above.
+2. Page `GET /enterprises/{enterprise}/settings/billing/budgets` with
+   `scope=user&user={resolved-login}&per_page=100&page=N`; exact-match each
+   individual's returned login and supported classification.
+3. Page the same endpoint with `scope=multi_user_customer` and the same user
+   filter; validate scope/entity applicability to the configured enterprise.
+4. Page the user-filtered **unscoped** list solely for GitHub-reported
+   `effective_budget` metadata; exact-match top-level response identity and
+   reject conflicting metadata across pages. Do not expose other returned
+   records or fetch their details. This GET is the explicit #137 D-55 amendment.
+5. Validated supported budget-ID detail GET and
+   `.../budgets/{budget_id}/user-states?user={resolved-login}&per_page=100&page=N`
+   are follow-ups only when required. Exact-match row login before identity/
+   amount attribution; never enumerate all user states.
+
+The list `user` filter selects consumption details, not necessarily budgets or
+membership. Exclude unmatched records; ambiguous identity/applicability is an
+error. Never infer membership, numeric identity or an effective fallback from
+consumption. No cost-center, team, Graph, write or old-database calls.
+
+Use separate Key Vault secret `budget-lookup-key`, not ingestion/directory
+credentials. The owner attests an existing budget-read PAT. Official docs require
+classic PAT `manage_billing:enterprise` and source access for its user; fine-grained
+PATs are unsupported. This upstream scope is broader than read-only: adapter
+GET-only allowlisting enforces read-only behavior. GitHub App enterprise-billing
+permission is not generally available; metrics-App success proves nothing about
+it. This contract provisions no secrets, permissions or deployment resources.
+
+### Completeness, errors and retention
+
+Every raw budget/user-state page must supply explicit boolean `has_next_page`
+and stable nonnegative safe-integer `total_count`, even though some published
+budget response properties are optional. Missing evidence fails visibly, not
+defaults. Count raw records before filtering; continue to explicit completion
+and match totals. Reject repeated IDs/pages (user-state keys are exact logins),
+conflicting duplicates/metadata, malformed decimals and ambiguous identities.
+`validateBudgetLookupPage` validates normalized completion metadata and raw keys,
+with 100 records/page and `BUDGET_LOOKUP_MAX_PAGES=100`; it does not fetch pages.
+Its progress is trusted internal state, never caller input. No partial result
+may be returned before completion. Bound the entire cancellable source sequence
+by `BUDGET_LOOKUP_TIMEOUT_MS=10_000` across all provider calls (not per page) in
+#95; source mutation/inconsistent totals fails this read rather
+than pretending transactional snapshot consistency.
+
+`BudgetLookupErrorResponse` extends the existing correlation-ID error envelope
+only for Budget; unrelated API codes remain unchanged:
+
+| Condition | HTTP | Code |
+| --- | --- | --- |
+| Missing credential, provider auth/network/5xx failure | 503 | `budget_source_unavailable` |
+| Overall cancellable deadline | 504 | `budget_source_timeout` |
+| Malformed/ambiguous source, precision/overflow or conflicting metadata | 502 | `budget_source_invalid` |
+| Missing/inconsistent completeness, repeated pages or page limit | 502 | `budget_source_incomplete` |
+| Provider rate limit | 429 | `rate_limited` (only validated sanitized retry metadata) |
+
+Keep existing 400 `invalid_request`, 401 `unauthenticated`, 403 `forbidden`/
+`per_user_detail_disabled`, 404 `module_disabled`, and 503
+`permissions_unavailable`. Provider 401/403 is not caller denial or no-budget.
+No source failure, timeout or truncation can construct empty success.
+
+No result cache (TTL=0), budget persistence, snapshots, request/approval tracking
+or new audit table. Fresh permission/identity checks each request; private/no-store
+responses with correlation IDs. D-51 redacted operational event/code/correlation
+logs remain; exclude source bodies, logins, amounts, recipients and credentials.
+No implicit new retention policy or assertion that hosting telemetry does not exist.
+
+### Evidence provenance and deferred implementation
+
+- [REST budgets, version 2026-03-10](https://docs.github.com/en/enterprise-cloud@latest/rest/billing/budgets?apiVersion=2026-03-10).
+- [Pinned OpenAPI](https://github.com/github/rest-api-description/blob/bb754941722779d8a5b3a2f25a5fbb7ce794e1ea/descriptions/ghec/ghec.2026-03-10.json).
+  Response enums omit `BundlePricing` despite create docs describing it; do not
+  replace it with `ProductPricing` or infer classification from names.
+- [Copilot budgets](https://docs.github.com/en/copilot/concepts/billing-and-usage/organizations-and-enterprises/budgets):
+  user limits cover pool and metered consumption; monthly reset and activity-created
+  universal user states. Documented precedence explains upstream behavior but
+  does not authorize locally computing the effective budget.
+- [Billing](https://docs.github.com/en/copilot/concepts/billing-and-usage/organizations-and-enterprises/billing)
+  distinguishes dollar budgets and AI-credit usage; owner-attested USD fields
+  above are not an independent authenticated replay.
+- [Billing cycles](https://docs.github.com/en/billing/concepts/billing-cycles#billing-cycles-for-metered-products):
+  month starts 00:00:00 UTC on day 1, regardless of invoice date.
+
+No live source or credential validation is required or performed for this
+contract. #95 must later test the actual adapter's lossless decode, applicability,
+authorization-before-IO, complete sequence, deadline cancellation and no-fallback
+errors with mocked GitHub and synthetic personas. Pure contract checks here do
+not prove those runtime behaviors or module health. UI/browser/axe evidence stays
+with that feature; no budget or request automation is authorized.
