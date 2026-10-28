@@ -12,6 +12,9 @@ The portal reads only the new portal database. Configure the following app setti
 | `ENTRA_TENANT_ID` | Allowed tenant; sign-in requires this tenant and an immutable Entra object ID |
 | `AUTH_GITHUB_ID` | Separate sign-in OAuth app client ID |
 | `AUTH_GITHUB_SECRET` | Sign-in OAuth app secret, Key Vault reference; not an ingestion or directory credential |
+| `MODULE_BUDGET_LOOKUP` | Optional Budget Lookup visibility flag; `false` by default, never grants data access |
+| `BUDGET_LOOKUP_KEY` | Separate owner-provided classic PAT with `manage_billing:enterprise`; Key Vault reference wired only when Budget Lookup is enabled |
+| `ENTERPRISE_SLUG` | Configured enterprise whose live individual/default-per-user AI-credit budgets are read |
 | `SQL_SERVER`, `SQL_DATABASE` | New database FQDN and name; encrypted SQL connection using `DefaultAzureCredential` |
 | `AZURE_CLIENT_ID` | Portal user-assigned managed identity client ID |
 | `ACCESS_BREAK_GLASS_GROUP_ID` | `access.break_glass_group_id`; empty disables break-glass; a nonempty invalid GUID fails startup |
@@ -24,7 +27,19 @@ The portal reads only the new portal database. Configure the following app setti
 | `STALE_DATA_THRESHOLD_HOURS` | Maximum age of each required directory source, default 36; missing success timestamps, or timestamps more than 500 ms in the future (maximum `DATETIME2(0)` rounding error, not general clock skew), deny elevated grants |
 | `PER_USER_DETAIL_ENABLED` | `false` by default; server-derived `namesVisible`, never a request parameter |
 
-The Terraform stack wires `SQL_SERVER`, `SQL_DATABASE`, and the portal `AZURE_CLIENT_ID` from the selected SQL resources and managed identity. It provides Key Vault references for `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_GITHUB_SECRET`; create the values separately in Key Vault using the corresponding names from the `secret_names` output. Terraform plan/apply does not query secret names or values: operators must verify expected names, component-identity access, and resolved Key Vault reference status through the approved deployment route before releasing portal code. Never expose secret values during these checks. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key. The GitHub sign-in OAuth secret belongs to its separate sign-in app and must not reuse ingestion or directory credentials; the portal cannot read ingestion or directory secrets.
+The Terraform stack wires `SQL_SERVER`, `SQL_DATABASE`, and the portal `AZURE_CLIENT_ID` from the selected SQL resources and managed identity. It provides Key Vault references for `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_GITHUB_SECRET`; when `modules.budget_lookup` is enabled it also references the separately operator-created `budget-lookup-key`. Create values separately in Key Vault using the names in the `secret_names` output. Terraform plan/apply does not query secret names or values: operators must verify expected names, component-identity access, and resolved Key Vault reference status through the approved deployment route before releasing portal code. Never expose secret values during these checks. The portal identity receives only portal sign-in secrets and the optional Budget Lookup key. The GitHub sign-in OAuth secret belongs to its separate sign-in app and must not reuse ingestion or directory credentials; the portal cannot read ingestion or directory secrets.
+
+Budget Lookup uses the classic PAT only for fixed-host GitHub `GET` requests. Its `manage_billing:enterprise` permission is broader than read-only; the server-side client enforces the GET-only endpoint allowlist. It is not the GitHub App, metrics, or directory credential. If the setting is absent or unusable, lookups fail visibly; there is no SQL or legacy-database fallback.
+
+The server-only `readBudgetLookupHealth()` seam is for Admin composition only
+after the existing HEALTH authorization. It reports credential presence, never
+the credential, and the last observed source permission result from an authorized
+Budget Lookup GET (200 allowed; 401/403 denied). This is historical and local to
+one process instance, not proof of current permission or cross-instance health.
+Absence, process restart, and other instances mean unknown. Other failures retain
+the prior observation and its original timestamp. Reading health never probes
+GitHub; the public `/api/health` is unchanged. Admin presentation is delivered
+separately after this seam merges.
 
 OAuth callbacks are `/api/auth/callback/microsoft-entra-id` and `/api/auth/callback/github`. Configure Entra to emit group object IDs in its signed ID token for break-glass. Group overage/missing claims do **not** trigger Graph calls and do not grant break-glass. Only matching-tenant Entra sign-in can use it, for admin and health surfaces only. Group evidence expires at the configured permission-freshness interval; sign in again to renew it. It never grants data or feedback access.
 
