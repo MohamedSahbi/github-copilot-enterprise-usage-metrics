@@ -250,21 +250,16 @@ export async function runAccessBootstrap(
         };
       }
 
+      // Denial-only contract (#172): never read AccessGrant directly, never regrant a revoked grant.
       const historical = await transaction.request()
-        .input("tenantId", sql.UniqueIdentifier, input.tenantId)
-        .input("targetObjectId", sql.UniqueIdentifier, input.targetObjectId)
-        .input("role", sql.VarChar(12), grant.role)
-        .input("scope", sql.VarChar(16), grant.scope)
-        .input("scopeValue", sql.NVarChar(128), grant.scopeValue)
-        .query<{ found: number }>(`
-          SELECT TOP (1) 1 AS found
-          FROM portal.AccessGrant AS g WITH (HOLDLOCK)
-          JOIN portal.Principal AS p WITH (HOLDLOCK) ON p.principal_id = g.principal_id
-          WHERE p.entra_tenant_id = @tenantId
-            AND p.entra_object_id = @targetObjectId
-            AND g.role = @role AND g.scope = @scope
-            AND g.scope_value = @scopeValue AND g.revoked_at IS NOT NULL`);
-      if (historical.recordset.length > 0) throw new BootstrapError("historical_grant_conflict");
+        .input("entra_tenant_id", sql.UniqueIdentifier, input.tenantId)
+        .input("entra_object_id", sql.UniqueIdentifier, input.targetObjectId)
+        .input("role", sql.VarChar(sql.MAX), grant.role)
+        .input("scope", sql.VarChar(sql.MAX), grant.scope)
+        .input("scope_value", sql.NVarChar(sql.MAX), grant.scopeValue)
+        .output("has_conflict", sql.Bit)
+        .execute("portal.usp_has_revoked_grant_conflict");
+      if (historical.output.has_conflict === true) throw new BootstrapError("historical_grant_conflict");
     }
 
     if ((grant.role === "admin" || grant.role === "executive")) {
