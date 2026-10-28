@@ -92,10 +92,12 @@ Markdown records human decisions, not executable configuration.
 [`sql.tf`](../../infra/terraform/stack/sql.tf) creates or references the new
 database, but does not establish a deployment-specific verified restore window.
 [`storage.tf`](../../infra/terraform/stack/storage.tf) uses ZRS and a
-Cool-tier lifecycle rule without deletion. Replication and Cool tiering are not
-backups against logical deletion/corruption. The root does not explicitly configure
-Blob versioning, soft delete or point-in-time restore; do not infer availability
-from AVM defaults. Inspect the deployed settings and retained versions.
+Cool-tier lifecycle rule. Replication and Cool tiering are not backups against
+logical deletion/corruption. The metrics raw archive account enables Blob
+versioning, blob soft delete and container soft delete for `raw_archive_recovery_days`
+(default 30), and a lifecycle rule expires noncurrent versions after the same window.
+Blob point-in-time restore and change feed are not configured. Configuration is
+not evidence: inspect the deployed settings and retained versions.
 Any required protection change needs separate infrastructure approval, not this
 runbook. Do not start a data-bearing run with an unprotected archive.
 

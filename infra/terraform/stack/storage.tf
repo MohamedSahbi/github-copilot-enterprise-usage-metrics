@@ -56,6 +56,21 @@ module "storage" {
     raw = { name = "raw" }
   }
 
+  # Recovery from logical deletion/overwrite (D-50, #55): replication and Cool tiering are not backups.
+  blob_properties = {
+    versioning_enabled = true
+    delete_retention_policy = {
+      enabled                = true
+      days                   = var.raw_archive_recovery_days
+      allow_permanent_delete = false
+    }
+    container_delete_retention_policy = {
+      enabled                = true
+      days                   = var.raw_archive_recovery_days
+      allow_permanent_delete = false
+    }
+  }
+
   private_endpoints = local.private_endpoints_enabled ? {
     for sub in ["blob", "queue", "table"] : sub => {
       subnet_resource_id            = var.network.subnet_id
@@ -112,6 +127,22 @@ resource "azurerm_storage_management_policy" "raw_archive" {
     actions {
       base_blob {
         tier_to_cool_after_days_since_modification_greater_than = ceil(var.raw_archive_cool_after_months * 365.25 / 12)
+      }
+    }
+  }
+
+  # Versioning covers host blobs too; keep noncurrent versions only for the recovery window.
+  rule {
+    name    = "noncurrent-version-expiry"
+    enabled = true
+
+    filters {
+      blob_types = ["blockBlob"]
+    }
+
+    actions {
+      version {
+        delete_after_days_since_creation = var.raw_archive_recovery_days
       }
     }
   }

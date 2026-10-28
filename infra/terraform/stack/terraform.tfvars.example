@@ -47,6 +47,8 @@ modules = {
 
 # Move raw archive blobs to Cool after this many months; retained without deletion.
 raw_archive_cool_after_months = 13
+# Days deleted blobs, deleted containers and noncurrent versions stay recoverable.
+raw_archive_recovery_days = 30
 
 # Required unless existing_sql is set: the Entra user, group, or managed identity (passed in, not created) that administers the demo SQL server.
 sql_admin = {

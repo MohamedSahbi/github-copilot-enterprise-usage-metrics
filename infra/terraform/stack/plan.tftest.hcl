@@ -124,6 +124,15 @@ run "demo_example" {
 
   assert {
     condition = alltrue([
+      azurerm_storage_management_policy.raw_archive.rule[1].name == "noncurrent-version-expiry",
+      azurerm_storage_management_policy.raw_archive.rule[1].actions[0].version[0].delete_after_days_since_creation == var.raw_archive_recovery_days,
+      var.raw_archive_recovery_days == 30,
+    ])
+    error_message = "Raw archive noncurrent versions must expire only after the default 30-day recovery window."
+  }
+
+  assert {
+    condition = alltrue([
       local.directory_host_storage_identity_key == "directory",
       toset(keys(local.directory_host_storage_role_assignments)) == toset(["directory_blob", "directory_queue", "directory_table"]),
       local.directory_host_storage_prefix != local.raw_archive_storage_prefix,
