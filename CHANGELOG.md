@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.14](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.13...v0.2.14) (2026-10-28)
+
+
+### Features
+
+* **infra:** enable raw archive blob recovery protection ([#181](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/181)) ([d954a9f](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/d954a9f41186479ed337bac0e0119cbfee0b403e))
+
 ## [0.2.13](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.12...v0.2.13) (2026-10-28)
 
 
