@@ -87,6 +87,12 @@ variable "metrics_sync_schedule" {
   }
 }
 
+variable "metrics_sync_enabled" {
+  description = "Turns the metrics timer Function on (AzureWebJobs.metricsSync.Disabled = false). Off by default; the owner sets it per environment, and it needs the #64 App-token check and the #55/#56 gates to have passed."
+  type        = bool
+  default     = false
+}
+
 variable "organization" {
   description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
   type = object({

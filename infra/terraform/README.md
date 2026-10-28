@@ -40,6 +40,7 @@ Inputs worth knowing:
 | `directory_department_attribute`, `directory_business_area_attribute`, `stale_data_threshold_hours`, `per_user_detail_enabled` | Directory scope paths (empty disables each scope), source staleness (default 36 hours), and aggregate-only/per-user detail control (default false). |
 | `directory_sync_schedule` | Required six-field UTC NCRONTAB schedule for the directory timer; Terraform validates numeric field ranges and applies no default cadence. Example: `0 0 2 * * *` (02:00 UTC daily). |
 | `metrics_sync_schedule` | Required six-field UTC NCRONTAB schedule, emitted only as `METRICS_SYNC_SCHEDULE` on the metrics app. No default cadence. The metrics timer remains disabled pending #64 and separate activation approval. |
+| `metrics_sync_enabled` | Optional, default `false`. Set `true` to enable the metrics timer (`AzureWebJobs.metricsSync.Disabled = false`) once #64 and the #55/#56 gates have passed. |
 | `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_GITHUB_SECRET` | Portal-only Key Vault references using the `auth-secret`, `auth-microsoft-entra-id-secret`, and `auth-github-secret` names in the existing `secret_names` output. Terraform never stores or creates the values. |
 | `app_service_sku` | Plan SKU shared by the portal and both Functions apps (default `B1`). |
 | `network.integration_subnet_id`, `network.private_dns_zones` | Subnet for app VNet integration; private DNS zone IDs keyed `vault`, `blob`, `queue`, `table`, `sql`. |
@@ -93,9 +94,9 @@ there is no default. Standard UTC syntax examples are `0 0 * * * *` (hourly),
 `0 0 2 * * *` (daily), and `0 0 2 * * 1` (weekly). These examples do not select an
 operator cadence. Missing or invalid schedules fail Terraform validation; a
 bypassed invalid setting prevents the Functions host from indexing the timer.
-The stack sets `AzureWebJobs.metricsSync.Disabled = true`: #64 remains the live
-App proof gate, and activation requires separate authorization. No activation
-switch, PAT fallback, or installation-ID configuration is introduced here.
+The stack sets `AzureWebJobs.metricsSync.Disabled = true` unless `metrics_sync_enabled`
+is set to `true`: #64 remains the live App proof gate, and activation requires
+separate authorization. No PAT fallback or installation-ID configuration is introduced here.
 
 `npm run build --workspace functions` emits two separate deployable roots:
 `functions/dist/artifact` for directory and `functions/dist/metrics-artifact`
