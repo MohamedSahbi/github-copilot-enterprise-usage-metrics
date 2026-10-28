@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.18](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.17...v0.2.18) (2026-10-28)
+
+
+### Features
+
+* **infra:** let the Function Apps accept deployments, not traffic ([#194](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/194)) ([6f504d7](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/6f504d7dce78a5d324fc87921bf775227d0bd9f8))
+
 ## [0.2.17](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.16...v0.2.17) (2026-10-28)
 
 
