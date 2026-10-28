@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.21](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.20...v0.2.21) (2026-10-28)
+
+
+### Features
+
+* **portal:** restyle navigation, admin and Help pages; show sign-in progress ([#201](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/201)) ([b93a5d6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/b93a5d64057065288012d0544f8fbed473ddc85b))
+
 ## [0.2.20](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.19...v0.2.20) (2026-10-28)
 
 
