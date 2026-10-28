@@ -55,4 +55,5 @@ if [[ "$package_only" == true ]]; then
 fi
 
 echo "Deploying $component functions $version to $app_name"
-az functionapp deployment source config-zip --resource-group "$resource_group" --name "$app_name" --src "$zip_path"
+# OneDeploy: config-zip rewrites app settings and polls the deployment site, which restarts it mid-deploy and returns a non-JSON reply.
+az functionapp deploy --resource-group "$resource_group" --name "$app_name" --src-path "$zip_path" --type zip --timeout 600000
