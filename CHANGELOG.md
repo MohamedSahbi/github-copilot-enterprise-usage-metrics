@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.19](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.18...v0.2.19) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deploy:** push function zips with OneDeploy and pin the build setting ([#196](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/196)) ([43e1621](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/43e1621a5638ebfa8ea5b314f328caa90a1a8580))
+
 ## [0.2.18](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.17...v0.2.18) (2026-10-28)
 
 
