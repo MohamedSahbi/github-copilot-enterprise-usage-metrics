@@ -1,5 +1,6 @@
 import { signIn } from "@/auth/config";
 import { isTestAuthEnabled, TEST_PERSONAS } from "@/auth/test-auth";
+import SubmitButton from "@/components/SubmitButton";
 import CenteredCard, { microsoftButtonClass, primaryButtonClass, secondaryButtonClass, GitHubMark } from "@/components/CenteredCard";
 
 function MicrosoftLogo() {
@@ -25,19 +26,19 @@ export default function SignInPage() {
           "use server";
           await signIn("microsoft-entra-id", { redirectTo: "/" });
         }}>
-          <button className={microsoftButtonClass} type="submit">
+          <SubmitButton className={microsoftButtonClass} pendingLabel="Redirecting to Microsoft…">
             <MicrosoftLogo />
             Sign in with Microsoft Entra ID
-          </button>
+          </SubmitButton>
         </form>
         <form action={async () => {
           "use server";
           await signIn("github", { redirectTo: "/" });
         }}>
-          <button className={primaryButtonClass} type="submit">
+          <SubmitButton className={primaryButtonClass} pendingLabel="Redirecting to GitHub…">
             <GitHubMark size={20} />
             Sign in with GitHub
-          </button>
+          </SubmitButton>
         </form>
       </div>
       {isTestAuthEnabled() && (
@@ -49,7 +50,7 @@ export default function SignInPage() {
                 "use server";
                 await signIn("test-persona", { persona: id, redirectTo: "/" });
               }}>
-                <button className={`${secondaryButtonClass} py-2 text-sm`} type="submit">Sign in as {label}</button>
+                <SubmitButton className={`${secondaryButtonClass} py-2 text-sm`} pendingLabel={`Signing in as ${label}…`}>Sign in as {label}</SubmitButton>
               </form>
             ))}
           </div>
