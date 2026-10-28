@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.20](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.19...v0.2.20) (2026-10-28)
+
+
+### Bug Fixes
+
+* **infra:** let the Function hosts reach their storage ([#198](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/198)) ([3206b17](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/3206b178172f00464e4063fb70c99038e60b0a20))
+
 ## [0.2.19](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.18...v0.2.19) (2026-10-28)
 
 
