@@ -70,6 +70,7 @@ locals {
     DIRECTORY_SYNC_SCHEDULE          = var.directory_sync_schedule
     FUNCTIONS_EXTENSION_VERSION      = "~4"
     FUNCTIONS_WORKER_RUNTIME         = "node"
+    SCM_DO_BUILD_DURING_DEPLOYMENT   = "false"
     AZURE_CLIENT_ID                  = module.identity["directory"].client_id
     AzureWebJobsStorage__accountName = module.directory_host_storage.name
     AzureWebJobsStorage__credential  = "managedidentity"
@@ -97,6 +98,7 @@ locals {
     METRICS_SYNC_SCHEDULE               = var.metrics_sync_schedule
     FUNCTIONS_EXTENSION_VERSION         = "~4"
     FUNCTIONS_WORKER_RUNTIME            = "node"
+    SCM_DO_BUILD_DURING_DEPLOYMENT      = "false"
     "AzureWebJobs.metricsSync.Disabled" = "true"
     AzureWebJobsStorage__accountName    = module.storage.name
     AzureWebJobsStorage__credential     = "managedidentity"
