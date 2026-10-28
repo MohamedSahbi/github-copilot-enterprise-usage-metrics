@@ -31,6 +31,9 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 version="$(git describe --tags --always)"
 
+# The portal builds against the upstream viewer submodule; a plain release clone does not fetch it.
+git submodule update --init --recursive --depth 1
+
 npm ci
 npm run build -w portal
 
