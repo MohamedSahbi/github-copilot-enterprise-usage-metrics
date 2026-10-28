@@ -125,7 +125,7 @@ run "demo_example" {
       local.raw_archive_identity_key == "ingestion",
       toset(keys(local.raw_archive_role_assignments)) == toset(["ingestion_blob", "ingestion_queue", "ingestion_table"]),
     ])
-    error_message = "Only the ingestion identity may access the metrics raw archive and its host storage."
+    error_message = "Only the ingestion identity may access the metrics raw archive."
   }
 
   assert {
@@ -135,6 +135,18 @@ run "demo_example" {
       var.raw_archive_recovery_days == 30,
     ])
     error_message = "Raw archive noncurrent versions must expire only after the default 30-day recovery window."
+  }
+
+  assert {
+    condition = alltrue([
+      local.metrics_host_storage_identity_key == "ingestion",
+      toset(keys(local.metrics_host_storage_role_assignments)) == toset(["metrics_blob", "metrics_queue", "metrics_table"]),
+      local.metrics_host_storage_name != local.storage_name,
+      local.metrics_host_storage_name != local.directory_host_storage_name,
+      contains(keys(local.ingestion_app_settings), "AzureWebJobsStorage__accountName"),
+      local.host_storage_network_rules == { default_action = "Allow" },
+    ])
+    error_message = "Metrics host storage must be its own account, separate from the raw archive, and open to the network when there is no private endpoint."
   }
 
   assert {
