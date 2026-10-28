@@ -37,6 +37,10 @@ locals {
     KEY_VAULT_URI                     = module.key_vault.uri
   }
 
+  budget_lookup_key_setting = var.modules.budget_lookup ? {
+    BUDGET_LOOKUP_KEY = format("@Microsoft.KeyVault(SecretUri=%s/secrets/budget-lookup-key)", trimsuffix(module.key_vault.uri, "/"))
+  } : {}
+
   portal_auth_trust_host_setting = var.auth_trust_host ? {
     AUTH_TRUST_HOST = "true"
   } : {}
@@ -68,7 +72,7 @@ locals {
     ACCESS_REQUEST_URL                  = var.access_request_url
     ACCESS_CONTACT                      = var.access_contact
     PER_USER_DETAIL_ENABLED             = tostring(var.per_user_detail_enabled)
-  }, local.portal_auth_trust_host_setting)
+  }, local.budget_lookup_key_setting, local.portal_auth_trust_host_setting)
 
   ingestion_app_settings = merge(local.common_app_settings, {
     METRICS_SYNC_SCHEDULE               = var.metrics_sync_schedule

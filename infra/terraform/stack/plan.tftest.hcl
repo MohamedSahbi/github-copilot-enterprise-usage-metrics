@@ -77,6 +77,8 @@ run "demo_example" {
       contains(output.secret_names, "auth-microsoft-entra-id-secret"),
       contains(output.secret_names, "auth-github-secret"),
       contains(output.secret_names, "github-directory-pat"),
+      !contains(output.secret_names, "budget-lookup-key"),
+      !contains(keys(local.portal_app_settings), "BUDGET_LOOKUP_KEY"),
       local.key_vault_network_acls == {
         bypass                     = "None"
         default_action             = "Deny"
@@ -325,6 +327,11 @@ run "optional_module_secret_ownership" {
       local.secret_identity_by_name["ai-credits-token"] == "ingestion",
       local.secret_identity_by_name["budget-lookup-key"] == "portal",
       local.secret_identity_by_name["github-directory-pat"] == "directory",
+      local.portal_app_settings.BUDGET_LOOKUP_KEY == format(
+        "@Microsoft.KeyVault(SecretUri=%s/secrets/budget-lookup-key)",
+        trimsuffix(module.key_vault.uri, "/"),
+      ),
+      contains(output.secret_names, "budget-lookup-key"),
     ])
     error_message = "Optional module secrets must be granted only to the module's owning component identity."
   }

@@ -14,7 +14,7 @@ function safeUserId(value: number | string): number {
 }
 
 export class SqlAccessRepository implements AccessRepository {
-  constructor(private readonly pool: sql.ConnectionPool) {}
+  constructor(private readonly pool: sql.ConnectionPool | sql.Transaction) {}
 
   async grantValidationContext(tenantId: string, objectId: string, settings: AccessSettings): Promise<GrantValidationContext> {
     const principal = await this.pool.request().input("tenant", sql.UniqueIdentifier, tenantId)

@@ -76,6 +76,19 @@ export default function PortalShell({
                 </Link>
               </li>
             ))}
+            {process.env.MODULE_BUDGET_LOOKUP === "true" && (
+              <li>
+                <Link
+                  href="/budget-lookup"
+                  aria-current={pageSlug === "budget-lookup" ? "page" : undefined}
+                  className={`block rounded px-3 py-2 text-sm ${
+                    pageSlug === "budget-lookup" ? "bg-neutral-200 font-semibold text-neutral-950" : "hover:bg-neutral-100"
+                  }`}
+                >
+                  Budget Lookup
+                </Link>
+              </li>
+            )}
           </ul>
         </nav>
 
