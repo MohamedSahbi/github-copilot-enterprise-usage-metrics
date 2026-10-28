@@ -36,6 +36,8 @@ export default defineConfig({
           E2E_TEST_AUTH: "1",
           AUTH_SECRET: "local-test-only-not-for-deployment",
           AUTH_TRUST_HOST: "true",
+          // Canonical origin for same-origin mutation checks (admin, Feedback).
+          AUTH_URL: baseURL,
           ENTRA_TENANT_ID: AUTH_TENANT,
           ACCESS_NO_ACCESS_MESSAGE: "Your account has no assigned portal permissions.",
           ACCESS_REQUEST_URL: "https://example.invalid/request-access",

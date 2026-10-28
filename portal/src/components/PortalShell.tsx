@@ -63,6 +63,9 @@ export default function PortalShell({
       <div className="mx-auto grid max-w-[1440px] gap-6 px-5 py-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav aria-label="Main navigation">
           <ul className="space-y-1">
+            {viewer.role === "admin" && <li>
+              <Link href="/admin" className="block rounded px-3 py-2 text-sm hover:bg-neutral-100">Administration</Link>
+            </li>}
             {pages.map((page) => (
               <li key={page.slug}>
                 <Link
