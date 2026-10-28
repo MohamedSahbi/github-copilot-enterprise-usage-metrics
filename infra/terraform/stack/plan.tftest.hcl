@@ -322,6 +322,15 @@ run "optional_module_secret_ownership" {
     }
   }
 
+  override_module {
+    target = module.key_vault
+
+    outputs = {
+      uri         = "https://kv-example.vault.azure.net/"
+      resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.KeyVault/vaults/kv-example"
+    }
+  }
+
   assert {
     condition = alltrue([
       local.secret_identity_by_name["ai-credits-token"] == "ingestion",
