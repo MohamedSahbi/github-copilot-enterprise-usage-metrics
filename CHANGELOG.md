@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.22](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.21...v0.2.22) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deploy:** skip a Function App that Terraform keeps stopped ([#209](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/209)) ([feaf4b0](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/feaf4b05b6fa8b57a6a23e14c915b353fc3409ff)), closes [#207](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/207)
+
 ## [0.2.21](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.20...v0.2.21) (2026-10-28)
 
 
