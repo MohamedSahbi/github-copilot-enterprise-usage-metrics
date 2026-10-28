@@ -3,7 +3,7 @@
 locals {
   secret_names_by_component = {
     portal = concat(
-      ["github-oauth-client-secret", "auth-secret", "auth-microsoft-entra-id-secret", "auth-github-secret"],
+      ["auth-secret", "auth-microsoft-entra-id-secret", "auth-github-secret"],
       var.modules.budget_lookup ? ["budget-lookup-key"] : [],
     )
     ingestion = concat(

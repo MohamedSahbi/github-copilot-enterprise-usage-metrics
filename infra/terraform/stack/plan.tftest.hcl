@@ -78,6 +78,7 @@ run "demo_example" {
       contains(output.secret_names, "auth-github-secret"),
       contains(output.secret_names, "github-directory-pat"),
       !contains(output.secret_names, "budget-lookup-key"),
+      !contains(output.secret_names, "github-oauth-client-secret"),
       !contains(keys(local.portal_app_settings), "BUDGET_LOOKUP_KEY"),
       local.key_vault_network_acls == {
         bypass                     = "None"
@@ -104,7 +105,6 @@ run "demo_example" {
 
   assert {
     condition = local.secret_identity_by_name == {
-      "github-oauth-client-secret"     = "portal"
       "auth-secret"                    = "portal"
       "auth-microsoft-entra-id-secret" = "portal"
       "auth-github-secret"             = "portal"
