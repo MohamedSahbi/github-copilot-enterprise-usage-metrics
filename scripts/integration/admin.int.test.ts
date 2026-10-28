@@ -25,7 +25,7 @@ describe("admin SQL mutations and correlated audit", () => {
       INSERT INTO portal.Principal (principal_id, entra_tenant_id, entra_object_id)
         VALUES ('${principal}', '${AUTH_TENANT}', '${oid}');
       INSERT INTO portal.IngestionRun (run_id, source_kind, scope_key, report_day, status, transform_version, rows_loaded)
-        VALUES ('${runId}', 'users_1_day', 'admin-test', '2026-01-01', 'quarantined', 'admin-test', 0);
+        VALUES ('${runId}', 'users_1_day', 'admin-test', '2026-01-01', 'quarantined', '1', 0);
       INSERT INTO portal.ValidationIssue (run_id, severity, error_code, issue_type, report_day)
         VALUES ('${runId}', 'fatal', 'smaller_day_blocked', 'smaller_day', '2026-01-01');
     `);

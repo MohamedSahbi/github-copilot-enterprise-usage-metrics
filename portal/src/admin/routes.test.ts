@@ -74,4 +74,23 @@ describe("admin actor boundary", () => {
     expect(response.status).toBe(503);
     expect(JSON.stringify(await response.json())).not.toContain("sensitive SQL diagnostic");
   });
+  it.each(routes.filter(([, , method]) => method !== "GET"))(
+    "%s returns 503 without obtaining a write connection during a break-glass outage",
+    async (_name, route, method) => {
+      mocks.access.mockResolvedValue({ state: "unavailable", breakGlass: true } satisfies AccessResult);
+      mocks.auth.mockResolvedValue({ identity: { provider: "entra", objectId: principal.entra_object_id } });
+      mocks.pool.mockRejectedValue(new Error("sensitive SQL outage diagnostic"));
+      const response = await route(new Request("http://localhost/api/admin/test", {
+        method, headers: { "content-type": "application/json" }, body: "{}",
+      }));
+      expect(response.status).toBe(503);
+      const body = await response.json();
+      expect(body.error.code).toBe("internal_error");
+      expect(body.error.correlationId).toBe(response.headers.get("X-Correlation-ID"));
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(JSON.stringify(body)).not.toContain("sensitive SQL outage diagnostic");
+      expect(body).not.toHaveProperty("data");
+      expect(mocks.pool).toHaveBeenCalledTimes(1);
+    },
+  );
 });
