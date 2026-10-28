@@ -19,6 +19,9 @@ module "app_service_plan" {
 locals {
   portal_app_name = "app-${local.name}-${local.suffix}"
 
+  # The AVM web-site module defaults public access to off; the portal has no private endpoint, so it must opt in.
+  portal_public_network_access_enabled = !var.private_endpoints_enabled
+
   common_app_settings = {
     ENTERPRISE_SLUG                   = var.organization.enterprise_slug
     ORGANIZATIONS                     = join(",", var.organization.organizations)
@@ -105,6 +108,7 @@ module "portal" {
   tags                     = local.tags
 
   https_only                             = true
+  public_network_access_enabled          = local.portal_public_network_access_enabled
   virtual_network_subnet_id              = var.network.integration_subnet_id
   application_insights_connection_string = local.application_insights_connection_string
   key_vault_reference_identity           = module.identity["portal"].resource_id

@@ -86,6 +86,7 @@ run "demo_example" {
         virtual_network_subnet_ids = []
       },
       local.key_vault_public_network_access_enabled,
+      local.portal_public_network_access_enabled,
     ])
     error_message = "The plan must retain component settings and allow only the explicit synthetic IPv4 rule under a deny-by-default vault firewall."
   }
@@ -296,6 +297,7 @@ run "private_endpoint_keeps_public_key_vault_access_disabled" {
   assert {
     condition = alltrue([
       !local.key_vault_public_network_access_enabled,
+      !local.portal_public_network_access_enabled,
       local.key_vault_network_acls == {
         bypass                     = "None"
         default_action             = "Deny"
@@ -303,7 +305,7 @@ run "private_endpoint_keeps_public_key_vault_access_disabled" {
         virtual_network_subnet_ids = []
       },
     ])
-    error_message = "Private-endpoint environments must keep public Key Vault access disabled and the firewall deny-by-default."
+    error_message = "Private-endpoint environments must keep public Key Vault and portal access disabled and the firewall deny-by-default."
   }
 }
 
