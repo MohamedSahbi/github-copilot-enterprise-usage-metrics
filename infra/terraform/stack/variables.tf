@@ -431,6 +431,17 @@ variable "tags" {
   default     = {}
 }
 
+variable "raw_archive_recovery_days" {
+  description = "Days that deleted blobs, deleted containers and noncurrent blob versions stay recoverable in the metrics raw archive account."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.raw_archive_recovery_days >= 7 && var.raw_archive_recovery_days <= 365 && floor(var.raw_archive_recovery_days) == var.raw_archive_recovery_days
+    error_message = "raw_archive_recovery_days must be a whole number from 7 to 365."
+  }
+}
+
 variable "raw_archive_cool_after_months" {
   description = "Age in whole months before raw archive blobs move to Cool. Azure lifecycle policies use age in days."
   type        = number
