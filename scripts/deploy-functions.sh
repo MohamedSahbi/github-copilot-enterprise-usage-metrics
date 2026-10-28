@@ -6,7 +6,7 @@
 #   --package-only  build and write the zip, print its path, deploy nothing
 # A pipeline reads the names from the stack outputs resource_group_name, ingestion_function_app_name and directory_function_app_name.
 # Infrastructure, Key Vault references, migrations and grants must already be in place; schedules and settings stay owned by Terraform.
-# A stopped app is skipped, never started.
+# A stopped or disabled app is skipped, never started.
 set -euo pipefail
 
 usage() {
@@ -34,12 +34,13 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 version="$(git describe --tags --always)"
 
-# A Function App that Terraform keeps stopped (the directory app until directory sync is approved) refuses every deployment with 403.
+# A Function App that Terraform keeps off (the directory app until directory sync is approved) refuses every deployment with 403.
+# Azure reports a stopped app as Stopped and an app disabled with enabled = false as Disabled; both are skipped.
 # Skip it cleanly instead of failing the run; any other state, or a failed lookup, still goes on to deploy or fails loudly.
 if [[ "$package_only" == false ]]; then
   app_state="$(az functionapp show --resource-group "$resource_group" --name "$app_name" --query state --output tsv)"
-  if [[ "$app_state" == "Stopped" ]]; then
-    echo "Skipped: $component app $app_name is stopped (disabled by Terraform); nothing was deployed or started."
+  if [[ "$app_state" == "Stopped" || "$app_state" == "Disabled" ]]; then
+    echo "Skipped: $component app $app_name is $app_state (kept off by Terraform); nothing was deployed or started."
     exit 0
   fi
 fi
