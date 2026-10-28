@@ -88,6 +88,8 @@ run "demo_example" {
       },
       local.key_vault_public_network_access_enabled,
       local.portal_public_network_access_enabled,
+      local.function_app_public_network_access_enabled,
+      local.function_app_ip_restriction_default_action == "Deny",
       local.portal_ip_restrictions == [],
       local.portal_ip_restriction_default_action == "Allow",
     ])
@@ -327,6 +329,7 @@ run "private_endpoint_keeps_public_key_vault_access_disabled" {
     condition = alltrue([
       !local.key_vault_public_network_access_enabled,
       !local.portal_public_network_access_enabled,
+      !local.function_app_public_network_access_enabled,
       local.key_vault_network_acls == {
         bypass                     = "None"
         default_action             = "Deny"

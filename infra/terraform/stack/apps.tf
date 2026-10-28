@@ -22,6 +22,11 @@ locals {
   directory_app_name = "func-directory-${local.name}-${local.suffix}"
 
   # The AVM web-site module defaults public access to off; the portal has no private endpoint, so it must opt in.
+  # The Function Apps take no inbound traffic: the main site denies every address, and the deployment (SCM) site keeps the platform default
+  # (sign-in required) so a pipeline can push the zip. Private-endpoint environments keep public access off.
+  function_app_public_network_access_enabled = !var.private_endpoints_enabled
+  function_app_ip_restriction_default_action = "Deny"
+
   portal_public_network_access_enabled = !var.private_endpoints_enabled
   portal_ip_restrictions = [
     for index, address in var.portal_allowed_ipv4_addresses : {
@@ -151,6 +156,7 @@ module "ingestion" {
   tags                     = local.tags
 
   https_only                             = true
+  public_network_access_enabled          = local.function_app_public_network_access_enabled
   virtual_network_subnet_id              = var.network.integration_subnet_id
   application_insights_connection_string = local.application_insights_connection_string
   key_vault_reference_identity           = local.ingestion_key_vault_reference_identity
@@ -163,7 +169,8 @@ module "ingestion" {
   depends_on         = [azurerm_role_assignment.secret_readers]
 
   site_config = {
-    application_stack = { node = { node_version = "22" } }
+    application_stack             = { node = { node_version = "22" } }
+    ip_restriction_default_action = local.function_app_ip_restriction_default_action
   }
 
   app_settings = local.ingestion_app_settings
@@ -186,6 +193,7 @@ module "directory" {
   https_only                             = true
   enabled                                = local.directory_platform_state.enabled
   scm_site_also_stopped                  = local.directory_platform_state.scm_site_also_stopped
+  public_network_access_enabled          = local.function_app_public_network_access_enabled
   virtual_network_subnet_id              = var.network.integration_subnet_id
   application_insights_connection_string = local.application_insights_connection_string
   key_vault_reference_identity           = module.identity["directory"].resource_id
@@ -201,7 +209,8 @@ module "directory" {
   ]
 
   site_config = {
-    application_stack = { node = { node_version = "22" } }
+    application_stack             = { node = { node_version = "22" } }
+    ip_restriction_default_action = local.function_app_ip_restriction_default_action
   }
 
   app_settings = local.directory_app_settings
