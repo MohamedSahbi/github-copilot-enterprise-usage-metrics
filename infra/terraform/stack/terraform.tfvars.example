@@ -63,6 +63,8 @@ private_endpoints_enabled = false
 
 # Synthetic documentation-only IPv4. Supply every app's possible outbound IPs in private environment tfvars.
 key_vault_allowed_ipv4_addresses = ["192.0.2.10"]
+# Optional: restrict the public portal to these IPv4 addresses (default Deny). Empty leaves it open to sign-in.
+portal_allowed_ipv4_addresses = []
 
 # Optional Entra USER object IDs for secret management; supply real IDs only in private config.
 key_vault_operator_object_ids = []

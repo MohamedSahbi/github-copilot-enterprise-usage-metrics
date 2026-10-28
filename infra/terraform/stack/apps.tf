@@ -19,6 +19,18 @@ module "app_service_plan" {
 locals {
   portal_app_name = "app-${local.name}-${local.suffix}"
 
+  # The AVM web-site module defaults public access to off; the portal has no private endpoint, so it must opt in.
+  portal_public_network_access_enabled = !var.private_endpoints_enabled
+  portal_ip_restrictions = [
+    for index, address in var.portal_allowed_ipv4_addresses : {
+      action     = "Allow"
+      ip_address = "${address}/32"
+      name       = "portal-allow-${index}"
+      priority   = 100 + index
+    }
+  ]
+  portal_ip_restriction_default_action = length(local.portal_ip_restrictions) > 0 ? "Deny" : "Allow"
+
   common_app_settings = {
     ENTERPRISE_SLUG                   = var.organization.enterprise_slug
     ORGANIZATIONS                     = join(",", var.organization.organizations)
@@ -105,6 +117,7 @@ module "portal" {
   tags                     = local.tags
 
   https_only                             = true
+  public_network_access_enabled          = local.portal_public_network_access_enabled
   virtual_network_subnet_id              = var.network.integration_subnet_id
   application_insights_connection_string = local.application_insights_connection_string
   key_vault_reference_identity           = module.identity["portal"].resource_id
@@ -113,7 +126,9 @@ module "portal" {
   depends_on         = [azurerm_role_assignment.secret_readers]
 
   site_config = {
-    application_stack = { node = { node_version = "22-lts" } }
+    application_stack             = { node = { node_version = "22-lts" } }
+    ip_restriction                = local.portal_ip_restrictions
+    ip_restriction_default_action = local.portal_ip_restriction_default_action
   }
 
   app_settings = local.portal_app_settings

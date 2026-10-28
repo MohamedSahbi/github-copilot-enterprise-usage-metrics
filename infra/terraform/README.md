@@ -24,6 +24,7 @@ Inputs worth knowing:
 | `network.mode` | `create` (demo), `existing` (enterprise default), or `import` (D-35). |
 | `private_endpoints_enabled` | On by default (D-19); disable only for development. |
 | `key_vault_allowed_ipv4_addresses` | Unique bare IPv4 possible-outbound addresses for apps that need Key Vault when public access is enabled; Terraform emits `/32` rules and requires a non-empty list when private endpoints are disabled. |
+| `portal_allowed_ipv4_addresses` | Optional bare IPv4 addresses allowed to reach the public portal. Each becomes a `/32` Allow rule and the portal default becomes Deny; empty keeps the default Allow (Entra/GitHub sign-in still gates access). Ignored in practice when private endpoints are enabled, because portal public access is then disabled. Keep real addresses in the private deployment configuration. |
 | `key_vault_operator_object_ids` | Optional unique Entra **user object IDs**, default `[]`. Each configured user receives vault-scoped `Key Vault Secrets Officer` for operator-managed secrets. These explicit user grants are the only permitted vault-wide secret grants; runtime identities retain per-secret `Key Vault Secrets User`. |
 | `existing_sql` | Reference the separately provisioned new-solution SQL server and database; never imported (D-34). |
 | `existing_resource_group_name` | Deploy into a pre-existing resource group instead of creating `rg-<name_prefix>-<environment>`. The deploying identity needs Contributor and User Access Administrator on it. |
