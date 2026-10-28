@@ -205,14 +205,16 @@ SELECT QUOTENAME(schema_name.name) + N'.' + QUOTENAME(object_name.name),
        object_name.name, object_name.type, object_name.object_id
 FROM sys.objects AS object_name
 JOIN sys.schemas AS schema_name ON schema_name.schema_id = object_name.schema_id
-WHERE schema_name.name = N'portal' AND object_name.is_ms_shipped = 0;
+WHERE schema_name.name = N'portal' AND object_name.is_ms_shipped = 0
+  AND object_name.parent_object_id = 0; -- constraints report their parent table's permissions, which are already checked
 DECLARE @nonportal_objects TABLE (securable_name nvarchar(517), object_id int);
 INSERT INTO @nonportal_objects
 SELECT QUOTENAME(schema_name.name) + N'.' + QUOTENAME(object_name.name), object_name.object_id
 FROM sys.objects AS object_name
 JOIN sys.schemas AS schema_name ON schema_name.schema_id = object_name.schema_id
 WHERE schema_name.name NOT IN (N'portal', N'sys', N'INFORMATION_SCHEMA')
-  AND object_name.is_ms_shipped = 0;
+  AND object_name.is_ms_shipped = 0
+  AND object_name.parent_object_id = 0;
 IF NOT EXISTS (
     SELECT 1 FROM sys.schemas
     WHERE name = N'portal' AND principal_id = DATABASE_PRINCIPAL_ID(N'dbo')
