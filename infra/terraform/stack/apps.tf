@@ -17,7 +17,9 @@ module "app_service_plan" {
 }
 
 locals {
-  portal_app_name = "app-${local.name}-${local.suffix}"
+  portal_app_name    = "app-${local.name}-${local.suffix}"
+  ingestion_app_name = "func-${local.name}-${local.suffix}"
+  directory_app_name = "func-directory-${local.name}-${local.suffix}"
 
   # The AVM web-site module defaults public access to off; the portal has no private endpoint, so it must opt in.
   portal_public_network_access_enabled = !var.private_endpoints_enabled
@@ -140,7 +142,7 @@ module "ingestion" {
   source  = "Azure/avm-res-web-site/azurerm"
   version = "0.24.1"
 
-  name                     = "func-${local.name}-${local.suffix}"
+  name                     = local.ingestion_app_name
   location                 = var.location
   parent_id                = local.resource_group_id
   kind                     = "functionapp"
@@ -173,7 +175,7 @@ module "directory" {
   source  = "Azure/avm-res-web-site/azurerm"
   version = "0.24.1"
 
-  name                     = "func-directory-${local.name}-${local.suffix}"
+  name                     = local.directory_app_name
   location                 = var.location
   parent_id                = local.resource_group_id
   kind                     = "functionapp"
