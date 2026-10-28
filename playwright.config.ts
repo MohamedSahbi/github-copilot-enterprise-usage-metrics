@@ -30,6 +30,8 @@ export default defineConfig({
         command: e2eWebServerCommand(port, process.env.E2E_DEV_BUNDLER),
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
+        stdout: "pipe",
+        stderr: "pipe",
         env: {
           E2E_TEST_AUTH: "1",
           AUTH_SECRET: "local-test-only-not-for-deployment",
