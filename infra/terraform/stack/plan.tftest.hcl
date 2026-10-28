@@ -78,6 +78,7 @@ run "demo_example" {
       contains(output.secret_names, "auth-github-secret"),
       contains(output.secret_names, "github-directory-pat"),
       !contains(output.secret_names, "budget-lookup-key"),
+      !contains(output.secret_names, "github-oauth-client-secret"),
       !contains(keys(local.portal_app_settings), "BUDGET_LOOKUP_KEY"),
       local.key_vault_network_acls == {
         bypass                     = "None"
@@ -86,6 +87,9 @@ run "demo_example" {
         virtual_network_subnet_ids = []
       },
       local.key_vault_public_network_access_enabled,
+      local.portal_public_network_access_enabled,
+      local.portal_ip_restrictions == [],
+      local.portal_ip_restriction_default_action == "Allow",
     ])
     error_message = "The plan must retain component settings and allow only the explicit synthetic IPv4 rule under a deny-by-default vault firewall."
   }
@@ -104,7 +108,6 @@ run "demo_example" {
 
   assert {
     condition = local.secret_identity_by_name == {
-      "github-oauth-client-secret"     = "portal"
       "auth-secret"                    = "portal"
       "auth-microsoft-entra-id-secret" = "portal"
       "auth-github-secret"             = "portal"
@@ -193,6 +196,33 @@ run "portal_custom_origin" {
     )
     error_message = "The custom origin must override only the portal AUTH_URL without enabling forwarded-host trust."
   }
+}
+
+run "portal_ipv4_allowlist" {
+  command = plan
+
+  variables {
+    portal_allowed_ipv4_addresses = ["192.0.2.20", "198.51.100.7"]
+  }
+
+  assert {
+    condition = alltrue([
+      local.portal_ip_restriction_default_action == "Deny",
+      [for rule in local.portal_ip_restrictions : rule.ip_address] == ["192.0.2.20/32", "198.51.100.7/32"],
+      alltrue([for rule in local.portal_ip_restrictions : rule.action == "Allow"]),
+    ])
+    error_message = "A portal allowlist must emit one /32 Allow rule per address under a Deny default."
+  }
+}
+
+run "portal_rejects_non_ipv4_allowlist" {
+  command = plan
+
+  variables {
+    portal_allowed_ipv4_addresses = ["192.0.2.0/24"]
+  }
+
+  expect_failures = [var.portal_allowed_ipv4_addresses]
 }
 
 run "portal_rejects_non_origin_url" {
@@ -296,6 +326,7 @@ run "private_endpoint_keeps_public_key_vault_access_disabled" {
   assert {
     condition = alltrue([
       !local.key_vault_public_network_access_enabled,
+      !local.portal_public_network_access_enabled,
       local.key_vault_network_acls == {
         bypass                     = "None"
         default_action             = "Deny"
@@ -303,7 +334,7 @@ run "private_endpoint_keeps_public_key_vault_access_disabled" {
         virtual_network_subnet_ids = []
       },
     ])
-    error_message = "Private-endpoint environments must keep public Key Vault access disabled and the firewall deny-by-default."
+    error_message = "Private-endpoint environments must keep public Key Vault and portal access disabled and the firewall deny-by-default."
   }
 }
 
