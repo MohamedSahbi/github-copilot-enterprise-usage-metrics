@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.16](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.15...v0.2.16) (2026-10-28)
+
+
+### Features
+
+* **portal:** restyle sign-in and no-access pages ([#189](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/189)) ([3d0ddd0](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/3d0ddd0771c58f1c00281f5aae449b37a88b3604))
+
 ## [0.2.15](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.14...v0.2.15) (2026-10-28)
 
 
