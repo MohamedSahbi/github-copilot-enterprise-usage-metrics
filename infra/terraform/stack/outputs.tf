@@ -7,6 +7,16 @@ output "portal_app_name" {
   value       = local.portal_app_name
 }
 
+output "ingestion_function_app_name" {
+  description = "Metrics ingestion Function App name, the target of scripts/deploy-functions.sh metrics."
+  value       = local.ingestion_app_name
+}
+
+output "directory_function_app_name" {
+  description = "Directory sync Function App name, the target of scripts/deploy-functions.sh directory."
+  value       = local.directory_app_name
+}
+
 output "enabled_modules" {
   description = "Names of the optional modules turned on in this environment."
   value       = local.enabled_modules
