@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.17](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.16...v0.2.17) (2026-10-28)
+
+
+### Features
+
+* **deploy:** add functions deploy script and function app name outputs ([#192](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/192)) ([85921e3](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/85921e3b53faf442377b806f3905d9ab8a2f7264))
+
 ## [0.2.16](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.15...v0.2.16) (2026-10-28)
 
 
