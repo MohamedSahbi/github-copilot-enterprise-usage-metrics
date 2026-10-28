@@ -1,5 +1,5 @@
 // Applies db/migrations through the migration runner on a SQL Server 2022 container. Run with RUN_SQL_TESTS=1 (needs Docker).
-// Slow under emulation on Apple Silicon (linux/amd64). Uses a throwaway container with a random password and never a real server.
+// Slow under emulation on Apple Silicon (linux/amd64). Uses a throwaway container, or an explicitly allocator-owned local container.
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,11 +14,34 @@ import { splitBatches } from "../db/split-go";
 import { createStagingContext, mapUsersDayLine } from "./reference/staging";
 
 const enabled = process.env.RUN_SQL_TESTS === "1";
+function allocatorSqlConfig(env: NodeJS.ProcessEnv) {
+  const keys = [
+    "SQL_TEST_ALLOCATOR_MODE", "SQL_TEST_ALLOCATOR_HOST", "SQL_TEST_ALLOCATOR_PORT",
+    "SQL_TEST_ALLOCATOR_PASSWORD", "SQL_TEST_ALLOCATOR_NAMESPACE", "SQL_TEST_ALLOCATOR_CONTAINER_ID",
+  ] as const;
+  if (keys.every((key) => env[key] === undefined)) return undefined;
+  if (env.SQL_TEST_ALLOCATOR_MODE !== "1"
+    || env.SQL_TEST_ALLOCATOR_HOST !== "127.0.0.1"
+    || env.SQL_TEST_ALLOCATOR_PORT !== "14339"
+    || !env.SQL_TEST_ALLOCATOR_PASSWORD
+    || !/^history172_79f3b517_[a-f0-9]{16}$/.test(env.SQL_TEST_ALLOCATOR_NAMESPACE ?? "")
+    || !/^[a-f0-9]{64}$/.test(env.SQL_TEST_ALLOCATOR_CONTAINER_ID ?? "")) {
+    throw new Error("Allocator SQL mode requires explicit loopback:14339, credentials, a unique history172 namespace and full container ID");
+  }
+  return {
+    password: env.SQL_TEST_ALLOCATOR_PASSWORD,
+    namespace: env.SQL_TEST_ALLOCATOR_NAMESPACE!,
+    containerId: env.SQL_TEST_ALLOCATOR_CONTAINER_ID!,
+  };
+}
+const allocator = allocatorSqlConfig(process.env);
 const realMigrations = join(__dirname, "..", "..", "db", "migrations");
 const realFiles = readdirSync(realMigrations).filter((f) => f.endsWith(".sql"));
 const name = `portal-sql-test-${randomBytes(4).toString("hex")}`;
-const sa = `Aa1!${randomBytes(12).toString("hex")}`;
-let port = 0;
+const sa = allocator?.password ?? `Aa1!${randomBytes(12).toString("hex")}`;
+const containerId = allocator?.containerId ?? name;
+const accessDb = allocator ? `${allocator.namespace}_access` : "portal_test";
+let port = allocator ? 14339 : 0;
 const tmpDirs: string[] = [];
 
 const docker = (...args: string[]): string => execFileSync("docker", args, { encoding: "utf8" });
@@ -36,9 +59,26 @@ async function query<T = Record<string, unknown>>(database: string, text: string
 
 let dbCounter = 0;
 async function freshDb(): Promise<string> {
-  const db = `portal_test_${++dbCounter}`;
-  await query("master", `CREATE DATABASE ${db}`);
+  const db = allocator ? `${allocator.namespace}_${++dbCounter}` : `portal_test_${++dbCounter}`;
+  await createDb(db);
   return db;
+}
+
+async function createDb(db: string): Promise<void> {
+  if (allocator) {
+    if (!db.startsWith(`${allocator.namespace}_`) || !/^[a-z0-9_]+$/.test(db)) {
+      throw new Error("Refusing a database outside the allocator namespace");
+    }
+    const pool = await new sql.ConnectionPool(connectionString("master")).connect();
+    try {
+      const existing = await pool.request().input("name", sql.NVarChar(128), db)
+        .query<{ id: number | null }>("SELECT DB_ID(@name) AS id");
+      if (existing.recordset[0]?.id !== null) throw new Error(`Refusing existing allocator database: ${db}`);
+    } finally {
+      await pool.close();
+    }
+  }
+  await query("master", `CREATE DATABASE ${db}`);
 }
 
 function copyMigrations(): string {
@@ -50,11 +90,53 @@ function copyMigrations(): string {
 
 const cs = (db: string) => connectionString(db);
 
+describe("allocator SQL configuration guards (no SQL)", () => {
+  const valid = {
+    SQL_TEST_ALLOCATOR_MODE: "1",
+    SQL_TEST_ALLOCATOR_HOST: "127.0.0.1",
+    SQL_TEST_ALLOCATOR_PORT: "14339",
+    SQL_TEST_ALLOCATOR_PASSWORD: "synthetic-test-password",
+    SQL_TEST_ALLOCATOR_NAMESPACE: "history172_79f3b517_0123456789abcdef",
+    SQL_TEST_ALLOCATOR_CONTAINER_ID: "a".repeat(64),
+  };
+  it("preserves self-managed CI mode only when allocator settings are absent", () => {
+    expect(allocatorSqlConfig({})).toBeUndefined();
+    expect(allocatorSqlConfig(valid)).toEqual({
+      password: valid.SQL_TEST_ALLOCATOR_PASSWORD,
+      namespace: valid.SQL_TEST_ALLOCATOR_NAMESPACE,
+      containerId: valid.SQL_TEST_ALLOCATOR_CONTAINER_ID,
+    });
+  });
+  it.each(Object.keys(valid))("rejects partial allocator configuration without %s", (key) => {
+    const partial: NodeJS.ProcessEnv = { ...valid };
+    delete partial[key];
+    expect(() => allocatorSqlConfig(partial)).toThrow(/Allocator SQL mode requires/);
+  });
+  it.each([
+    ["SQL_TEST_ALLOCATOR_MODE", "0"],
+    ["SQL_TEST_ALLOCATOR_HOST", "localhost"],
+    ["SQL_TEST_ALLOCATOR_HOST", "192.0.2.1"],
+    ["SQL_TEST_ALLOCATOR_PORT", "14330"],
+    ["SQL_TEST_ALLOCATOR_PASSWORD", ""],
+    ["SQL_TEST_ALLOCATOR_NAMESPACE", "portal_test"],
+    ["SQL_TEST_ALLOCATOR_NAMESPACE", "history172_79f3b517_0123456789abcdef;DROP"],
+    ["SQL_TEST_ALLOCATOR_CONTAINER_ID", "a".repeat(12)],
+  ])("rejects invalid allocator setting %s=%s", (key, value) => {
+    expect(() => allocatorSqlConfig({ ...valid, [key]: value })).toThrow(/Allocator SQL mode requires/);
+  });
+});
+
 describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)", () => {
   beforeAll(async () => {
     expect(spawnSync("docker", ["info"]).status, "docker daemon must be running").toBe(0);
-    docker("run", "-d", "--rm", "--platform", "linux/amd64", "--name", name, "-p", "127.0.0.1::1433", "-e", "ACCEPT_EULA=Y", "-e", `MSSQL_SA_PASSWORD=${sa}`, "mcr.microsoft.com/mssql/server:2022-latest");
-    port = Number(docker("port", name, "1433/tcp").trim().split("\n")[0]?.split(":").pop());
+    if (allocator) {
+      expect(docker("inspect", "--format", '{{.Id}} {{.State.Running}} {{index .Config.Labels "com.docker.compose.project"}}', containerId).trim())
+        .toBe(`${containerId} true history172-79f3b517`);
+      expect(docker("port", containerId, "1433/tcp").trim()).toBe("127.0.0.1:14339");
+    } else {
+      docker("run", "-d", "--rm", "--platform", "linux/amd64", "--name", name, "-p", "127.0.0.1::1433", "-e", "ACCEPT_EULA=Y", "-e", `MSSQL_SA_PASSWORD=${sa}`, "mcr.microsoft.com/mssql/server:2022-latest");
+      port = Number(docker("port", name, "1433/tcp").trim().split("\n")[0]?.split(":").pop());
+    }
     for (let i = 0; i < 90; i++) {
       try { await query("master", "SELECT 1 AS ok"); break; } catch { await new Promise((r) => setTimeout(r, 2000)); }
     }
@@ -62,7 +144,7 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
   }, 240_000);
 
   afterAll(() => {
-    spawnSync("docker", ["rm", "-f", name]);
+    if (!allocator) spawnSync("docker", ["rm", "-f", name]);
     for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
   });
 
@@ -86,6 +168,50 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     expect(again.applied).toEqual([]);
     const [count] = await query<{ n: number }>(db, "SELECT COUNT(*) AS n FROM portal.schema_version");
     expect(count?.n).toBe(realFiles.length);
+  }, 240_000);
+
+  it("adds only the bounded contract EXECUTE grant and leaves reader/ingestion permissions unchanged", async () => {
+    const db = await freshDb();
+    const migrationName = "20261028042100.do.revoked-grant-conflict-contract.sql";
+    const oldDir = copyMigrations();
+    rmSync(join(oldDir, migrationName));
+    await migrate({ connectionString: cs(db), dir: oldDir });
+
+    const unchangedRolePermissions = () => query(db, `
+      SELECT principal.name, permission.class, permission.major_id, permission.minor_id,
+        permission.permission_name, permission.state, permission.state_desc
+      FROM sys.database_permissions AS permission
+      JOIN sys.database_principals AS principal
+        ON principal.principal_id = permission.grantee_principal_id
+      WHERE principal.name IN (N'portal_reader', N'portal_ingest')
+      ORDER BY principal.name, permission.class, permission.major_id, permission.minor_id,
+        permission.permission_name, permission.state`);
+    const before = await unchangedRolePermissions();
+    const migration = readFileSync(join(realMigrations, migrationName), "utf8");
+    const batches = splitBatches(migration);
+    for (const batch of batches) await query(db, batch);
+
+    const after = await unchangedRolePermissions();
+    expect(after).toEqual(before);
+    const contractPermissions = await query<{ principal: string; permission: string; state: string }>(db, `
+      SELECT principal.name AS principal, permission.permission_name AS permission, permission.state_desc AS state
+      FROM sys.database_permissions AS permission
+      JOIN sys.database_principals AS principal
+        ON principal.principal_id = permission.grantee_principal_id
+      WHERE permission.class = 1
+        AND permission.major_id = OBJECT_ID(N'portal.usp_has_revoked_grant_conflict')`);
+    expect(contractPermissions).toEqual([{ principal: "portal_writer", permission: "EXECUTE", state: "GRANT" }]);
+
+    for (const batch of batches) await query(db, batch);
+    expect(await unchangedRolePermissions()).toEqual(before);
+    expect(await query(db, `
+      SELECT principal.name AS principal, permission.permission_name AS permission, permission.state_desc AS state
+      FROM sys.database_permissions AS permission
+      JOIN sys.database_principals AS principal
+        ON principal.principal_id = permission.grantee_principal_id
+      WHERE permission.class = 1
+        AND permission.major_id = OBJECT_ID(N'portal.usp_has_revoked_grant_conflict')`))
+      .toEqual(contractPermissions);
   }, 240_000);
 
   it("fails closed when a component role name is occupied by a non-role principal", async () => {
@@ -519,15 +645,34 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
 
   // Access-model and runtime-permission checks (issue #44), run against portal_test migrated through the runner.
   describe("access model and runtime permissions", () => {
-    const sqlcmd = (...args: string[]): string =>
-      docker("exec", "-e", `SQLCMDPASSWORD=${sa}`, name, "/opt/mssql-tools18/bin/sqlcmd", "-C", "-I", "-b", "-S", "localhost", "-U", "sa", ...args);
+    let diagnosticQuery = 0;
+    const sqlcmd = (...args: string[]): string => {
+      const started = performance.now();
+      const ordinal = ++diagnosticQuery;
+      let completed = false;
+      try {
+        const result = execFileSync("docker", [
+          "exec", "-e", "SQLCMDPASSWORD", containerId, "/opt/mssql-tools18/bin/sqlcmd",
+          "-C", "-I", "-b", "-S", "localhost", "-U", "sa", ...args,
+        ], { encoding: "utf8", env: { ...process.env, SQLCMDPASSWORD: sa } });
+        completed = true;
+        return result;
+      } finally {
+        if (allocator && process.env.SQL_TEST_ALLOCATOR_DIAGNOSTIC === "1") {
+          console.error(JSON.stringify({
+            event: "sqlcmd-duration", ordinal,
+            durationMs: performance.now() - started, completed,
+          }));
+        }
+      }
+    };
 
     beforeAll(async () => {
-      sqlcmd("-Q", "CREATE DATABASE portal_test");
-      await migrate({ connectionString: cs("portal_test") });
+      await createDb(accessDb);
+      await migrate({ connectionString: cs(accessDb) });
     }, 240_000);
 
-    const run = (q: string): string => sqlcmd("-d", "portal_test", "-h", "-1", "-W", "-Q", `SET NOCOUNT ON; ${q}`).trim();
+    const run = (q: string): string => sqlcmd("-d", accessDb, "-h", "-1", "-W", "-Q", `SET NOCOUNT ON; ${q}`).trim();
     const fails = (q: string, pattern: RegExp): void => {
       let message = "";
       try { run(q); } catch (e) { message = String((e as { stdout?: unknown; message?: string }).stdout ?? "") + String((e as Error).message); }
@@ -675,8 +820,276 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
     const asUser = (user: string, q: string): string => run(`EXECUTE AS USER = '${user}'; ${q}; REVERT`);
     const asUserFails = (user: string, q: string): void => fails(`EXECUTE AS USER = '${user}'; ${q}; REVERT`, /permission was denied|permission denied/i);
 
+    const ensureWriter = (): void => {
+      run("IF DATABASE_PRINCIPAL_ID('t_writer') IS NULL BEGIN CREATE USER t_writer WITHOUT LOGIN; ALTER ROLE portal_writer ADD MEMBER t_writer; END");
+    };
+    const acquireDirectoryLock = async (transaction: sql.Transaction, timeout = 0): Promise<number> => {
+      const result = await transaction.request()
+        .input("timeout", sql.Int, timeout)
+        .query<{ result: number }>(`
+          DECLARE @result INT;
+          EXEC @result = sys.sp_getapplock @Resource = N'ingest:directory',
+            @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = @timeout;
+          SELECT @result AS result`);
+      return result.recordset[0]!.result;
+    };
+    const conflictAsWriter = async (
+      transaction: sql.Transaction,
+      tenant: string,
+      objectId: string,
+      role: string,
+      scope: string,
+      scopeValue: string,
+    ) => transaction.request()
+      .input("tenant", sql.UniqueIdentifier, tenant)
+      .input("objectId", sql.UniqueIdentifier, objectId)
+      .input("role", sql.VarChar(sql.MAX), role)
+      .input("scope", sql.VarChar(sql.MAX), scope)
+      .input("scopeValue", sql.NVarChar(sql.MAX), scopeValue)
+      .query<{ has_conflict: boolean | null }>(`
+        DECLARE @has_conflict BIT = NULL;
+        EXECUTE AS USER = N't_writer';
+        BEGIN TRY
+          EXEC portal.usp_has_revoked_grant_conflict
+            @entra_tenant_id = @tenant,
+            @entra_object_id = @objectId,
+            @role = @role,
+            @scope = @scope,
+            @scope_value = @scopeValue,
+            @has_conflict = @has_conflict OUTPUT;
+          REVERT;
+        END TRY
+        BEGIN CATCH
+          REVERT;
+          THROW;
+        END CATCH;
+        SELECT @has_conflict AS has_conflict`);
+
+    it("reports only exact revoked grant conflicts in the caller's locked transaction", async () => {
+      ensureWriter();
+      const O10 = "aaaaaaaa-0000-0000-0000-000000000010";
+      const pid = principal(O10, 1010);
+      run(grant(pid, O10, "executive", "department", "dept-10"));
+      run(`UPDATE portal.AccessGrant SET revoked_at = SYSUTCDATETIME() WHERE principal_id = '${pid}'`);
+
+      const pool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      try {
+        expect(await acquireDirectoryLock(transaction)).toBeGreaterThanOrEqual(0);
+
+        const exact = await conflictAsWriter(transaction, T, O10, "executive", "department", "dept-10");
+        expect(exact.recordsets).toHaveLength(1);
+        expect(exact.recordset).toEqual([{ has_conflict: true }]);
+        expect(Object.keys(exact.recordset[0]!)).toEqual(["has_conflict"]);
+
+        expect((await conflictAsWriter(transaction, "22222222-2222-2222-2222-222222222222", O10, "executive", "department", "dept-10")).recordset[0]?.has_conflict).toBe(false);
+        expect((await conflictAsWriter(transaction, T, "aaaaaaaa-0000-0000-0000-000000000011", "executive", "department", "dept-10")).recordset[0]?.has_conflict).toBe(false);
+        expect((await conflictAsWriter(transaction, T, O10, "admin", "department", "dept-10")).recordset[0]?.has_conflict).toBe(false);
+        expect((await conflictAsWriter(transaction, T, O10, "executive", "business_area", "dept-10")).recordset[0]?.has_conflict).toBe(false);
+        expect((await conflictAsWriter(transaction, T, O10, "executive", "department", "dept-11")).recordset[0]?.has_conflict).toBe(false);
+        const textMismatches: [string, string, string][] = [
+          ["EXECUTIVE", "department", "dept-10"],
+          ["executive ", "department", "dept-10"],
+          ["executive", "DEPARTMENT", "dept-10"],
+          ["executive", "department ", "dept-10"],
+          ["executive", "department", "DEPT-10"],
+          ["executive", "department", "dept-10 "],
+        ];
+        for (const [role, scope, scopeValue] of textMismatches) {
+          expect((await conflictAsWriter(transaction, T, O10, role, scope, scopeValue)).recordset[0]?.has_conflict).toBe(false);
+        }
+
+        const transactionState = await transaction.request().query<{ count: number; lock_mode: string }>(`
+          SELECT @@TRANCOUNT AS count, APPLOCK_MODE(N'public', N'ingest:directory', N'Transaction') AS lock_mode`);
+        expect(transactionState.recordset[0]).toEqual({ count: 1, lock_mode: "Exclusive" });
+      } finally {
+        await transaction.rollback();
+        await pool.close();
+      }
+    });
+
+    it("rejects overlength inputs instead of truncating into a max-width revoked match", async () => {
+      ensureWriter();
+      const objectId = "aaaaaaaa-0000-0000-0000-000000000017";
+      const pid = principal(objectId, 1017);
+      const maxValue = "v".repeat(128);
+      run(grant(pid, objectId, "executive", "department", maxValue));
+      run(`UPDATE portal.AccessGrant SET revoked_at = SYSUTCDATETIME() WHERE principal_id = '${pid}'`);
+
+      const pool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      try {
+        expect(await acquireDirectoryLock(transaction)).toBeGreaterThanOrEqual(0);
+        expect((await conflictAsWriter(transaction, T, objectId, "executive", "department", maxValue)).recordset)
+          .toEqual([{ has_conflict: true }]);
+        for (const suffix of ["x", " "]) {
+          await expect(conflictAsWriter(transaction, T, objectId, "executive", "department", maxValue + suffix))
+            .rejects.toThrow(/inputs exceed.*bounds/i);
+        }
+        await expect(conflictAsWriter(transaction, T, objectId, "executive".padEnd(13), "department", maxValue))
+          .rejects.toThrow(/inputs exceed.*bounds/i);
+        await expect(conflictAsWriter(transaction, T, objectId, "executive", "department".padEnd(17), maxValue))
+          .rejects.toThrow(/inputs exceed.*bounds/i);
+        const state = await transaction.request().query<{ count: number; lock_mode: string }>(`
+          SELECT @@TRANCOUNT AS count, APPLOCK_MODE(N'public', N'ingest:directory', N'Transaction') AS lock_mode`);
+        expect(state.recordset[0]).toEqual({ count: 1, lock_mode: "Exclusive" });
+      } finally {
+        await transaction.rollback();
+        await pool.close();
+      }
+    });
+
+    it("distinguishes effective, revoked, and never-seen grants without exposing authorization", async () => {
+      ensureWriter();
+      const activeOid = "aaaaaaaa-0000-0000-0000-000000000012";
+      const revokedOid = "aaaaaaaa-0000-0000-0000-000000000013";
+      const unseenOid = "aaaaaaaa-0000-0000-0000-000000000014";
+      const activePid = principal(activeOid, 1012);
+      const revokedPid = principal(revokedOid, 1013);
+      const unseenPid = principal(unseenOid, 1014);
+      run(grant(activePid, activeOid, "user", "self"));
+      run(grant(revokedPid, revokedOid, "manager", "team"));
+      run(`UPDATE portal.AccessGrant SET revoked_at = SYSUTCDATETIME() WHERE principal_id = '${revokedPid}'`);
+
+      const pool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      try {
+        expect(await acquireDirectoryLock(transaction)).toBeGreaterThanOrEqual(0);
+        const outcome = async (principalId: string, objectId: string, role: string, scope: string): Promise<string> => {
+          const visible = run(`SELECT COUNT(*) FROM portal.v_active_grant WHERE principal_id = '${principalId}'`);
+          if (visible !== "0") return "idempotent_noop";
+          const conflict = await conflictAsWriter(transaction, T, objectId, role, scope, "");
+          return conflict.recordset[0]?.has_conflict ? "denied" : "eligible_for_create";
+        };
+
+        expect(await outcome(activePid, activeOid, "user", "self")).toBe("idempotent_noop");
+        expect(await outcome(revokedPid, revokedOid, "manager", "team")).toBe("denied");
+        expect(await outcome(unseenPid, unseenOid, "user", "self")).toBe("eligible_for_create");
+      } finally {
+        await transaction.rollback();
+        await pool.close();
+      }
+    });
+
+    it("fails closed without the caller transaction or directory lock", async () => {
+      ensureWriter();
+      const O15 = "aaaaaaaa-0000-0000-0000-000000000015";
+      const values = `@entra_tenant_id = '${T}', @entra_object_id = '${O15}', @role = 'user', @scope = 'self', @scope_value = N'', @has_conflict = @has_conflict OUTPUT`;
+      fails(`DECLARE @has_conflict BIT; EXEC portal.usp_has_revoked_grant_conflict ${values}`, /caller transaction/i);
+
+      const pool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      try {
+        await expect(conflictAsWriter(transaction, T, O15, "user", "self", "")).rejects.toThrow(/ingest:directory/i);
+        expect(await acquireDirectoryLock(transaction)).toBeGreaterThanOrEqual(0);
+        expect((await conflictAsWriter(transaction, T, O15, "user", "self", "")).recordset[0]?.has_conflict).toBe(false);
+        const state = await transaction.request().query<{ count: number }>("SELECT @@TRANCOUNT AS count");
+        expect(state.recordset[0]?.count).toBe(1);
+      } finally {
+        await transaction.rollback();
+        await pool.close();
+      }
+    });
+
+    it.each([
+      ["READ UNCOMMITTED", sql.ISOLATION_LEVEL.READ_UNCOMMITTED],
+      ["READ COMMITTED", sql.ISOLATION_LEVEL.READ_COMMITTED],
+      ["REPEATABLE READ", sql.ISOLATION_LEVEL.REPEATABLE_READ],
+    ] as const)("rejects caller %s isolation even with the directory lock", async (_label, isolation) => {
+      ensureWriter();
+      const pool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin(isolation);
+      try {
+        expect(await acquireDirectoryLock(transaction)).toBeGreaterThanOrEqual(0);
+        await expect(conflictAsWriter(transaction, T, O1, "user", "self", "")).rejects.toThrow(/SERIALIZABLE isolation/i);
+        const state = await transaction.request().query<{ count: number; isolation: number; lock_mode: string }>(`
+          SELECT @@TRANCOUNT AS count, transaction_isolation_level AS isolation,
+            APPLOCK_MODE(N'public', N'ingest:directory', N'Transaction') AS lock_mode
+          FROM sys.dm_exec_sessions WHERE session_id = @@SPID`);
+        expect(state.recordset[0]).toEqual({ count: 1, isolation, lock_mode: "Exclusive" });
+      } finally {
+        await transaction.rollback();
+        await pool.close();
+      }
+    });
+
+    it("serializes the bounded contract with a directory lifecycle transaction", async () => {
+      ensureWriter();
+      const O16 = "aaaaaaaa-0000-0000-0000-000000000016";
+      const pid = principal(O16, 1016);
+      run(grant(pid, O16, "manager", "team"));
+      run(`UPDATE portal.AccessGrant SET revoked_at = SYSUTCDATETIME() WHERE principal_id = '${pid}'`);
+
+      const firstPool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const secondPool = await new sql.ConnectionPool(cs(accessDb)).connect();
+      const caller = new sql.Transaction(firstPool);
+      const directory = new sql.Transaction(secondPool);
+      let callerActive = false;
+      let directoryActive = false;
+      try {
+        await caller.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+        callerActive = true;
+        await directory.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+        directoryActive = true;
+        expect(await acquireDirectoryLock(caller)).toBeGreaterThanOrEqual(0);
+        expect((await conflictAsWriter(caller, T, O16, "manager", "team", "")).recordset[0]?.has_conflict).toBe(true);
+        expect(await acquireDirectoryLock(directory)).toBeLessThan(0);
+
+        await caller.commit();
+        callerActive = false;
+        expect(await acquireDirectoryLock(directory)).toBeGreaterThanOrEqual(0);
+        await directory.request()
+          .input("tenant", sql.UniqueIdentifier, T)
+          .input("objectId", sql.UniqueIdentifier, O16)
+          .query(`
+            INSERT INTO portal.PrincipalLinkState (entra_tenant_id, entra_object_id, github_user_id)
+            VALUES (@tenant, @objectId, 1016);
+            UPDATE portal.PrincipalLinkState
+            SET unlinked_at = SYSUTCDATETIME(), unlink_seq = NEXT VALUE FOR portal.seq_access_event,
+                unlink_reason = 'entra_disabled'
+            WHERE entra_tenant_id = @tenant AND entra_object_id = @objectId`);
+        await directory.commit();
+        directoryActive = false;
+        expect(run(`SELECT COUNT(*) FROM portal.PrincipalLinkState WHERE entra_tenant_id = '${T}' AND entra_object_id = '${O16}' AND unlinked_at IS NOT NULL`)).toBe("1");
+      } finally {
+        try {
+          if (callerActive) await caller.rollback();
+        } finally {
+          try {
+            if (directoryActive) await directory.rollback();
+          } finally {
+            await Promise.all([firstPool.close(), secondPool.close()]);
+          }
+        }
+      }
+    });
+
+    it("grants only the bounded contract's EXECUTE permission to portal_writer", () => {
+      ensureWriter();
+      run("IF DATABASE_PRINCIPAL_ID('t_reader') IS NULL BEGIN CREATE USER t_reader WITHOUT LOGIN; ALTER ROLE portal_reader ADD MEMBER t_reader; END");
+      run("IF DATABASE_PRINCIPAL_ID('t_ingest') IS NULL BEGIN CREATE USER t_ingest WITHOUT LOGIN; ALTER ROLE portal_ingest ADD MEMBER t_ingest; END");
+      const canExecute = (user: string): string =>
+        run(`EXECUTE AS USER = '${user}'; SELECT HAS_PERMS_BY_NAME(N'portal.usp_has_revoked_grant_conflict', N'OBJECT', N'EXECUTE'); REVERT`);
+
+      expect(canExecute("t_writer")).toBe("1");
+      expect(canExecute("t_reader")).toBe("0");
+      expect(canExecute("t_ingest")).toBe("0");
+      const call = `DECLARE @result BIT; EXEC portal.usp_has_revoked_grant_conflict
+        @entra_tenant_id = '${T}', @entra_object_id = '${O1}', @role = 'user', @scope = 'self',
+        @scope_value = N'', @has_conflict = @result OUTPUT`;
+      asUserFails("t_reader", call);
+      asUserFails("t_ingest", call);
+      expect(() => asUser("t_reader", "SELECT COUNT(*) FROM portal.v_active_grant")).not.toThrow();
+      asUserFails("t_ingest", "SELECT COUNT(*) FROM portal.AccessGrant");
+    });
+
     it("enforces runtime permissions: ingestion cannot read grants, writer cannot rewrite a grant", () => {
-      run("CREATE USER t_ingest WITHOUT LOGIN; ALTER ROLE portal_ingest ADD MEMBER t_ingest");
+      run("IF DATABASE_PRINCIPAL_ID('t_ingest') IS NULL BEGIN CREATE USER t_ingest WITHOUT LOGIN; ALTER ROLE portal_ingest ADD MEMBER t_ingest; END");
       asUserFails("t_ingest", "SELECT COUNT(*) FROM portal.v_active_grant");
       asUserFails("t_ingest", "SELECT COUNT(*) FROM portal.AccessGrant");
 
@@ -724,7 +1137,7 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
         )
       `);
       const before = permissions();
-      for (const batch of batches) sqlcmd("-d", "portal_test", "-Q", batch);
+      for (const batch of batches) sqlcmd("-d", accessDb, "-Q", batch);
       expect(permissions()).toBe(before);
     });
 
