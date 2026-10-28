@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.15](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.14...v0.2.15) (2026-10-28)
+
+
+### Features
+
+* **deploy:** portal zip-deploy script ([#185](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/185)) ([75e9e10](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/75e9e100d5452db7a841e8217c4e65eb1a05efb9))
+
+
+### Bug Fixes
+
+* **infra:** drop stale github-oauth-client-secret from portal secret names ([#184](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/184)) ([90d8e3d](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/90d8e3dc8532ae600d6641818df70518119570be))
+* **infra:** portal public access and optional IPv4 allowlist ([#183](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/183)) ([a40877f](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/a40877fac35a12a0c76ae12f88bd92e28926fc4d))
+
 ## [0.2.14](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.13...v0.2.14) (2026-10-28)
 
 
