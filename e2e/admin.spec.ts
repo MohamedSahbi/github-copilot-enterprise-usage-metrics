@@ -48,8 +48,9 @@ for (const persona of ["manager", "member", "no-access"] as const) {
   test(`${persona} cannot open admin pages or any admin API`, async ({ page, signInAs, consoleErrors }, info) => {
     await signInAs(persona);
     await expect(page.getByRole("link", { name: "Administration", exact: true })).toHaveCount(0);
-    await page.goto("/admin");
-    await expect(page).toHaveURL(/\/no-access$/);
+    const adminPage = await page.goto("/admin");
+    if (persona === "no-access") await expect(page).toHaveURL(/\/no-access$/);
+    else expect(adminPage?.status()).toBe(404);
     for (const section of ["principals", "grants", "grant-form", "audit", "login-history", "issues", "hierarchy"]) {
       const response = await page.request.get(`/api/admin/${section}`);
       expect(response.status()).toBe(403);

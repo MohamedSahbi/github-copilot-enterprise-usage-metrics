@@ -53,7 +53,7 @@ test.describe("Safe Alpha core pages by persona", () => {
           /"(?:completionUsers|completionOnlyUsers|chatUsers|agentModeUsers|askModeUsers|inlineModeUsers|planModeUsers|cliUsers|appUsers|vscodeAgentUsers|codingAgentUsers|codeReviewUsers|advancedUsers|userCount|suppressed)"\s*:/,
         );
         await expect(page.getByRole("heading", { name: route.title, exact: true }).first()).toBeVisible();
-        await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link")).toHaveCount(2);
+        await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("link")).toHaveCount(persona === "admin" ? 3 : 2);
         await expect(page.getByLabel("Scope")).toHaveValue(expectedScope);
         await expect(page.getByRole("option")).toHaveCount(1);
         await expect(page.getByText(

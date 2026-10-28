@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { isGuid } from "../../../../shared/src/access";
 import { requireAdmin } from "../../admin/server";
+import { getAccess } from "../../authz/server";
 import { readAdminPage } from "../../admin/page-data";
 import AccessControl from "../../admin/AccessControl";
 import IssuesInbox from "../../admin/IssuesInbox";
@@ -106,6 +107,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   if (!gate.ok) {
     if (gate.response.status === 401) redirect("/sign-in");
     if (gate.response.status === 503) redirect("/service-unavailable");
+    // /no-access sends any authorized viewer back to "/", so signed-in non-admins get a 404 instead.
+    if ((await getAccess(correlationId)).state === "authorized") notFound();
     redirect("/no-access");
   }
   const params = await searchParams;
