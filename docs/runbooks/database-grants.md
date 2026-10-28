@@ -82,7 +82,7 @@ IF IS_ROLEMEMBER(N'portal_directory_ingest', N'<directory-identity-name>') <> 1
     ALTER ROLE portal_directory_ingest ADD MEMBER [<directory-identity-name>];
 ```
 
-Never add either identity to `portal_ingest`, `portal_metrics_ingest` and
+The only direct permission an ingestion identity may hold is the `CONNECT` that `CREATE USER` grants automatically; preflight check 50203 allows exactly that grant and nothing else. Never add either identity to `portal_ingest`, `portal_metrics_ingest` and
 `portal_directory_ingest` together, or a portal role. The component roles do not map identities,
 remove legacy memberships, or activate a consumer. This runbook is not deployment authorization.
 
@@ -118,9 +118,11 @@ IF NOT EXISTS (
     THROW 50201, N'Ingestion identity is not the expected Entra contained user', 1;
 IF IS_ROLEMEMBER(N'public', @identity_name) <> 1
     THROW 50202, N'Preflight could not account for implicit PUBLIC membership', 1;
+-- CREATE USER always grants DATABASE CONNECT (without it the identity cannot sign in), so it is the one allowed direct permission.
 IF EXISTS (
     SELECT 1 FROM sys.database_permissions
     WHERE grantee_principal_id = @identity_id
+      AND NOT (class = 0 AND major_id = 0 AND permission_name = N'CONNECT' AND state = 'G')
 )
     THROW 50203, N'Ingestion identity has a direct database permission; use the component role only', 1;
 IF EXISTS (
