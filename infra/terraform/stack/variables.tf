@@ -331,6 +331,21 @@ variable "key_vault_allowed_ipv4_addresses" {
   }
 }
 
+variable "portal_allowed_ipv4_addresses" {
+  description = "IPv4 addresses allowed to reach the public portal; each is emitted as a /32 rule and the default becomes Deny. Empty leaves the portal open to sign-in."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      length(var.portal_allowed_ipv4_addresses) <= 100,
+      length(distinct(var.portal_allowed_ipv4_addresses)) == length(var.portal_allowed_ipv4_addresses),
+      alltrue([for address in var.portal_allowed_ipv4_addresses : can(cidrnetmask("${address}/32"))]),
+    ])
+    error_message = "Addresses must be unique bare IPv4 literals (maximum 100)."
+  }
+}
+
 variable "network" {
   description = "How each network dependency is provided: create (demo), existing (enterprise default), or import (D-35)."
   type = object({
