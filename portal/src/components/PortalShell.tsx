@@ -4,6 +4,12 @@ import { signOut } from "@/auth/config";
 import type { PortalScopeSelection, PortalViewer } from "@/access/portalAccess";
 import { visibleCorePages } from "@/navigation/corePages";
 import { feedbackEnabled } from "@/feedback/access";
+import SideNavCard from "@/components/SideNavCard";
+
+// Dark-header button, like the GitHub header's secondary actions.
+const headerButton =
+  "cursor-pointer rounded-md border border-white/30 px-3 py-1.5 text-sm font-medium !text-white transition-colors " +
+  "hover:border-white/60 hover:bg-white/15 active:bg-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
 
 export default function PortalShell({
   viewer,
@@ -24,28 +30,28 @@ export default function PortalShell({
   };
 
   return (
-    <div className="min-h-screen bg-canvas text-default">
+    <div className="min-h-screen bg-[#f6f8fa] text-default">
       <header className="border-b border-default bg-[#24292f] text-white">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-5 py-4">
           <Link href={pageHref("overview")} className="!text-white font-semibold tracking-tight">
             GitHub Copilot Usage Metrics
           </Link>
           <div className="flex flex-wrap items-center gap-4">
-            <Link href="/help" className="text-sm !text-white underline">Help / FAQ</Link>
+            <Link href="/help" className={headerButton}>Help / FAQ</Link>
             <span className="text-sm text-white/80">Signed in as {viewer.displayName}</span>
             <form action={async () => {
               "use server";
               await signOut({ redirectTo: "/sign-in" });
             }}>
-              <button className="text-sm text-white underline" type="submit">Sign out</button>
+              <button className={headerButton} type="submit">Sign out</button>
             </form>
             <form action={pageSlug === "overview" ? "/" : `/${pageSlug}`} className="flex items-center gap-2">
-              <label htmlFor="scope-selection" className="text-sm">Scope</label>
+              <label htmlFor="scope-selection" className="text-sm text-white/80">Scope</label>
               <select
                 id="scope-selection"
                 name="scope"
                 defaultValue={`${selection.kind}:${selection.value}`}
-                className="rounded border border-white/30 bg-[#24292f] px-2 py-1 text-sm text-white"
+                className="cursor-pointer rounded-md border border-white/30 bg-[#32383f] px-2 py-1.5 text-sm text-white transition-colors hover:border-white/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               >
                 {viewer.scopeOptions.map((option) => (
                   <option key={`${option.kind}:${option.value}`} value={`${option.kind}:${option.value}`}>
@@ -53,7 +59,7 @@ export default function PortalShell({
                   </option>
                 ))}
               </select>
-              <button className="rounded border border-white/30 px-2 py-1 text-sm hover:bg-white/10" type="submit">
+              <button className={headerButton} type="submit">
                 Apply
               </button>
             </form>
@@ -62,42 +68,18 @@ export default function PortalShell({
       </header>
 
       <div className="mx-auto grid max-w-[1440px] gap-6 px-5 py-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav aria-label="Main navigation">
-          <ul className="space-y-1">
-            {viewer.role === "admin" && <li>
-              <Link href="/admin" className="block rounded px-3 py-2 text-sm hover:bg-neutral-100">Administration</Link>
-            </li>}
-            {pages.map((page) => (
-              <li key={page.slug}>
-                <Link
-                  href={pageHref(page.slug)}
-                  aria-current={page.slug === pageSlug ? "page" : undefined}
-                  className={`block rounded px-3 py-2 text-sm ${
-                    page.slug === pageSlug ? "bg-neutral-200 font-semibold text-neutral-950" : "hover:bg-neutral-100"
-                  }`}
-                >
-                  {page.title}
-                </Link>
-              </li>
-            ))}
-            {process.env.MODULE_BUDGET_LOOKUP === "true" && (
-              <li>
-                <Link
-                  href="/budget-lookup"
-                  aria-current={pageSlug === "budget-lookup" ? "page" : undefined}
-                  className={`block rounded px-3 py-2 text-sm ${
-                    pageSlug === "budget-lookup" ? "bg-neutral-200 font-semibold text-neutral-950" : "hover:bg-neutral-100"
-                  }`}
-                >
-                  Budget Lookup
-                </Link>
-              </li>
-            )}
-            {feedbackEnabled() && (
-              <li><Link href="/feedback" className="block rounded px-3 py-2 text-sm hover:bg-neutral-100">Feedback</Link></li>
-            )}
-          </ul>
-        </nav>
+        <aside>
+          <SideNavCard label="Main navigation" items={[
+            ...(viewer.role === "admin" ? [{ href: "/admin", label: "Administration", icon: "administration" as const }] : []),
+            ...pages.map((page) => ({
+              href: pageHref(page.slug), label: page.title, current: page.slug === pageSlug,
+              icon: page.slug,
+            })),
+            ...(process.env.MODULE_BUDGET_LOOKUP === "true"
+              ? [{ href: "/budget-lookup", label: "Budget Lookup", icon: "budget-lookup" as const, current: pageSlug === "budget-lookup" }] : []),
+            ...(feedbackEnabled() ? [{ href: "/feedback", label: "Feedback", icon: "feedback" as const }] : []),
+          ]} />
+        </aside>
 
         <main className="min-w-0">
           <h1 className="sr-only">{pages.find(({ slug }) => slug === pageSlug)?.title ?? "Copilot usage metrics"}</h1>

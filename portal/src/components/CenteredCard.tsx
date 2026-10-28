@@ -48,11 +48,18 @@ export default function CenteredCard({
   );
 }
 
+// Shared by the sign-in buttons: a visible lift on hover, a press on click, a focus ring and a muted pending state.
+const buttonBase =
+  "flex w-full cursor-pointer items-center justify-center gap-3 rounded-lg px-4 py-3 font-medium shadow-sm transition-all duration-150 " +
+  "hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 active:scale-[0.98] active:shadow-sm " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0969da] " +
+  "disabled:cursor-wait disabled:opacity-80 disabled:hover:translate-y-0 disabled:hover:shadow-sm";
+
 export const primaryButtonClass =
-  "flex w-full cursor-pointer items-center justify-center gap-3 rounded-lg bg-[#24292f] px-4 py-3 font-medium text-white shadow-sm transition-all duration-150 hover:bg-[#1a1e22] hover:shadow-md active:scale-[0.98] active:bg-[#13161a]";
+  `${buttonBase} bg-[#24292f] text-white hover:bg-[#32383f] active:bg-[#13161a]`;
 
 export const secondaryButtonClass =
-  "flex w-full cursor-pointer items-center justify-center gap-3 rounded-lg border border-[#d1d9e0] bg-white px-4 py-3 font-medium !text-[#1f2328] shadow-sm transition-all duration-150 hover:border-[#8c959f] hover:bg-[#f6f8fa] hover:shadow-md active:scale-[0.98]";
+  `${buttonBase} border border-[#d1d9e0] bg-white !text-[#1f2328] hover:border-[#8c959f] hover:bg-[#f6f8fa] active:bg-[#eaeef2]`;
 
 export const microsoftButtonClass =
-  "flex w-full cursor-pointer items-center justify-center gap-3 rounded-lg bg-[#0078d4] px-4 py-3 font-medium text-white shadow-sm transition-all duration-150 hover:bg-[#005a9e] hover:shadow-md active:scale-[0.98] active:bg-[#004578]";
+  `${buttonBase} bg-[#0078d4] text-white hover:bg-[#106ebe] active:bg-[#005a9e]`;

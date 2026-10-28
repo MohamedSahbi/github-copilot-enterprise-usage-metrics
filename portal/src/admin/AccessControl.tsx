@@ -6,6 +6,9 @@ import type {
 } from "../../../shared/src/api";
 import type { Role, Scope } from "../../../shared/src/rows";
 import { validateGrantRequest } from "../../../shared/src/access";
+import {
+  alertClass, buttonClass, Card, dangerActionClass, DataTable, fieldClass, primaryActionClass, statusClass,
+} from "../components/SubPageFrame";
 
 async function mutate(path: string, method: string, body: unknown): Promise<ApiResponse<AdminGrant>> {
   const response = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -13,8 +16,6 @@ async function mutate(path: string, method: string, body: unknown): Promise<ApiR
   if (!response.ok) throw new Error(`${result.error?.code ?? "request_failed"} (reference ${result.error?.correlationId ?? "unavailable"})`);
   return result;
 }
-
-const fieldClass = "rounded border border-default bg-white px-3 py-2 text-default";
 
 export default function AccessControl({
   formData, principals, grants, principalId,
@@ -64,12 +65,14 @@ export default function AccessControl({
   }
 
   return <section aria-label="Access Control" className="space-y-5">
-    {error && <p role="alert">{error}</p>}
-    {message && <p role="status">{message}</p>}
-    <div className="flex flex-wrap gap-4">
-      <form className="flex flex-wrap items-center gap-3" action="/admin">
+    {error && <p role="alert" className={alertClass}>{error}</p>}
+    {message && <p role="status" className={statusClass}>{message}</p>}
+    <Card title="Access control" actions={<button type="button" className={showForm ? buttonClass : primaryActionClass} onClick={() => setShowForm(!showForm)}>
+      {showForm ? "Cancel" : "Grant Access"}
+    </button>}>
+      <form className="flex flex-wrap items-center gap-3 text-sm" action="/admin">
         <input type="hidden" name="section" value="access" />
-        <label htmlFor="principal">Existing principal</label>
+        <label htmlFor="principal" className="font-semibold">Existing principal</label>
         <select id="principal" name="principalId" defaultValue={principalId} className={fieldClass}>
           <option value="">Select a principal</option>
           {principalId && !principals.some((principal) => principal.principalId === principalId) &&
@@ -78,14 +81,10 @@ export default function AccessControl({
             {principal.principalId} ({principal.status})
           </option>)}
         </select>
-        <button type="submit" className={fieldClass}>Load grants</button>
+        <button type="submit" className={buttonClass}>Load grants</button>
       </form>
-      <button type="button" className={fieldClass} onClick={() => setShowForm(!showForm)}>
-        {showForm ? "Cancel" : "Grant Access"}
-      </button>
-    </div>
-    <p>Permissions attach to an existing Entra principal, never an email or login. Principal creation is an operator workflow.</p>
-    {showForm && <form onSubmit={save} className="flex flex-wrap items-end gap-4 rounded border border-default p-4">
+      <p className="text-sm text-muted">Permissions attach to an existing Entra principal, never an email or login. Principal creation is an operator workflow.</p>
+    {showForm && <form onSubmit={save} className="flex flex-wrap items-end gap-4 rounded-md border border-default bg-[#f6f8fa] p-4 text-sm">
       <label className="grid gap-1">Entra object ID
         <input required value={oid} onChange={(event) => setOid(event.target.value)} className={fieldClass} />
       </label>
@@ -110,19 +109,14 @@ export default function AccessControl({
           {formData.scopeValues[scope].map((value) => <option key={value}>{value}</option>)}
         </select>
       </label>}
-      <button type="submit" disabled={pending || scopes.length === 0} className={fieldClass}>{pending ? "Saving..." : "Save"}</button>
+      <button type="submit" disabled={pending || scopes.length === 0} className={primaryActionClass}>{pending ? "Saving..." : "Save"}</button>
     </form>}
-    <div className="overflow-auto"><table className="w-full text-left">
-      <caption className="text-left font-semibold">Effective access grants</caption>
-      <thead><tr>{["Grant", "Role", "Scope", "Value", "Actions"].map((heading) => <th className="p-3" key={heading}>{heading}</th>)}</tr></thead>
-      <tbody>{rows.map((grant) => <tr key={grant.grantId} className="border-t border-default">
-        <td className="p-3">{grant.grantId}</td><td className="p-3">{grant.role}</td><td className="p-3">{grant.scope}</td><td className="p-3">{grant.scopeValue || "-"}</td>
-        <td className="p-3">{confirmation === grant.grantId
-          ? <><button disabled={pending} onClick={() => revoke(grant)}>Confirm revoke</button>{" "}
-            <button disabled={pending} onClick={() => setConfirmation(null)}>Cancel</button></>
-          : <button disabled={pending} onClick={() => setConfirmation(grant.grantId)}>Revoke</button>}</td>
-      </tr>)}</tbody>
-    </table></div>
-    {rows.length === 0 && <p>No effective access grants found for this selection.</p>}
+    <DataTable caption="Effective access grants" empty="No effective access grants found for this selection." headings={["Grant", "Role", "Scope", "Value", "Actions"]}
+      rows={rows.map((grant) => [grant.grantId, grant.role, grant.scope, grant.scopeValue || "-",
+        confirmation === grant.grantId
+          ? <span className="flex gap-2"><button className={dangerActionClass} disabled={pending} onClick={() => revoke(grant)}>Confirm revoke</button>
+            <button className={buttonClass} disabled={pending} onClick={() => setConfirmation(null)}>Cancel</button></span>
+          : <button className={dangerActionClass} disabled={pending} onClick={() => setConfirmation(grant.grantId)}>Revoke</button>])} />
+    </Card>
   </section>;
 }

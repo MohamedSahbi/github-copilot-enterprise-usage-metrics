@@ -10,13 +10,26 @@
 
 @source "../../upstream/src";
 
-.faq h1 { font-size: 2rem; font-weight: 600; margin: 1.5rem 0 1rem; }
-.faq h2 { font-size: 1.5rem; font-weight: 600; margin: 2rem 0 1rem; }
-.faq h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 0.75rem; }
-.faq p, .faq ul, .faq ol { margin: 0.75rem 0; }
-.faq ul, .faq ol { padding-left: 1.5rem; }
+/* Help / FAQ Markdown, styled after GitHub's rendered Markdown. */
+.faq { color: var(--fgColor-default); line-height: 1.6; }
+.faq > :first-child { margin-top: 0; }
+.faq h1 { font-size: 2rem; font-weight: 600; margin: 0 0 1rem; padding-bottom: 0.3em; border-bottom: 1px solid var(--borderColor-muted); }
+.faq h2 { font-size: 1.5rem; font-weight: 600; margin: 2.5rem 0 1rem; padding-bottom: 0.3em; border-bottom: 1px solid var(--borderColor-muted); }
+.faq h3 { font-size: 1.125rem; font-weight: 600; margin: 1.75rem 0 0.5rem; }
+.faq p, .faq ul, .faq ol, .faq blockquote, .faq table, .faq pre { margin: 0.75rem 0; }
+.faq ul, .faq ol { padding-left: 1.75rem; }
 .faq ul { list-style: disc; }
 .faq ol { list-style: decimal; }
-.faq a { text-decoration: underline; }
+.faq li + li { margin-top: 0.25rem; }
+.faq a { color: var(--fgColor-accent); text-decoration: underline; text-underline-offset: 0.2em; }
+.faq a:hover { text-decoration-thickness: 2px; }
+.faq code { font-family: var(--fontStack-monospace); font-size: 85%; padding: 0.2em 0.4em; border-radius: 6px; background: var(--bgColor-neutral-muted); }
+.faq pre { padding: 1rem; overflow: auto; border-radius: 6px; background: var(--bgColor-muted); }
+.faq pre code { padding: 0; background: transparent; }
+.faq blockquote { padding: 0 1em; color: var(--fgColor-muted); border-left: 0.25em solid var(--borderColor-default); }
+.faq table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; }
+.faq th, .faq td { padding: 6px 13px; border: 1px solid var(--borderColor-default); }
+.faq th { font-weight: 600; background: var(--bgColor-muted); }
 .faq :target { scroll-margin-top: 1rem; }
-.faq section[data-footnotes] { border-top: 1px solid var(--borderColor-default); margin-top: 2rem; }
+.faq h3:target { background: var(--bgColor-attention-muted); border-radius: 6px; padding: 0.25rem 0.5rem; margin-left: -0.5rem; }
+.faq section[data-footnotes] { border-top: 1px solid var(--borderColor-default); margin-top: 2rem; font-size: 0.875rem; color: var(--fgColor-muted); }

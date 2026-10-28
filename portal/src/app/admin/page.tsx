@@ -10,6 +10,8 @@ import AccessControl from "../../admin/AccessControl";
 import IssuesInbox from "../../admin/IssuesInbox";
 import HealthPanel from "../../admin/HealthPanel";
 import { parsePage } from "../../usage/api";
+import SubPageFrame, { Card, DataTable, buttonClass, fieldClass } from "../../components/SubPageFrame";
+import SideNavCard from "../../components/SideNavCard";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Administration | GitHub Copilot Usage Metrics" };
@@ -20,23 +22,14 @@ const sections = {
 type Section = keyof typeof sections;
 type Params = { section?: string; page?: string; principalId?: string; userId?: string };
 
-function Table({ headings, rows }: { headings: string[]; rows: ReactNode[][] }) {
-  return <div className="overflow-auto"><table className="w-full text-left">
-    <thead><tr>{headings.map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead>
-    <tbody>{rows.map((row, index) => <tr key={index} className="border-t border-default">
-      {row.map((cell, column) => <td key={column} className="p-3">{cell ?? "-"}</td>)}
-    </tr>)}</tbody>
-  </table>{rows.length === 0 && <p>No records found.</p>}</div>;
-}
 const date = (value: string | Date | null) => value === null ? "-" : new Date(value).toISOString();
 
 async function AdminContent({ section, params, correlationId }: { section: Section; params: Params; correlationId: string }) {
-  if (section === "upstream") return <section className="space-y-3">
-    <h2 className="text-xl font-semibold">Pinned upstream and portal release</h2>
-    <p>Portal release: {process.env.PORTAL_RELEASE_VERSION}</p>
-    <p>Pinned upstream commit: <code>{process.env.PORTAL_UPSTREAM_COMMIT}</code></p>
-    <p>Read-only build metadata. Upstream updates are reviewed submodule changes, not runtime sync.</p>
-  </section>;
+  if (section === "upstream") return <Card title="Pinned upstream and portal release">
+    <p className="text-sm">Portal release: <span className="font-semibold">{process.env.PORTAL_RELEASE_VERSION}</span></p>
+    <p className="text-sm">Pinned upstream commit: <code className="rounded bg-[#f6f8fa] px-1.5 py-0.5 font-mono text-xs">{process.env.PORTAL_UPSTREAM_COMMIT}</code></p>
+    <p className="text-sm text-muted">Read-only build metadata. Upstream updates are reviewed submodule changes, not runtime sync.</p>
+  </Card>;
   const parsedPage = parsePage(new URLSearchParams(params.page ? { page: params.page } : {}));
   if (!parsedPage.ok) notFound();
   const page = parsedPage.page;
@@ -44,8 +37,9 @@ async function AdminContent({ section, params, correlationId }: { section: Secti
   if (params.principalId && !isGuid(params.principalId)) notFound();
   if (params.userId && (!/^[1-9]\d*$/.test(params.userId) || !Number.isSafeInteger(Number(params.userId)))) notFound();
   const data = await readAdminPage(section, page, params, correlationId);
-  if (!data) return <section role="alert"><h2 className="text-xl font-semibold">Administration data unavailable</h2>
-    <p>SQL or the requested administrative data could not be read. No successful operation is implied. Reference: {correlationId}</p></section>;
+  if (!data) return <section role="alert" className="rounded-md border border-[#ff818266] bg-[#ffebe9] p-4 text-sm">
+    <h2 className="text-base font-semibold text-[#d1242f]">Administration data unavailable</h2>
+    <p className="mt-1">SQL or the requested administrative data could not be read. No successful operation is implied. Reference: {correlationId}</p></section>;
   let content: ReactNode;
     switch (data.section) {
       case "access": {
@@ -54,36 +48,35 @@ async function AdminContent({ section, params, correlationId }: { section: Secti
         break;
       }
       case "audit": {
-        content = <Table headings={["Time", "Actor Entra ID", "Action", "Target", "Outcome", "Correlation"]}
-          rows={data.rows.map((row) => [date(row.occurred_at), row.actor_entra_oid, row.action, row.target_id, row.outcome, row.correlation_id])} />;
+        content = <Card title="Audit log"><DataTable headings={["Time", "Actor Entra ID", "Action", "Target", "Outcome", "Correlation"]}
+          rows={data.rows.map((row) => [date(row.occurred_at), row.actor_entra_oid, row.action, row.target_id, row.outcome, row.correlation_id])} /></Card>;
         break;
       }
       case "login-history": {
-        content = <section className="space-y-4">
-          <form action="/admin" className="flex items-center gap-3">
+        content = <Card title="Login history">
+          <form action="/admin" className="flex flex-wrap items-center gap-3">
             <input type="hidden" name="section" value="login-history" />
             <label htmlFor="history-user">Numeric GitHub user ID</label>
-            <input id="history-user" name="userId" required inputMode="numeric" defaultValue={params.userId} className="rounded border border-default p-2" />
-            <button type="submit" className="rounded border border-default p-2">Load history</button>
+            <input id="history-user" name="userId" required inputMode="numeric" defaultValue={params.userId} className={fieldClass} />
+            <button type="submit" className={buttonClass}>Load history</button>
           </form>
-          <p>Audit-only history. Visible to administrators, regardless of the named-metrics setting.</p>
-          <Table headings={["User ID", "Login", "First seen", "Last seen", "Hashed"]}
+          <p className="text-sm text-muted">Audit-only history. Visible to administrators, regardless of the named-metrics setting.</p>
+          <DataTable headings={["User ID", "Login", "First seen", "Last seen", "Hashed"]}
             rows={data.rows.map((row) => [row.user_id, row.login, date(row.first_seen_day).slice(0, 10), date(row.last_seen_day).slice(0, 10), row.is_hashed_login ? "Yes" : "No"])} />
-        </section>;
+        </Card>;
         break;
       }
       case "issues": {
         content = <IssuesInbox issues={data.rows} />; break;
       }
       case "hierarchy": {
-        content = <section className="space-y-4">
-          <h2 className="text-xl font-semibold">Current manager hierarchy</h2>
-          <button type="button" disabled aria-describedby="sync-unavailable" className="rounded border border-default p-2">Sync now</button>
-          <p id="sync-unavailable">Manual sync is unavailable: no durable directory request receiver is implemented.
+        content = <Card title="Current manager hierarchy"
+          actions={<button type="button" disabled aria-describedby="sync-unavailable" className={buttonClass}>Sync now</button>}>
+          <p id="sync-unavailable" className="text-sm text-muted">Manual sync is unavailable: no durable directory request receiver is implemented.
             No sync can be requested here. Scheduled directory activation remains separately controlled.</p>
-          <Table headings={["User ID", "Entra object ID", "Manager object ID", "Department", "Business area", "Manager resolved"]}
+          <DataTable headings={["User ID", "Entra object ID", "Manager object ID", "Department", "Business area", "Manager resolved"]}
             rows={data.rows.map((row) => [row.user_id, row.entra_object_id, row.manager_entra_object_id, row.department, row.business_area, row.manager_resolved ? "Yes" : "No"])} />
-        </section>;
+        </Card>;
         break;
       }
       case "health": return <HealthPanel runs={data.runs} observedAt={data.observedAt} />;
@@ -94,10 +87,10 @@ async function AdminContent({ section, params, correlationId }: { section: Secti
     if (params.userId) query.set("userId", params.userId);
     return `/admin?${query}`;
   };
-  return <>{content}<nav aria-label="Pagination" className="mt-5 flex gap-4">
-    {page.page > 1 && <Link href={href(page.page - 1)}>Previous page</Link>}
-    <span>Page {page.page}</span>
-    {page.page * page.pageSize < data.total && <Link href={href(page.page + 1)}>Next page</Link>}
+  return <>{content}<nav aria-label="Pagination" className="flex items-center justify-center gap-3 text-sm">
+    {page.page > 1 && <Link href={href(page.page - 1)} className={buttonClass}>Previous page</Link>}
+    <span className="text-muted">Page {page.page}</span>
+    {page.page * page.pageSize < data.total && <Link href={href(page.page + 1)} className={buttonClass}>Next page</Link>}
   </nav></>;
 }
 
@@ -115,14 +108,10 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   if (Object.values(params).some((value) => value !== undefined && typeof value !== "string")) notFound();
   const section = params.section ?? "access";
   if (!Object.hasOwn(sections, section)) notFound();
-  return <main className="mx-auto max-w-[1440px] space-y-6 p-6">
-    <Link href="/">Back to portal</Link>
-    <h1 className="text-3xl font-semibold">Administration</h1>
-    <p>Manage access control, manager hierarchy and the audit log.</p>
-    <nav aria-label="Admin sections" className="flex flex-wrap gap-5 border-b border-default pb-3">
-      {Object.entries(sections).map(([key, title]) => <Link key={key} href={`/admin?section=${key}`}
-        aria-current={section === key ? "page" : undefined} className={section === key ? "font-bold underline" : ""}>{title}</Link>)}
-    </nav>
+  return <SubPageFrame title="Administration" description="Manage access control, manager hierarchy and the audit log."
+    nav={<SideNavCard label="Admin sections" heading="Administration" items={Object.entries(sections).map(([key, title]) => ({
+      href: `/admin?section=${key}`, label: title, icon: key as Section, current: section === key,
+    }))} />}>
     <AdminContent section={section as Section} params={params} correlationId={correlationId} />
-  </main>;
+  </SubPageFrame>;
 }

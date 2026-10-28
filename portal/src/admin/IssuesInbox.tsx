@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import type { InboxIssue } from "../../../shared/src/issues";
+import { alertClass, buttonClass, fieldClass, statusClass } from "../components/SubPageFrame";
 
 export default function IssuesInbox({ issues }: { issues: InboxIssue[] }) {
   const [message, setMessage] = useState("");
@@ -27,19 +28,19 @@ export default function IssuesInbox({ issues }: { issues: InboxIssue[] }) {
     finally { setPending(false); }
   }
   return <section aria-label="Issues inbox" className="space-y-4">
-    <p>The portal records the chosen action; ingestion owns reprocessing. Each issue accepts one confirmed action.</p>
-    {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
-    {issues.length === 0 && <p>No ingestion issues found.</p>}
-    {issues.map((issue) => <article key={issue.issueId} className="rounded border border-default p-4">
+    <p className="text-sm text-muted">The portal records the chosen action; ingestion owns reprocessing. Each issue accepts one confirmed action.</p>
+    {error && <p role="alert" className={alertClass}>{error}</p>}{message && <p role="status" className={statusClass}>{message}</p>}
+    {issues.length === 0 && <p className="rounded-md border border-default bg-white px-4 py-8 text-center text-sm text-muted">No ingestion issues found.</p>}
+    {issues.map((issue) => <article key={issue.issueId} className="rounded-md border border-default bg-white p-4 shadow-sm">
       <h2 className="font-semibold">Issue {issue.issueId}: {issue.type}</h2>
-      <p>{issue.errorCode} | {issue.reportDay ?? "No report day"} | {issue.status}</p>
-      {issue.availableActions.length > 0 && !chosen.includes(issue.issueId) && <form onSubmit={(event) => apply(event, issue)} className="mt-3 flex flex-wrap items-center gap-3">
-        <label>Action <select name="action" className="rounded border border-default bg-white p-2">
+      <p className="mt-1 text-sm text-muted">{issue.errorCode} | {issue.reportDay ?? "No report day"} | {issue.status}</p>
+      {issue.availableActions.length > 0 && !chosen.includes(issue.issueId) && <form onSubmit={(event) => apply(event, issue)} className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+        <label>Action <select name="action" className={fieldClass}>
           {issue.availableActions.map((action) => <option key={action}>{action}</option>)}
         </select></label>
-        <label>Confirm report date (required to force an empty day) <input name="confirmDate" type="date" className="rounded border border-default p-2" /></label>
+        <label>Confirm report date (required to force an empty day) <input name="confirmDate" type="date" className={fieldClass} /></label>
         <label><input required name="confirm" type="checkbox" /> Confirm this action</label>
-        <button disabled={pending} className="rounded border border-default p-2">Apply action</button>
+        <button disabled={pending} className={buttonClass}>Apply action</button>
       </form>}
     </article>)}
   </section>;
