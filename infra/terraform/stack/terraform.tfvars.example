@@ -88,8 +88,8 @@ access_contact     = ""
 # false keeps every response aggregate-only: no logins, no Users or User Details views.
 per_user_detail_enabled = false
 # Minimum distinct users a day, feature, language, model, IDE or other group needs before any view shows it.
-# Default 5; any whole number of at least 2. This dev example uses 4 for a small pilot organization.
-min_group_size = 4
+# Default 5; any whole number of at least 2.
+min_group_size = 5
 
 # Optional modules. Toggling one never changes the SQL schema; each needs at most a secret and a permission.
 modules = {
@@ -102,9 +102,9 @@ modules = {
   # All upstream dashboard views (Executive Summary, Languages, Clients, Client Versions, Copilot Adoption,
   # Model Usage, CLI Adoption, AI Adoption Phases, plus Users/User Details with per-user detail) built from SQL.
   # false (the variable's default) keeps the Safe Alpha surface: Overview and Copilot Impact only. true hides
-  # every group below min_group_size in each view, and a scope below it shows nothing. This dev example turns
-  # it on; keep it off where the owner has not approved the extra views. See docs/runbooks/safe-alpha.md.
-  upstream_views = true
+  # every group below min_group_size in each view, and a scope below it shows nothing. Keep it off until the
+  # owner approves the extra views; docs/runbooks/safe-alpha.md has the steps to turn it on.
+  upstream_views = false
 }
 
 # ---------------------------------------------------------------------------
