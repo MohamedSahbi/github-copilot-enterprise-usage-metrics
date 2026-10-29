@@ -52,6 +52,8 @@ describe("preflightSql", () => {
     expect(PREFLIGHT_SQL.trimEnd().endsWith("REVERT;")).toBe(true);
     // CREATE USER grants CONNECT automatically; the preflight must allow exactly that grant.
     expect(PREFLIGHT_SQL).toContain("AND NOT (class = 0 AND major_id = 0 AND permission_name = N'CONNECT' AND state = 'G')");
+    // Constraints report their parent table's permissions; both object lists must hold top-level objects only.
+    expect(PREFLIGHT_SQL.match(/AND object_name\.parent_object_id = 0/g)).toHaveLength(2);
   });
 });
 
