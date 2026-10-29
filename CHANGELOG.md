@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.24](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.23...v0.2.24) (2026-10-29)
+
+
+### Features
+
+* **infra:** add a directory_sync_enabled switch, off by default ([#214](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/214)) ([1ab698e](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1ab698e45fbfd9223b14ca80ead7600eabe880b9))
+
 ## [0.2.23](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.22...v0.2.23) (2026-10-28)
 
 
