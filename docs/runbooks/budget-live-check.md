@@ -4,9 +4,9 @@
 GitHub login and prints what came back. Use it once against the real enterprise before
 turning `modules.budget_lookup` on, and again if the page shows "invalid or incomplete data".
 
-It never writes to GitHub, SQL or Key Vault. It only calls
-`GET /enterprises/{enterprise}/settings/billing/budgets` three times (`scope=user`,
-`scope=multi_user_customer`, then unscoped), each with `user=<login>`.
+It never writes to GitHub, SQL or Key Vault. It makes the same two calls as the original
+`Lookup-BudgetCostCenter` function: `GET /enterprises/{enterprise}/settings/billing/budgets?user=<login>&per_page=1`
+for the effective budget and its spend, then `GET .../budgets/{id}` for that budget.
 
 ## Prerequisites
 
@@ -27,25 +27,19 @@ unset BUDGET_LOOKUP_KEY
 
 The output has two parts:
 
-- `pages`: for each request, the HTTP status, the top-level field names, and for each budget its
-  `budget_type`, `budget_product_sku`, `budget_scope` and whether `user`, `consumed_amount` and
-  the plural `budget_product_skus` are present. No amounts and no other users' logins.
+- `pages`: for each request, the HTTP status and field names. For the budget by ID, also its
+  `budget_type`, `budget_product_sku` and `budget_scope`. No amounts and no other users' logins.
 - `result`: the mapped Budget Lookup data for that login (exit code 0), or the error code the
   page would show (exit code 1).
 
 ## What to check
 
-The portal relies on the response schema in GitHub's REST docs (API version `2026-03-10`). The
-docs' example response is narrower than that schema, so confirm:
-
 | Check | Expected | If not |
 | --- | --- | --- |
-| Status on all three pages | 200 | 401/403: token type, scope or owner role is wrong |
-| AI-credit budgets | `budget_type: "BundlePricing"`, `budget_product_sku: "ai_credits"`, no `budget_product_skus` | The budget is skipped and the page shows no budgets |
-| `scope=user` budgets | `has_user: true` | Lookup fails with "omitted target-user identity" |
-| Unscoped page | `hasTopLevelUser: true`, `topLevelUserMatches: true` | Lookup fails with "mismatched user identity" |
-| `hasEffectiveBudget` | true when the login has a budget | The page shows the effective budget as not reported |
-| `has_consumed_amount` | true | Consumed amount shows as not reported |
+| Status on both requests | 200 | 401/403: token type, scope or owner role is wrong |
+| `effectiveBudgetFields` | `budget_amount`, `consumed_amount`, `id` | `null` means GitHub applies no budget to that login |
+| Budget by ID | `budget_type: "BundlePricing"`, `budget_product_sku: "ai_credits"`, `budget_scope: "user"` (or `multi_user_customer` for a login on the default) | The page shows the budget as outside what it supports |
+| `result.data.budgets[0].consumedAmount` | `reported` | Spend shows as not reported |
 
 Save the output (it has no secrets) with the PR or issue that records the check. If a row
 does not match, the client in `portal/src/budget/` needs a fix before the module is turned on.

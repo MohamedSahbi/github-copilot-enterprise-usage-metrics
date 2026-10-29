@@ -12,28 +12,26 @@ type JsonRecord = Record<string, unknown>;
 const PLACEHOLDER_USER_ID = 1;
 
 export interface ProbePage {
-  scope: string;
+  request: "effective_budget" | "budget_by_id";
   status: number;
   body: unknown;
 }
 
 export interface ProbePageSummary {
-  scope: string;
+  request: ProbePage["request"];
   status: number;
-  topLevelFields: string[];
-  hasTopLevelUser: boolean;
-  topLevelUserMatches: boolean | null;
-  hasEffectiveBudget: boolean;
-  budgets: Array<{
+  fields: string[];
+  hasTopLevelUser?: boolean;
+  topLevelUserMatches?: boolean | null;
+  effectiveBudgetFields?: string[] | null;
+  budget?: {
     budget_type: unknown;
     budget_product_sku: unknown;
     has_budget_product_skus: boolean;
     budget_scope: unknown;
-    has_user: boolean;
     user_matches: boolean | null;
-    has_consumed_amount: boolean;
     budget_amount_type: string;
-  }>;
+  };
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -42,25 +40,22 @@ function isRecord(value: unknown): value is JsonRecord {
 
 export function summarizeProbePage(page: ProbePage, login: string): ProbePageSummary {
   const body = isRecord(page.body) ? page.body : {};
-  const budgets = Array.isArray(body.budgets) ? body.budgets.filter(isRecord) : [];
-  return {
-    scope: page.scope,
-    status: page.status,
-    topLevelFields: Object.keys(body).sort(),
-    hasTopLevelUser: "user" in body,
-    topLevelUserMatches: "user" in body ? body.user === login : null,
-    hasEffectiveBudget: isRecord(body.effective_budget),
-    budgets: budgets.map((budget) => ({
-      budget_type: budget.budget_type,
-      budget_product_sku: budget.budget_product_sku,
-      has_budget_product_skus: "budget_product_skus" in budget,
-      budget_scope: budget.budget_scope,
-      has_user: "user" in budget,
-      user_matches: "user" in budget ? budget.user === login : null,
-      has_consumed_amount: "consumed_amount" in budget,
-      budget_amount_type: typeof budget.budget_amount,
-    })),
-  };
+  const summary: ProbePageSummary = { request: page.request, status: page.status, fields: Object.keys(body).sort() };
+  if (page.request === "effective_budget") {
+    summary.hasTopLevelUser = "user" in body;
+    summary.topLevelUserMatches = "user" in body ? body.user === login : null;
+    summary.effectiveBudgetFields = isRecord(body.effective_budget) ? Object.keys(body.effective_budget).sort() : null;
+  } else if (page.status === 200) {
+    summary.budget = {
+      budget_type: body.budget_type,
+      budget_product_sku: body.budget_product_sku,
+      has_budget_product_skus: "budget_product_skus" in body,
+      budget_scope: body.budget_scope,
+      user_matches: "user" in body ? body.user === login : null,
+      budget_amount_type: typeof body.budget_amount,
+    };
+  }
+  return summary;
 }
 
 export function recordingFetch(pages: ProbePage[], fetchImpl: typeof fetch = fetch): typeof fetch {
@@ -73,7 +68,8 @@ export function recordingFetch(pages: ProbePage[], fetchImpl: typeof fetch = fet
     } catch {
       body = null;
     }
-    pages.push({ scope: url.searchParams.get("scope") ?? "unscoped", status: response.status, body });
+    const request = url.pathname.endsWith("/budgets") ? "effective_budget" : "budget_by_id";
+    pages.push({ request, status: response.status, body });
     return response;
   };
 }
