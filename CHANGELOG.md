@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.27](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.26...v0.2.27) (2026-10-29)
+
+
+### Bug Fixes
+
+* **metrics:** allow *.github.com report downloads; tool to remove synthetic runs; versioned archive recovery ([#228](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/228)) ([69cf1db](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/69cf1db0425506d75c933b3ff02d0c327fdc1964))
+
 ## [0.2.26](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.25...v0.2.26) (2026-10-29)
 
 
