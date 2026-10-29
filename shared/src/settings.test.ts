@@ -57,9 +57,12 @@ describe("deployment settings (items 6, 8, 11)", () => {
     expect(r).toMatchObject({ ok: false });
   });
 
-  it("rejects a minimum group size below 5, for every scope", () => {
-    expect(validateSettings({ privacy: { minGroupSize: 4 } }).ok).toBe(false);
-    expect(validateSettings({ privacy: { minGroupSize: 5 } }).ok).toBe(true);
+  it("defaults the minimum group size to 5 and accepts 2 or more, for every scope", () => {
+    expect(validateSettings({})).toMatchObject({ ok: true, settings: { privacy: { minGroupSize: 5 } } });
+    expect(validateSettings({ privacy: { minGroupSize: 1 } }).ok).toBe(false);
+    expect(validateSettings({ privacy: { minGroupSize: 2.5 } }).ok).toBe(false);
+    expect(validateSettings({ privacy: { minGroupSize: 2 } }).ok).toBe(true);
+    expect(validateSettings({ privacy: { minGroupSize: 10 } }).ok).toBe(true);
   });
 
   it("rejects an attribute name with unsafe characters", () => {

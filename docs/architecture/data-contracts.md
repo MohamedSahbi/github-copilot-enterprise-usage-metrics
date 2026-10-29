@@ -13,7 +13,7 @@ Verification legend: **V** = verified against a recorded sample or the enterpris
 | `retention.per_user_months` | 13 (1 to 36) | Per-user rows and PII are purged after this window (D-12) |
 | `retention.aggregate_months` | unlimited | Aggregates kept indefinitely (D-12) |
 | `retention.login_history_months` | 24 (1 to 60) | `dim_user_login_history` is purged only after this maximum age; explicit exception to the per-user rule (§11) |
-| `privacy.min_group_size` | 5 (floor 5) | Groups below this size are suppressed for every scope, including business area (§6.3) |
+| `privacy.min_group_size` | 5 (floor 2; app setting `MIN_GROUP_SIZE`) | Groups below this size are suppressed for every scope, including business area (§6.3) |
 | `privacy.per_user_detail` | off | Named users in responses (see §6) |
 | `staging.retention_days` | 14 | Staged rows of published or failed runs are deleted after this; quarantined runs are kept until an admin acts |
 | `access.break_glass_group_id` | empty | Entra group whose members reach admin and health pages when permissions cannot be read (D-17). Empty or a GUID. A setting, not a table |
@@ -442,7 +442,7 @@ The deployment template and the private environment repository supply these as t
 #   per_user_months: 13               # 1 to 36
 #   login_history_months: 24          # 1 to 60; audit history, purged only after this age
 # privacy:
-#   min_group_size: 5                 # floor 5, applies to every scope
+#   min_group_size: 5                 # floor 2, applies to every scope
 # access:
 #   break_glass_group_id: ""          # Entra group object ID, or empty
 #   permission_freshness_minutes: 5   # 1 to 60

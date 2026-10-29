@@ -65,7 +65,7 @@ describe("API contract helpers", () => {
   });
 
   it("fails closed on a lowered threshold or an invalid count", () => {
-    expect(suppress(2, 0, 1, false).suppressed).toBe(true);
+    expect(suppress(1, 0, 1, false).suppressed).toBe(true);
     expect(suppress(Number.NaN, 5, 1, false).suppressed).toBe(true);
     expect(suppress(3, Number.NaN, 1, false).suppressed).toBe(true);
   });

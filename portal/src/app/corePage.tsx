@@ -10,6 +10,7 @@ import { getApiCoreData, projectCorePageData } from "@/data/apiCoreDataSource";
 import { getPortalDataSource } from "@/data/portalDataSource";
 import { getUpstreamCoreData } from "@/data/upstreamCoreDataSource";
 import { logUsageFailure } from "@/usage/api";
+import { readMinGroupSize } from "@/auth/settings";
 
 const REPORTING_PERIOD = { period: "last_7_days" } as const;
 
@@ -49,6 +50,7 @@ async function renderUpstreamPage(
         access,
         selection,
         perUserDetailEnabled: viewer.perUserDetailEnabled,
+        minGroupSize: readMinGroupSize(),
       });
       if (!data) return dataUnavailable();
       if (data.state === "suppressed") return shell(scopeTooSmall(page.title));

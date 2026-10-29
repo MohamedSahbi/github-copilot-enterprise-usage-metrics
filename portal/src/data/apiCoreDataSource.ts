@@ -8,6 +8,7 @@ import { CORE_PAGE_SLUGS, type CorePageSlug } from "../navigation/corePages";
 import { getPortalSqlPool } from "../db/pool";
 import type { AuthorizedUsageAccess } from "../usage/api";
 import { getUsageOverview, resolveUsageRange } from "../usage/sql-usage";
+import { readMinGroupSize } from "../auth/settings";
 import type { PortalScopeSelection } from "../access/portalAccess";
 
 export const API_CORE_PAGE_SLUGS = CORE_PAGE_SLUGS;
@@ -69,6 +70,6 @@ export async function getApiCoreData(query: ApiPortalDataQuery): Promise<ApiCore
   const pool = await getPortalSqlPool();
   const resolved = await resolveUsageRange(pool, query.request);
   if (!resolved.ok) throw new Error("The requested usage period is unavailable");
-  const overview = await getUsageOverview(pool, access, resolved.range, correlationId);
+  const overview = await getUsageOverview(pool, access, resolved.range, correlationId, readMinGroupSize());
   return projectCorePageData(query.page, overview);
 }
