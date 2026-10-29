@@ -100,6 +100,17 @@ variable "directory_sync_enabled" {
   default     = false
 }
 
+variable "directory_graph_client_id" {
+  description = "Optional application (client) ID of an Entra app registration the directory sync uses for Microsoft Graph instead of its managed identity. Its client secret goes in Key Vault as directory-graph-client-secret. Null (default) keeps Graph on the directory managed identity, which needs Graph User.Read.All granted by an admin and no secret."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.directory_graph_client_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.directory_graph_client_id))
+    error_message = "directory_graph_client_id must be a GUID or null."
+  }
+}
+
 variable "organization" {
   description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
   type = object({

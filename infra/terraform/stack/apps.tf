@@ -78,7 +78,13 @@ locals {
     AzureWebJobsStorage__credential  = "managedidentity"
     AzureWebJobsStorage__clientId    = module.identity["directory"].client_id
     GITHUB_DIRECTORY_PAT             = format("@Microsoft.KeyVault(SecretUri=%s/secrets/github-directory-pat)", trimsuffix(module.key_vault.uri, "/"))
-  })
+  }, local.directory_graph_client_settings)
+
+  # Optional app registration for Microsoft Graph; SQL, storage and Key Vault stay on the managed identity.
+  directory_graph_client_settings = var.directory_graph_client_id != null ? {
+    GRAPH_CLIENT_ID     = var.directory_graph_client_id
+    GRAPH_CLIENT_SECRET = format("@Microsoft.KeyVault(SecretUri=%s/secrets/directory-graph-client-secret)", trimsuffix(module.key_vault.uri, "/"))
+  } : {}
 
   portal_app_settings = merge(local.common_app_settings, {
     AUTH_URL                            = coalesce(var.portal_public_url, "https://${local.portal_app_name}.azurewebsites.net")

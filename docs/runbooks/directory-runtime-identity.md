@@ -132,6 +132,22 @@ target identity, and consent evidence in the private deployment record, not in
 this public runbook. Never record tenant-specific identifiers or secret values
 here.
 
+## Choosing the Graph identity (`directory_graph_client_id`)
+
+The directory sync reads Microsoft Graph with one of two identities, chosen in
+tfvars:
+
+| `directory_graph_client_id` | Graph identity | What an operator does |
+| --- | --- | --- |
+| unset (default) | The directory user-assigned managed identity | An Entra admin grants the Graph application permission `User.Read.All` to that identity's service principal, once, outside Terraform. No app registration and no secret. |
+| an app registration's client ID | That app registration | Store a client secret of the app in Key Vault as `directory-graph-client-secret`; the app needs `User.Read.All` with admin consent. |
+
+The managed identity is the simpler choice: there is no secret to store,
+rotate or leak. Use an app registration when your tenant only grants Graph
+permissions to app registrations.
+
+SQL, storage and Key Vault always use the directory managed identity.
+
 ## Preconditions before an authorized deployment
 
 1. Keep the Function App and SCM site disabled. A real Functions v4 timer

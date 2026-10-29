@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { createDirectoryRuntimeHandler, readDirectoryRuntimeConfig, createDirectoryTransport } from "./runtime.js";
+import { ClientSecretCredential, ManagedIdentityCredential } from "@azure/identity";
+import { createDirectoryRuntimeHandler, readDirectoryRuntimeConfig, createDirectoryTransport, graphTokenCredential } from "./runtime.js";
 import type { DirectoryCommit } from "./sync.js";
 
 const clientId = "00000000-0000-0000-0000-000000000001";
@@ -40,6 +41,31 @@ describe("fail-closed directory runtime configuration", () => {
     { DIRECTORY_PROVIDER: "auto" },
     { ENTRA_TENANT_ID: "not-a-tenant-guid" },
   ])("rejects invalid configuration instead of falling back", (override) => {
+    expect(() => readDirectoryRuntimeConfig({ ...env, ...override })).toThrow("directory_configuration_invalid");
+  });
+
+  it("keeps Graph on the managed identity unless a Graph client is configured", () => {
+    const config = readDirectoryRuntimeConfig(env);
+    expect(config.graphClient).toBeNull();
+    expect(graphTokenCredential(config)).toBeInstanceOf(ManagedIdentityCredential);
+  });
+
+  it("uses the configured Graph app registration for Graph only", () => {
+    const config = readDirectoryRuntimeConfig({
+      ...env, ENTRA_TENANT_ID: clientId, GRAPH_CLIENT_ID: "00000000-0000-0000-0000-000000000002", GRAPH_CLIENT_SECRET: "fixture-graph-secret",
+    });
+    expect(config.graphClient).toEqual({ clientId: "00000000-0000-0000-0000-000000000002", clientSecret: "fixture-graph-secret" });
+    expect(config.managedIdentityClientId).toBe(clientId);
+    expect(graphTokenCredential(config)).toBeInstanceOf(ClientSecretCredential);
+  });
+
+  it.each([
+    { GRAPH_CLIENT_ID: "00000000-0000-0000-0000-000000000002", ENTRA_TENANT_ID: clientId },
+    { GRAPH_CLIENT_ID: "00000000-0000-0000-0000-000000000002", GRAPH_CLIENT_SECRET: "fixture-graph-secret" },
+    { GRAPH_CLIENT_ID: "not-a-guid", GRAPH_CLIENT_SECRET: "fixture-graph-secret", ENTRA_TENANT_ID: clientId },
+    { GRAPH_CLIENT_ID: "00000000-0000-0000-0000-000000000002", ENTRA_TENANT_ID: clientId,
+      GRAPH_CLIENT_SECRET: "@Microsoft.KeyVault(SecretUri=https://fixture.invalid/secrets/unresolved)" },
+  ])("rejects an incomplete Graph client instead of falling back to the managed identity", (override) => {
     expect(() => readDirectoryRuntimeConfig({ ...env, ...override })).toThrow("directory_configuration_invalid");
   });
 });

@@ -10,7 +10,10 @@ locals {
       ["github-app-private-key"],
       var.modules.ai_credits ? ["ai-credits-token"] : [],
     )
-    directory = ["github-directory-pat"]
+    directory = concat(
+      ["github-directory-pat"],
+      var.directory_graph_client_id != null ? ["directory-graph-client-secret"] : [],
+    )
   }
 
   secret_names = concat(
