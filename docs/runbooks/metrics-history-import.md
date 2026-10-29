@@ -16,7 +16,7 @@ skips days that already have a published run, and resumes on the next run where 
 
 ## Steps
 
-Each step is one manual run of the [data operations pipeline](#data-operations-pipeline-azure-devops-example),
+Each step is one manual run of the [data operations pipeline](#data-operations-pipeline),
 which calls `scripts/data-ops.sh`.
 
 1. **Check the timer and the current state (read-only).**
@@ -59,76 +59,13 @@ which calls `scripts/data-ops.sh`.
 6. **Turn the backfill off** once every day is `published`: remove `backfill_from`, plan, apply. The timer goes
    back to yesterday only. A `BACKFILL_FROM` older than 365 days makes the timer fail on purpose.
 
-## Data operations pipeline (Azure DevOps example)
+## Data operations pipeline
 
-Data operations get their own pipeline, separate from the deploy pipeline: it never runs on a push or a deploy
-(`trigger: none`), only when queued by hand with an operation picked. Today it has `status`, `remove-synthetic`
-(dry run) and `remove-synthetic-execute`; seeding synthetic data can be added later as another operation. The
-delete runs in a deployment job, so the environment's approvals apply to it. Rerunning `remove-synthetic` after the
-cleanup finds nothing and changes nothing.
-
-Save it next to the deploy pipeline (for example `azure-pipelines/data-operations.yml`, reusing the deploy
-pipeline's `prepare.yml` checkout of the pinned release into `portal/`) and register it as its own pipeline.
-
-```yaml
-# Data operations on an environment's portal database. Queue by hand; nothing triggers it.
-trigger: none
-pr: none
-
-parameters:
-  - name: environment
-    type: string
-    default: dev
-  - name: operation
-    displayName: Operation
-    type: string
-    default: status
-    values: [status, remove-synthetic, remove-synthetic-execute]
-  - name: fromDay
-    displayName: First day for status (yyyy-mm-dd)
-    type: string
-    default: "2026-09-01"
-  - name: expectFactRows
-    displayName: Fact rows from the dry run (remove-synthetic-execute only)
-    type: string
-    default: "-"
-
-variables:
-  azureServiceConnection: <same service connection as the deploy pipeline>
-
-stages:
-  - stage: DataOperation
-    displayName: ${{ parameters.operation }} (${{ parameters.environment }})
-    jobs:
-      - deployment: DataOperation
-        environment: ${{ parameters.environment }}
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - template: prepare.yml
-                - task: UseNode@1
-                  inputs: { version: 22.x }
-                - task: AzureCLI@2
-                  displayName: ${{ parameters.operation }}
-                  inputs:
-                    azureSubscription: $(azureServiceConnection)
-                    scriptType: bash
-                    scriptLocation: inlineScript
-                    addSpnToEnvironment: true
-                    inlineScript: |
-                      set -euo pipefail
-                      export ARM_USE_OIDC=true ARM_USE_AZUREAD_AUTH=true
-                      export ARM_CLIENT_ID="$servicePrincipalId" ARM_TENANT_ID="$tenantId" ARM_OIDC_TOKEN="$idToken"
-                      export ARM_SUBSCRIPTION_ID="$(az account show --query id --output tsv)"
-                      portal/scripts/deploy-infra.sh init "${{ parameters.environment }}" "config/${{ parameters.environment }}.tfvars"
-                      git -C portal checkout -- infra/terraform/stack/.terraform.lock.hcl
-                      case "${{ parameters.operation }}" in
-                        status) portal/scripts/data-ops.sh status --from "${{ parameters.fromDay }}" ;;
-                        remove-synthetic) portal/scripts/data-ops.sh remove-synthetic ;;
-                        remove-synthetic-execute)
-                          portal/scripts/data-ops.sh remove-synthetic --execute --expect-fact-rows "${{ parameters.expectFactRows }}" ;;
-                      esac
-```
+Data operations get their own pipeline, separate from the deploy pipeline. It ships in the deployment template
+repository as `data-operations.yml` (Azure Pipelines), so a deployment repository takes it unchanged under the
+template re-sync rule (decision record §12.8). It never runs on a push or a deploy (`trigger: none`); queue it by
+hand and pick `status`, `remove-synthetic` (dry run) or `remove-synthetic-execute`. The delete runs in a deployment
+job, so the environment's approvals apply. Seeding synthetic data can be added later as another operation.
+Rerunning `remove-synthetic` after the cleanup finds nothing and changes nothing.
 
 The pipeline's sign-in must be in the SQL server's Entra admin group, the same as for `scripts/deploy-db.sh`.
