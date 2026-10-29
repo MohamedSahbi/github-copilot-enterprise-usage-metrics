@@ -1,10 +1,14 @@
-// CLI for the migration runner: SQL_CONNECTION_STRING=... npm run db:migrate
-// The connection string is read from the environment only and is never printed.
+// CLI for the migration runner: SQL_CONNECTION_STRING=... npm run db:migrate, or the Entra token variables in connection.ts.
+// Connection settings are read from the environment only and are never printed.
+import type sql from "mssql";
+import { connectionFromEnvironment } from "./connection";
 import { migrate } from "./migrate";
 
-const connectionString = process.env.SQL_CONNECTION_STRING;
-if (!connectionString) {
-  console.error("SQL_CONNECTION_STRING is required");
+let connectionString: sql.config;
+try {
+  connectionString = connectionFromEnvironment(process.env);
+} catch (error) {
+  console.error((error as Error).message);
   process.exit(2);
 }
 
