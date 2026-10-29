@@ -18,8 +18,7 @@ locals {
   }
 
   # The Function hosts reach their own storage over the public endpoint, and App Service is not a trusted "AzureServices" caller.
-  # Without a private endpoint the host accounts therefore allow the network (with one, the default Deny stays); keys stay disabled, so every request still needs an Entra role.
-  # The raw archive keeps the module default (Deny).
+  # Without a private endpoint all accounts therefore allow the network (with one, the default Deny stays); keys stay disabled, so every request still needs an Entra role.
   host_storage_network_rules = { default_action = local.private_endpoints_enabled ? "Deny" : "Allow" }
 
   metrics_host_storage_role_assignments = {
@@ -74,6 +73,7 @@ module "storage" {
   default_to_oauth_authentication = true
   public_network_access_enabled   = !var.private_endpoints_enabled
   allow_nested_items_to_be_public = false
+  network_rules                   = local.host_storage_network_rules
 
   containers = {
     raw = { name = "raw" }

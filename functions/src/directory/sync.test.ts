@@ -137,18 +137,23 @@ describe("directory synchronization boundary", () => {
     await expect(syncDirectory(input, dependencies)).rejects.toThrow("SQL_WRITE_FAILED");
   });
 
-  it.each(["scim", "seats", "graph"])("never advances any source success on partial %s collection", async (source) => {
+  it.each(["scim", "seats"])("never advances any source success on partial %s collection", async (source) => {
     const { dependencies, commits } = setup();
-    if (source === "graph") {
-      dependencies.graph = async () => ({ status: 403, body: { message: "private-profile@example.invalid" } });
-    } else {
-      const original = dependencies.github;
-      dependencies.github = async (path) => path.includes(source === "scim" ? "/scim/" : "/seats?")
-        ? { status: 200, body: { incomplete: "private-profile@example.invalid" } }
-        : original(path);
-    }
+    const original = dependencies.github;
+    dependencies.github = async (path) => path.includes(source === "scim" ? "/scim/" : "/seats?")
+      ? { status: 200, body: { incomplete: "private-profile@example.invalid" } }
+      : original(path);
     expect(await syncDirectory(input, dependencies)).toMatchObject({ status: "failed", rowsLoaded: 0 });
     expect(commits[0]?.sync.every((state) => state.last_success_at === null && state.last_error_code !== null)).toBe(true);
+    expect(commits[0]?.users).toEqual([]);
+    expect(commits[0]?.run.is_current).toBe(false);
+  });
+
+  it("quarantines profile_read_failed users and publishes the run with zero loaded rows", async () => {
+    const { dependencies, commits } = setup();
+    dependencies.graph = async () => ({ status: 403, body: { message: "private-profile@example.invalid" } });
+    expect(await syncDirectory(input, dependencies)).toMatchObject({ status: "published", rowsLoaded: 0 });
+    expect(commits[0]?.run).toMatchObject({ status: "published", rows_loaded: 0, rows_quarantined: 1, error_code: null });
     expect(commits[0]?.users).toEqual([]);
     expect(commits[0]?.run.is_current).toBe(false);
   });
