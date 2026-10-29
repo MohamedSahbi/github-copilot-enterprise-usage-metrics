@@ -91,7 +91,9 @@ the App-token check (#64) and the restore and SQL permission gates (#55, #56) ha
 **`directory_sync_enabled`** (default `false`). Turns on the Function App that copies users, managers
 and departments from Entra into SQL, on the `directory_sync_schedule` cron. Manager and department
 scopes need it. While off, the app is disabled and its deploy (SCM) site is stopped, so nothing can run
-or be deployed to it. Turn it on once `github-directory-pat` holds a real PAT in Key Vault and the
+or be deployed to it. While it is off, every plan shows one in-place change on that app
+(`scmSiteAlsoStopped` false to true) because Azure does not read the value back; this is expected (#206).
+Turn it on once `github-directory-pat` holds a real PAT in Key Vault and the
 directory SQL user is mapped (#56).
 
 **`modules.upstream_views`** (default `false`). Shows every dashboard from the upstream viewer:
