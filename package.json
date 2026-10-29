@@ -22,6 +22,7 @@
     "db:runtime-users": "tsx scripts/db/runtime-users-cli.ts",
     "access:bootstrap": "tsx scripts/access/bootstrap.ts",
     "data:remove-runs": "tsx scripts/data/remove-runs.ts",
+    "data:run-status": "tsx scripts/data/run-status.ts",
     "import:legacy-metrics": "tsx scripts/import/legacy-metrics.ts",
     "reconcile:metrics": "tsx scripts/reconciliation/metrics.ts",
     "db:fixtures": "tsx scripts/stack/stack.ts fixtures",

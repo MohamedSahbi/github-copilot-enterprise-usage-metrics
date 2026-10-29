@@ -1,12 +1,13 @@
 // Operator tool: removes named metrics/AI-credit ingestion runs (for example the sandbox's synthetic
 // seed) and everything that points at them, in one transaction. Dry run by default: it performs the
 // deletes, reports the row counts and rolls back. `--execute` commits only when the fact-row count
-// matches `--expect-fact-rows` from the dry run. Output is counts only; no logins or report contents.
+// matches `--expect-fact-rows` from the dry run. `--synthetic` names every published metrics run the loader did not
+// write (see ./runs.ts). Output is counts and run IDs only; no logins or report contents.
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import sql from "mssql";
-import { getPortalSqlPool } from "../../portal/src/db/pool";
+import { findSyntheticMetricsRuns, openDataPool } from "./runs";
 
 export class RemoveRunsError extends Error {
   constructor(readonly code: string) {
@@ -16,6 +17,7 @@ export class RemoveRunsError extends Error {
 
 export interface RemoveRunsArguments {
   runIds: string[];
+  synthetic: boolean;
   userIds: number[];
   organizationIds: number[];
   execute: boolean;
@@ -26,12 +28,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID = /^[1-9][0-9]{0,17}$/;
 
 export function parseRemoveRunsArguments(args: readonly string[]): RemoveRunsArguments {
-  const result: RemoveRunsArguments = { runIds: [], userIds: [], organizationIds: [], execute: false };
+  const result: RemoveRunsArguments = { runIds: [], synthetic: false, userIds: [], organizationIds: [], execute: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const value = args[index + 1];
     if (arg === "--execute" && !result.execute) {
       result.execute = true;
+      continue;
+    }
+    if (arg === "--synthetic" && !result.synthetic) {
+      result.synthetic = true;
       continue;
     }
     if (value === undefined || value.startsWith("--")) throw new RemoveRunsError("invalid_arguments");
@@ -46,7 +52,7 @@ export function parseRemoveRunsArguments(args: readonly string[]): RemoveRunsArg
   for (const list of [result.runIds, result.userIds, result.organizationIds] as Array<readonly unknown[]>) {
     if (new Set(list).size !== list.length) throw new RemoveRunsError("invalid_arguments");
   }
-  if (result.runIds.length === 0) throw new RemoveRunsError("invalid_arguments");
+  if ((result.runIds.length > 0) === result.synthetic) throw new RemoveRunsError("invalid_arguments");
   if (result.execute !== (result.expectFactRows !== undefined)) throw new RemoveRunsError("invalid_arguments");
   return result;
 }
@@ -70,6 +76,7 @@ const FACT_TABLES = new Set<string>(["fact_user_daily_usage", "fact_ai_credit_li
 export interface RemoveRunsResult {
   committed: boolean;
   runs: number;
+  runIds: string[];
   factRows: number;
   deleted: Record<string, number>;
 }
@@ -93,6 +100,14 @@ export async function removeRuns(pool: sql.ConnectionPool, input: RemoveRunsArgu
     return result;
   };
   try {
+    if (input.synthetic) {
+      input = { ...input, runIds: await findSyntheticMetricsRuns(new sql.Request(transaction)) };
+      if (input.runIds.length === 0) {
+        await transaction.rollback();
+        if (input.execute && input.expectFactRows !== 0) throw new RemoveRunsError("fact_row_count_mismatch");
+        return { committed: false, runs: 0, runIds: [], factRows: 0, deleted };
+      }
+    }
     const lookup = new sql.Request(transaction);
     const found = (await lookup.query(`
       SELECT source_kind, COUNT(*) AS n FROM portal.IngestionRun WITH (UPDLOCK)
@@ -145,7 +160,7 @@ export async function removeRuns(pool: sql.ConnectionPool, input: RemoveRunsArgu
     if (commit) await transaction.commit();
     else await transaction.rollback();
     if (input.execute && !commit) throw new RemoveRunsError("fact_row_count_mismatch");
-    return { committed: commit, runs: input.runIds.length, factRows, deleted };
+    return { committed: commit, runs: input.runIds.length, runIds: input.runIds, factRows, deleted };
   } catch (error) {
     try {
       await transaction.rollback();
@@ -161,7 +176,7 @@ async function main(args: readonly string[]): Promise<void> {
   let pool: sql.ConnectionPool | undefined;
   try {
     const input = parseRemoveRunsArguments(args);
-    pool = await getPortalSqlPool();
+    pool = await openDataPool();
     const result = await removeRuns(pool, input);
     process.stdout.write(`${JSON.stringify({ event: "data.remove_runs", correlationId, ...result })}\n`);
   } catch (error) {
