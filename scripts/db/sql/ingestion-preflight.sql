@@ -14,6 +14,7 @@ IF NOT EXISTS (
     THROW 50201, N'Ingestion identity is not the expected Entra contained user', 1;
 IF IS_ROLEMEMBER(N'public', @identity_name) <> 1
     THROW 50202, N'Preflight could not account for implicit PUBLIC membership', 1;
+-- CREATE USER implicitly grants DATABASE CONNECT (class=0, major_id=0); allow exactly that grant.
 IF EXISTS (
     SELECT 1 FROM sys.database_permissions
     WHERE grantee_principal_id = @identity_id
