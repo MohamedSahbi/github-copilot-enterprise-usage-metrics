@@ -117,6 +117,9 @@ anyone access to data, and it never changes the SQL schema.
 
 ## Get started
 
+To deploy for your organization, follow [Get started in an hour](docs/setup/get-started.md). To move an
+existing install to a newer release, follow the [upgrade guide](docs/setup/upgrade.md). In short:
+
 1. **Try it locally first.** With Docker you can run the portal against synthetic data in a few
    minutes, no Azure or GitHub setup needed. See [Develop locally](#develop-locally) below.
 2. **Prepare Azure, Entra and GitHub.** The [prerequisites](docs/setup/prerequisites.md) list the
