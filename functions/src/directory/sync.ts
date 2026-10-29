@@ -55,6 +55,7 @@ export async function syncDirectory(input: DirectorySyncInput, deps: DirectorySy
   let managerCheckUserIds: number[] = [];
   let rowsRead: number | null = null;
   let unmapped: number | null = null;
+  let profilesFailed = 0;
   let errorCode: string | null = null;
   deps.logger.info({ event: "directory.started", correlation_id: correlationId });
   try {
@@ -85,7 +86,13 @@ export async function syncDirectory(input: DirectorySyncInput, deps: DirectorySy
           errorCode ??= profile.errorCode;
         } catch (error) {
           if (!(error instanceof DirectoryProviderError)) throw error;
-          errorCode ??= error.code;
+          if (error.code === "profile_read_failed") {
+            profilesFailed++;
+            deps.logger.warn({ event: "directory.profile_skipped", code: error.code,
+              correlation_id: correlationId, login: identity.login, user_id: identity.userId });
+          } else {
+            errorCode ??= error.code;
+          }
         }
       }
     }
@@ -94,13 +101,15 @@ export async function syncDirectory(input: DirectorySyncInput, deps: DirectorySy
     errorCode = error.code;
   }
   const completedAt = deps.now().toISOString();
+  const quarantined = (unmapped ?? 0) + profilesFailed;
   const status = errorCode === null ? "published" : "failed";
   const sources: DirectorySyncStateRow["source"][] = input.provider === "csv" ? ["csv"] : ["scim", "seats", "graph"];
   const run: IngestionRunRow = {
     run_id: runId, source_kind: "directory", scope_key: input.enterprise,
     report_day: null, range_start: null, range_end: null, status, is_current: false,
     transform_version: "1", attempt: 1, rows_read: rowsRead, rows_loaded: users.length,
-    rows_quarantined: unmapped, error_code: errorCode, correlation_id: correlationId,
+    rows_quarantined: quarantined > 0 || unmapped !== null ? quarantined : null,
+    error_code: errorCode, correlation_id: correlationId,
     started_at: startedAt, completed_at: completedAt,
   };
   // A NULL success is a preserve instruction to the SQL writer, never a successful empty result.
