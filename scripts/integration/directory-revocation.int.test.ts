@@ -13,7 +13,8 @@ const oid = "00000000-0000-4000-8000-000000007601";
 const principalId = "00000000-0000-4000-8000-000000007602";
 const scope = "directory-revocation-integration";
 let pool: sql.ConnectionPool;
-let clock = Date.now() - 60_000;
+// Ahead of any directory run other suites leave behind; the writer rejects older snapshots. afterAll removes these runs.
+let clock = Date.now() + 3_600_000;
 
 function command(state: "active" | "suspended"): DirectoryCommit {
   const runId = randomUUID();
