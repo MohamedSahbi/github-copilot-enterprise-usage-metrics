@@ -25,8 +25,8 @@ locals {
   sql_database_name = local.create_sql ? "sqldb-${local.name}" : split("/", var.existing_sql.database_id)[10]
 
   directory_platform_state = {
-    enabled               = false
-    scm_site_also_stopped = true
+    enabled               = var.directory_sync_enabled
+    scm_site_also_stopped = !var.directory_sync_enabled
   }
 
   raw_archive_identity_key            = "ingestion"
