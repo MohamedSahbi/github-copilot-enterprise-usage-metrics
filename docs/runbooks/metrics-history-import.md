@@ -62,8 +62,8 @@ which calls `scripts/data-ops.sh`.
 ## Data operations pipeline
 
 Data operations get their own pipeline, separate from the deploy pipeline. Its stages live in the deployment template
-repository (`azure-pipelines/data-operations.yml`, Azure Pipelines); a deployment repository's `data-operations.yml`
-only sets its values and loads them with `extends`, so it never carries a copy. It never runs on a push or a deploy (`trigger: none`); queue it by
+repository (`azure-pipelines/data-operations.yml`, Azure Pipelines). A deployment repository's `data-operations.yml`
+only sets its values and `extends` that file, from an unchanged copy of the template's `azure-pipelines/` folder. It never runs on a push or a deploy (`trigger: none`); queue it by
 hand and pick `status`, `remove-synthetic` (dry run) or `remove-synthetic-execute`. The delete runs in a deployment
 job, so the environment's approvals apply. Seeding synthetic data can be added later as another operation.
 Rerunning `remove-synthetic` after the cleanup finds nothing and changes nothing.
