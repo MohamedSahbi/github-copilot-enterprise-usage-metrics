@@ -20,6 +20,7 @@
     "test:e2e": "playwright test",
     "db:migrate": "tsx scripts/db/migrate-cli.ts",
     "access:bootstrap": "tsx scripts/access/bootstrap.ts",
+    "data:remove-runs": "tsx scripts/data/remove-runs.ts",
     "import:legacy-metrics": "tsx scripts/import/legacy-metrics.ts",
     "reconcile:metrics": "tsx scripts/reconciliation/metrics.ts",
     "db:fixtures": "tsx scripts/stack/stack.ts fixtures",
