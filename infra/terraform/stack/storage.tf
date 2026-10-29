@@ -67,7 +67,7 @@ module "storage" {
   name                     = local.storage_name
   location                 = var.location
   parent_id                = local.resource_group_id
-  account_replication_type = "ZRS"
+  account_replication_type = var.storage_replication_type
   tags                     = local.tags
 
   shared_access_key_enabled       = false
@@ -114,7 +114,7 @@ module "metrics_host_storage" {
   name                     = local.metrics_host_storage_name
   location                 = var.location
   parent_id                = local.resource_group_id
-  account_replication_type = "ZRS"
+  account_replication_type = var.storage_replication_type
   tags                     = local.tags
 
   shared_access_key_enabled       = false
@@ -143,7 +143,7 @@ module "directory_host_storage" {
   name                     = local.directory_host_storage_name
   location                 = var.location
   parent_id                = local.resource_group_id
-  account_replication_type = "ZRS"
+  account_replication_type = var.storage_replication_type
   tags                     = local.tags
 
   shared_access_key_enabled       = false

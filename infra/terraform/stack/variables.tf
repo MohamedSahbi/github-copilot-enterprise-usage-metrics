@@ -406,33 +406,73 @@ variable "sql_admin" {
 }
 
 variable "sql_database_sku" {
-  description = "SKU of the demo database."
+  description = "SKU of the demo database: Basic, S0-S12, P1-P15, or a vCore SKU such as GP_S_Gen5_2 (serverless), GP_Gen5_2, BC_Gen5_2 or HS_Gen5_2. Ignored when existing_sql is set."
   type        = string
   default     = "GP_S_Gen5_1"
+
+  validation {
+    condition     = can(regex("^(Basic|S([0-4]|6|7|9|12)|P(1|2|4|6|11|15)|(GP_S|GP|BC|HS)_Gen5_([1-9][0-9]*))$", var.sql_database_sku))
+    error_message = "sql_database_sku must be Basic, S0-S12, P1-P15, or a Gen5 vCore SKU such as GP_S_Gen5_1, GP_Gen5_2, BC_Gen5_2 or HS_Gen5_2."
+  }
 }
 
 variable "app_service_zone_redundant" {
   description = "Spread the App Service plan across availability zones. Needs P1v2 or newer and a zone-capable region; false for dev."
   type        = bool
   default     = false
+
+  validation {
+    condition     = !var.app_service_zone_redundant || startswith(var.app_service_sku, "P")
+    error_message = "app_service_zone_redundant needs a Premium app_service_sku (P1v2 or newer); Basic and Standard plans reject zone balancing."
+  }
 }
 
 variable "sql_max_size_gb" {
   description = "Maximum size of the demo database in GB. It must be valid for sql_database_sku: Basic and Standard SKUs do not accept 32."
   type        = number
   default     = 32
+
+  validation {
+    condition = (
+      var.sql_database_sku == "Basic" ? var.sql_max_size_gb > 0 && var.sql_max_size_gb <= 2 :
+      can(regex("^[SP][0-9]+$", var.sql_database_sku)) ? contains([1, 2, 5, 10, 20, 30, 40, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1024], var.sql_max_size_gb) :
+      var.sql_max_size_gb >= 1 && var.sql_max_size_gb <= 4096
+    )
+    error_message = "sql_max_size_gb must fit sql_database_sku: at most 2 for Basic; 1, 2, 5, 10, 20, 30, 40, 50, 100, 150, 200, 250, 300, 400, 500, 750 or 1024 for Standard and Premium; 1-4096 for vCore SKUs."
+  }
 }
 
 variable "sql_serverless_min_capacity" {
   description = "Minimum vCores of a serverless database (GP_S_* SKUs only). Must be above zero."
   type        = number
   default     = 0.5
+
+  validation {
+    condition     = var.sql_serverless_min_capacity > 0
+    error_message = "sql_serverless_min_capacity must be above zero."
+  }
 }
 
 variable "app_service_sku" {
-  description = "SKU of the Linux App Service plan shared by the portal and the ingestion Functions."
+  description = "SKU of the Linux App Service plan shared by the portal and both Functions apps: B1-B3, S1-S3, P1v2-P3v2, P0v3-P3v3, P1mv3-P5mv3, P0v4-P3v4 or P1mv4-P5mv4. Consumption (Y1) and Elastic Premium (EP*) plans cannot host the portal."
   type        = string
   default     = "B1"
+
+  validation {
+    condition     = can(regex("^(B[1-3]|S[1-3]|P[1-3]v2|P[0-3]v3|P[1-5]mv3|P[0-3]v4|P[1-5]mv4)$", var.app_service_sku))
+    error_message = "app_service_sku must be a Linux App Service plan SKU that can host a web app and Functions: B1-B3, S1-S3, P1v2-P3v2, P0v3-P3v3, P1mv3-P5mv3, P0v4-P3v4 or P1mv4-P5mv4."
+  }
+}
+
+variable "storage_replication_type" {
+  description = "Replication of the three storage accounts (raw archive and both Functions hosts): LRS, ZRS, GRS, GZRS, RAGRS or RAGZRS. ZRS keeps zone resilience; LRS is cheaper for dev."
+  type        = string
+  default     = "ZRS"
+
+  validation {
+    condition     = contains(["LRS", "ZRS", "GRS", "GZRS", "RAGRS", "RAGZRS"], var.storage_replication_type)
+    error_message = "storage_replication_type must be LRS, ZRS, GRS, GZRS, RAGRS or RAGZRS."
+  }
 }
 
 variable "existing_sql" {

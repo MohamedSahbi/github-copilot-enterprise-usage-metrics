@@ -44,7 +44,9 @@ Inputs worth knowing:
 | `directory_sync_enabled` | Optional, default `false`. Set `true` to enable the directory Function App and its SCM site once `github-directory-pat` is in Key Vault and the directory SQL user is mapped (#56). |
 | `metrics_sync_enabled` | Optional, default `false`. Set `true` to enable the metrics timer (`AzureWebJobs.metricsSync.Disabled = false`) once #64 and the #55/#56 gates have passed. |
 | `AUTH_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_GITHUB_SECRET` | Portal-only Key Vault references using the `auth-secret`, `auth-microsoft-entra-id-secret`, and `auth-github-secret` names in the existing `secret_names` output. Terraform never stores or creates the values. |
-| `app_service_sku` | Plan SKU shared by the portal and both Functions apps (default `B1`). |
+| `app_service_sku`, `app_service_zone_redundant` | Plan SKU shared by the portal and both Functions apps (default `B1`; B, S, Premium v2/v3/v4 and memory-optimized SKUs are accepted). Zone redundancy needs a Premium SKU. |
+| `sql_max_size_gb`, `sql_serverless_min_capacity` | Demo database size and serverless minimum vCores (defaults `32` and `0.5`). The size is checked against `sql_database_sku`. |
+| `storage_replication_type` | Replication of the three storage accounts (default `ZRS`; `LRS`, `GRS`, `GZRS`, `RAGRS` and `RAGZRS` are accepted). |
 | `network.integration_subnet_id`, `network.private_dns_zones` | Subnet for app VNet integration; private DNS zone IDs keyed `vault`, `blob`, `queue`, `table`, `sql`. |
 | `existing_monitoring` | Reference an existing Log Analytics workspace and Application Insights component instead of creating them (D-24). |
 | `log_retention_days` | Log Analytics retention when the workspace is created (default 30). |
