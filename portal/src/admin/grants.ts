@@ -1,8 +1,11 @@
 import sql from "mssql";
 import { enabledScopes, normalizeScopeValue, ROLE_SCOPES, validateGrantRequest } from "../../../shared/src/access";
-import type { AdminGrant, AdminGrantFormData } from "../../../shared/src/api";
+import type { AdminGrant, AdminGrantFormData, AdminPerson } from "../../../shared/src/api";
 import type { AccessSettings } from "../auth/settings";
 import { AdminError, type GrantInput } from "./input";
+
+// Directory people offered by the grant form picker; an object ID can still be typed for anyone beyond it.
+const PEOPLE_LIMIT = 5000;
 
 export interface AdminActor {
   principalId: string | null;
@@ -23,6 +26,10 @@ export async function grantFormData(executor: Executor, settings: AccessSettings
     },
     enabledScopes: enabledScopes(settings.directory),
     scopeValues: { department: values("department"), business_area: values("business_area") },
+    people: (await executor.request().query<AdminPerson>(`
+      SELECT TOP (${PEOPLE_LIMIT}) CONVERT(char(36), entra_object_id) AS entraObjectId, display_name AS displayName, email
+      FROM portal.dim_user WHERE state = 'active' AND entra_object_id IS NOT NULL
+      ORDER BY CASE WHEN display_name IS NULL THEN 1 ELSE 0 END, display_name, email`)).recordset,
   };
 }
 

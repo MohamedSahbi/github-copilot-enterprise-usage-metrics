@@ -9,7 +9,9 @@ export interface HealthRunObservation {
 }
 
 export type AdminReadSection = "principals" | "grants" | "audit" | "login-history" | "issues" | "hierarchy";
-export type HierarchyRow = Pick<DimUserRow, "user_id" | "entra_object_id" | "manager_entra_object_id" | "department" | "business_area" | "manager_resolved">;
+export type HierarchyRow = Pick<DimUserRow, "user_id" | "entra_object_id" | "display_name" | "email" | "manager_entra_object_id" |
+  "manager_email" | "department" | "business_area" | "manager_resolved"> & { manager_display_name: string | null };
+export type AdminAuditRow = AuditLogRow & { actor_display_name: string | null; actor_email: string | null };
 type Page = { page: number; pageSize: number };
 export async function readHealthRuns(pool: sql.ConnectionPool): Promise<HealthRunObservation[]> {
   return (await pool.request().query<HealthRunObservation>(`
@@ -17,6 +19,10 @@ export async function readHealthRuns(pool: sql.ConnectionPool): Promise<HealthRu
       MAX(CASE WHEN status = 'published' THEN completed_at END) AS last_success
     FROM portal.IngestionRun GROUP BY source_kind`)).recordset;
 }
+// Latest directory name and email for an Entra object ID, for recognition only (active rows first).
+const DIRECTORY_PERSON = (oid: string) => `SELECT TOP (1) display_name, email FROM portal.dim_user
+  WHERE entra_object_id = ${oid} ORDER BY CASE WHEN state = 'active' THEN 0 ELSE 1 END, user_id DESC`;
+
 function pageRequest(pool: sql.ConnectionPool, page: Page) {
   return pool.request().input("offset", sql.Int, (page.page - 1) * page.pageSize).input("size", sql.Int, page.pageSize);
 }
@@ -24,12 +30,16 @@ function pageRequest(pool: sql.ConnectionPool, page: Page) {
 export async function readPrincipals(pool: sql.ConnectionPool, page: Page, tenant: string) {
   const result = await pageRequest(pool, page).input("tenant", sql.UniqueIdentifier, tenant)
     .query<AdminPrincipalSummary & { total: number }>(`
-      SELECT principal_id AS principalId, status,
-        CAST(CASE WHEN entra_object_id IS NULL THEN 0 ELSE 1 END AS bit) AS hasEntraIdentity,
-        CAST(CASE WHEN github_user_id IS NULL THEN 0 ELSE 1 END AS bit) AS hasGithubIdentity,
-        permissions_verified_at AS permissionsVerifiedAt, COUNT(*) OVER() AS total
-      FROM portal.Principal WHERE entra_tenant_id = @tenant
-      ORDER BY principal_id OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`);
+      SELECT p.principal_id AS principalId, CONVERT(char(36), p.entra_object_id) AS entraObjectId,
+        u.display_name AS displayName, u.email, p.status,
+        CAST(CASE WHEN p.entra_object_id IS NULL THEN 0 ELSE 1 END AS bit) AS hasEntraIdentity,
+        CAST(CASE WHEN p.github_user_id IS NULL THEN 0 ELSE 1 END AS bit) AS hasGithubIdentity,
+        p.permissions_verified_at AS permissionsVerifiedAt, COUNT(*) OVER() AS total
+      FROM portal.Principal p
+      OUTER APPLY (${DIRECTORY_PERSON("p.entra_object_id")}) u
+      WHERE p.entra_tenant_id = @tenant
+      ORDER BY CASE WHEN u.display_name IS NULL THEN 1 ELSE 0 END, u.display_name, p.principal_id
+      OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`);
   return result.recordset;
 }
 
@@ -45,7 +55,7 @@ export async function readGrants(pool: sql.ConnectionPool, page: Page, principal
 }
 
 export async function readAudit(pool: sql.ConnectionPool, page: Page) {
-  return (await pageRequest(pool, page).query<AuditLogRow & { total: number }>(`
+  return (await pageRequest(pool, page).query<AdminAuditRow & { total: number }>(`
     WITH events AS (
       SELECT audit_id, occurred_at, actor_principal_id, actor_entra_oid, action,
         target_type, target_id, outcome, correlation_id, detail_json, 'portal' AS writer
@@ -54,9 +64,9 @@ export async function readAudit(pool: sql.ConnectionPool, page: Page) {
       SELECT event_id, occurred_at, NULL, NULL, action, target_type, target_id, outcome,
         correlation_id, NULL, 'ingestion' FROM portal.IngestionAuditEvent
     )
-    SELECT audit_id, occurred_at, actor_principal_id, actor_entra_oid, action,
-      target_type, target_id, outcome, correlation_id, detail_json, COUNT(*) OVER() AS total
-    FROM events ORDER BY occurred_at DESC, writer, audit_id DESC
+    SELECT audit_id, occurred_at, actor_principal_id, actor_entra_oid, a.display_name AS actor_display_name,
+      a.email AS actor_email, action, target_type, target_id, outcome, correlation_id, detail_json, COUNT(*) OVER() AS total
+    FROM events OUTER APPLY (${DIRECTORY_PERSON("events.actor_entra_oid")}) a ORDER BY occurred_at DESC, writer, audit_id DESC
     OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`)).recordset;
 }
 
@@ -70,10 +80,12 @@ export async function readLoginHistory(pool: sql.ConnectionPool, page: Page, use
 
 export async function readHierarchy(pool: sql.ConnectionPool, page: Page) {
   return (await pageRequest(pool, page).query<HierarchyRow & { total: number }>(`
-    SELECT user_id, entra_object_id, manager_entra_object_id, department, business_area,
-      manager_resolved, COUNT(*) OVER() AS total
-    FROM portal.dim_user WHERE state = 'active'
-    ORDER BY user_id OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`)).recordset;
+    SELECT u.user_id, u.entra_object_id, u.display_name, u.email, u.manager_entra_object_id,
+      COALESCE(m.display_name, u.manager_email) AS manager_display_name, u.manager_email,
+      u.department, u.business_area, u.manager_resolved, COUNT(*) OVER() AS total
+    FROM portal.dim_user u OUTER APPLY (${DIRECTORY_PERSON("u.manager_entra_object_id")}) m
+    WHERE u.state = 'active'
+    ORDER BY CASE WHEN u.display_name IS NULL THEN 1 ELSE 0 END, u.display_name, u.user_id OFFSET @offset ROWS FETCH NEXT @size ROWS ONLY`)).recordset;
 }
 
 export async function readIssues(pool: sql.ConnectionPool, page: Page): Promise<(InboxIssue & { total: number })[]> {

@@ -606,8 +606,17 @@ export type DeferredBudgetLookupResponse = ApiResponse<DeferredBudgetLookupUserD
 
 // ---- Admin ------------------------------------------------------------------------------------------------------
 
+// Display name and email come from the directory for recognition only; they are never permission keys.
+export interface AdminPerson {
+  entraObjectId: string;
+  displayName: string | null;
+  email: string | null;
+}
 export interface AdminPrincipalSummary {
   principalId: string;
+  entraObjectId: string | null;
+  displayName: string | null;
+  email: string | null;
   status: "active" | "disabled";
   hasEntraIdentity: boolean;
   hasGithubIdentity: boolean;
@@ -649,6 +658,7 @@ export interface AdminGrantFormData {
   roleScopes: Record<Role, Scope[]>;
   enabledScopes: Scope[];
   scopeValues: { department: string[]; business_area: string[] };
+  people: AdminPerson[];
 }
 export type AdminGrantFormResponse = ApiResponse<AdminGrantFormData>;
 

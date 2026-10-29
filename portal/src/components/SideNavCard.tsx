@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { NavList } from "@primer/react";
 import {
-  BriefcaseIcon, CodeIcon, CommentDiscussionIcon, CpuIcon, CreditCardIcon, DeviceDesktopIcon, GearIcon, GitCommitIcon,
+  BriefcaseIcon, CodeIcon, CpuIcon, CreditCardIcon, DeviceDesktopIcon, GearIcon, GitCommitIcon,
   GraphIcon, HistoryIcon, HomeIcon, IssueOpenedIcon, LogIcon, OrganizationIcon, PeopleIcon, PulseIcon, RocketIcon,
   ShieldLockIcon, StackIcon, TerminalIcon, VersionsIcon, type Icon,
 } from "@primer/octicons-react";
@@ -23,7 +23,6 @@ const ICONS = {
   "cli-adoption": TerminalIcon,
   "ai-adoption-phases": StackIcon,
   "budget-lookup": CreditCardIcon,
-  feedback: CommentDiscussionIcon,
   access: ShieldLockIcon,
   hierarchy: OrganizationIcon,
   audit: LogIcon,
