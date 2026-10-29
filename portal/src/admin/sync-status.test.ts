@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SyncRunObservation } from "./queries";
-import { STALLED_AFTER_MS, summarizeSync, syncWarnings } from "./sync-status";
+import { OVERDUE_AFTER_MS, STALLED_AFTER_MS, summarizeSync, syncWarnings } from "./sync-status";
 
 const now = Date.parse("2026-10-29T12:00:00Z");
 const run = (values: Partial<SyncRunObservation> = {}): SyncRunObservation => ({
@@ -48,6 +48,13 @@ describe("sync status", () => {
   it("ignores an old open run once a newer run started", () => {
     const superseded = run({ last_status: "published", last_started_open: false, last_started_at: new Date(now - 60000) });
     expect(summarizeSync(superseded, now).activity).toBe("idle");
+  });
+
+  it("warns when a sync that ran before has not started for over a day", () => {
+    const late = run({ last_status: "published", last_started_open: false, last_started_at: new Date(now - OVERDUE_AFTER_MS - 1000) });
+    const onTime = run({ last_status: "published", last_started_open: false, last_started_at: new Date(now - OVERDUE_AFTER_MS + 1000) });
+    expect(syncWarnings([late], now).map((sync) => sync.activity)).toEqual(["overdue"]);
+    expect(syncWarnings([onTime], now)).toEqual([]);
   });
 
   it("does not warn about a cancelled run", () => {
