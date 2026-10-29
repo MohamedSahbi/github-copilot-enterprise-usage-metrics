@@ -180,7 +180,7 @@ describe("GitHub App daily report acquisition", () => {
     expect(h.fetcher.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
   });
 
-  it("downloads from GitHub's copilot-reports host without credentials", async () => {
+  it("downloads from GitHub subdomains such as copilot-reports.github.com without credentials", async () => {
     const reportLink = "https://copilot-reports.github.com/reports/part?sig=SECRET_MARKER";
     const h = harness([...auth(), json({ ...manifest, download_links: [reportLink] }), new Response("{\"day\":1}\n")]);
     await expect(h.provider.acquire("fixture-org", day)).resolves.toMatchObject({ organizationId: 123 });
@@ -190,8 +190,8 @@ describe("GitHub App daily report acquisition", () => {
   });
 
   it.each(["http://reports.blob.core.windows.net/a", "https://localhost/a", "https://reports.blob.core.windows.net.evil.invalid/a",
-    "https://user:password@reports.blob.core.windows.net/a", "https://evil-copilot-reports.github.com/a",
-    "https://copilot-reports.github.com.evil.invalid/a", "https://api.github.com/a"])("rejects unsafe signed links: %s", async (url) => {
+    "https://user:password@reports.blob.core.windows.net/a", "https://github.com/a", "https://evilgithub.com/a",
+    "https://copilot-reports.github.com.evil.invalid/a", "http://copilot-reports.github.com/a"])("rejects unsafe signed links: %s", async (url) => {
     const h = harness([...auth(), json({ ...manifest, download_links: [url] })]);
     await expect(h.provider.acquire("fixture-org", day)).rejects.toMatchObject({ code: "invalid_response" });
     expect(h.fetcher).toHaveBeenCalledTimes(3);

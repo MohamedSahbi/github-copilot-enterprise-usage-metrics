@@ -14,7 +14,7 @@ before the existing `loadMetricsDay` receives bytes. This path does not replace
 the parser, archive, validation, quarantine, transaction, or per-day lock.
 The response fixture is synthetic, based on that documented wire shape; it is
 not evidence of a successful authenticated request or an owner report capture.
-Downloads accept HTTPS `copilot-reports.github.com` (the host GitHub returns today), Azure Blob or GitHubusercontent subdomains only, without
+Downloads accept HTTPS `*.github.com` (GitHub returns `copilot-reports.github.com` today), Azure Blob or GitHubusercontent subdomains only, without
 credentials, redirects, or API authorization headers. Other hosts fail visibly
 rather than receiving a token. Each request has at most three attempts with
 250/500 ms backoff and a 30-second deadline including the body. Parts are capped
