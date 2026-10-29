@@ -118,51 +118,69 @@ export function createDirectorySqlWriter(
       if (hasIdentityConflict) throw new DirectoryWriteError("directory_write_failed");
 
       // Negative evidence survives publication rollback; success still publishes atomically.
-      await transact(async (transaction) => {
-        await transaction.request()
-          .input("runId", sql.UniqueIdentifier, run.run_id)
-          .input("sources", sql.NVarChar(sql.MAX), JSON.stringify(sync.map(({ source }) => source)))
-          .input("lastAttempt", sql.DateTime2, run.completed_at)
-          .query(`
-            DECLARE @owner UNIQUEIDENTIFIER = (
-              SELECT TOP (1) run_id FROM portal.IngestionRun WITH (UPDLOCK, HOLDLOCK)
-              WHERE source_kind = 'directory' ORDER BY started_at DESC, run_id DESC);
-            IF @owner IS NULL OR @owner <> @runId
-              OR NOT EXISTS (SELECT 1 FROM portal.IngestionRun WHERE run_id = @runId AND status IN ('started', 'failed'))
-              OR EXISTS (
-                SELECT 1 FROM OPENJSON(@sources) WITH (source VARCHAR(16) '$') AS required
-                LEFT JOIN portal.DirectorySyncState AS state WITH (UPDLOCK, HOLDLOCK)
-                  ON state.source = required.source AND state.last_attempt_at = CONVERT(datetime2(0), @lastAttempt)
-                WHERE state.source IS NULL)
-              THROW 51000, 'DIRECTORY_STALE_SNAPSHOT', 1`);
-        const previousStates = await readPreviousStates(transaction, users);
-        await writeDirectoryUsers(transaction, users);
-        if (run.status === "published" && options.entraTenantId) {
-          await applyDirectoryRevocations(transaction, {
-            candidates: revocationCandidates(users, previousStates),
-            tenantId: options.entraTenantId, runId: run.run_id, correlationId: run.correlation_id,
-          });
-        }
-        for (const state of sync) {
+      try {
+        await transact(async (transaction) => {
           await transaction.request()
-            .input("source", sql.VarChar(16), state.source)
-            .input("lastSuccess", sql.DateTime2, state.last_success_at)
-            .input("errorCode", sql.VarChar(64), state.last_error_code)
+            .input("runId", sql.UniqueIdentifier, run.run_id)
+            .input("sources", sql.NVarChar(sql.MAX), JSON.stringify(sync.map(({ source }) => source)))
+            .input("lastAttempt", sql.DateTime2, run.completed_at)
             .query(`
-              UPDATE portal.DirectorySyncState
-              SET last_success_at = COALESCE(@lastSuccess, last_success_at), last_error_code = @errorCode
-              WHERE source = @source`);
-        }
-        await transaction.request()
-          .input("runId", sql.UniqueIdentifier, run.run_id)
-          .input("status", sql.VarChar(16), run.status)
-          .input("rowsLoaded", sql.Int, run.rows_loaded)
-          .input("errorCode", sql.VarChar(64), run.error_code)
-          .input("completedAt", sql.DateTime2, run.completed_at)
-          .query(`
-            UPDATE portal.IngestionRun SET status = @status, rows_loaded = @rowsLoaded,
-              error_code = @errorCode, completed_at = @completedAt WHERE run_id = @runId`);
-      });
+              DECLARE @owner UNIQUEIDENTIFIER = (
+                SELECT TOP (1) run_id FROM portal.IngestionRun WITH (UPDLOCK, HOLDLOCK)
+                WHERE source_kind = 'directory' ORDER BY started_at DESC, run_id DESC);
+              IF @owner IS NULL OR @owner <> @runId
+                OR NOT EXISTS (SELECT 1 FROM portal.IngestionRun WHERE run_id = @runId AND status IN ('started', 'failed'))
+                OR EXISTS (
+                  SELECT 1 FROM OPENJSON(@sources) WITH (source VARCHAR(16) '$') AS required
+                  LEFT JOIN portal.DirectorySyncState AS state WITH (UPDLOCK, HOLDLOCK)
+                    ON state.source = required.source AND state.last_attempt_at = CONVERT(datetime2(0), @lastAttempt)
+                  WHERE state.source IS NULL)
+                THROW 51000, 'DIRECTORY_STALE_SNAPSHOT', 1`);
+          const previousStates = await readPreviousStates(transaction, users);
+          await writeDirectoryUsers(transaction, users);
+          if (run.status === "published" && options.entraTenantId) {
+            await applyDirectoryRevocations(transaction, {
+              candidates: revocationCandidates(users, previousStates),
+              tenantId: options.entraTenantId, runId: run.run_id, correlationId: run.correlation_id,
+            });
+          }
+          for (const state of sync) {
+            await transaction.request()
+              .input("source", sql.VarChar(16), state.source)
+              .input("lastSuccess", sql.DateTime2, state.last_success_at)
+              .input("errorCode", sql.VarChar(64), state.last_error_code)
+              .query(`
+                UPDATE portal.DirectorySyncState
+                SET last_success_at = COALESCE(@lastSuccess, last_success_at), last_error_code = @errorCode
+                WHERE source = @source`);
+          }
+          await transaction.request()
+            .input("runId", sql.UniqueIdentifier, run.run_id)
+            .input("status", sql.VarChar(16), run.status)
+            .input("rowsLoaded", sql.Int, run.rows_loaded)
+            .input("errorCode", sql.VarChar(64), run.error_code)
+            .input("completedAt", sql.DateTime2, run.completed_at)
+            .query(`
+              UPDATE portal.IngestionRun SET status = @status, rows_loaded = @rowsLoaded,
+                error_code = @errorCode, completed_at = @completedAt WHERE run_id = @runId`);
+        });
+      } catch (error) {
+        // A run reserved as 'started' would otherwise stay 'started' forever, with no source error recorded.
+        await transact(async (transaction) => {
+          await transaction.request()
+            .input("runId", sql.UniqueIdentifier, run.run_id)
+            .input("completedAt", sql.DateTime2, run.completed_at)
+            .input("sources", sql.NVarChar(sql.MAX), JSON.stringify(sync.map(({ source }) => source)))
+            .query(`
+              UPDATE portal.IngestionRun SET status = 'failed', error_code = 'directory_write_failed',
+                completed_at = @completedAt
+              WHERE run_id = @runId AND status = 'started';
+              UPDATE portal.DirectorySyncState SET last_error_code = 'directory_write_failed'
+              WHERE source IN (SELECT source FROM OPENJSON(@sources) WITH (source VARCHAR(16) '$'))
+                AND last_attempt_at = CONVERT(datetime2(0), @completedAt) AND last_error_code IS NULL`);
+        }).catch(() => undefined);
+        throw error;
+      }
     },
   };
 }
