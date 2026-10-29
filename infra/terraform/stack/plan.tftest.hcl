@@ -22,6 +22,11 @@ run "demo_example" {
     error_message = "No vault-wide operator access may be granted by default."
   }
 
+  assert {
+    condition     = local.log_analytics_public_access_enabled == "true"
+    error_message = "Without private endpoints the workspace must accept public ingestion and queries, or no telemetry arrives."
+  }
+
   override_resource {
     target          = azurerm_resource_group.this[0]
     override_during = plan
@@ -363,6 +368,7 @@ run "private_endpoint_keeps_public_key_vault_access_disabled" {
       !local.key_vault_public_network_access_enabled,
       !local.portal_public_network_access_enabled,
       !local.function_app_public_network_access_enabled,
+      local.log_analytics_public_access_enabled == "false",
       local.key_vault_network_acls == {
         bypass                     = "None"
         default_action             = "Deny"
