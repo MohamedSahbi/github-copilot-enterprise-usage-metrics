@@ -25,7 +25,7 @@ export interface ApiPortalDataQuery {
   request: UsagePeriodRequest;
 }
 
-function grantsForSelection(
+export function grantsForSelection(
   access: AuthorizedUsageAccess,
   selection: PortalScopeSelection,
 ): AuthorizedUsageAccess | null {

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { NavList } from "@primer/react";
 import {
-  CommentDiscussionIcon, CreditCardIcon, GearIcon, GitCommitIcon, GraphIcon, HistoryIcon, HomeIcon, IssueOpenedIcon, LogIcon,
-  OrganizationIcon, PulseIcon, ShieldLockIcon, type Icon,
+  BriefcaseIcon, CodeIcon, CommentDiscussionIcon, CpuIcon, CreditCardIcon, DeviceDesktopIcon, GearIcon, GitCommitIcon,
+  GraphIcon, HistoryIcon, HomeIcon, IssueOpenedIcon, LogIcon, OrganizationIcon, PeopleIcon, PulseIcon, RocketIcon,
+  ShieldLockIcon, StackIcon, TerminalIcon, VersionsIcon, type Icon,
 } from "@primer/octicons-react";
 
 // Icons are looked up by name because components cannot cross the server/client boundary as props.
@@ -12,6 +13,15 @@ const ICONS = {
   administration: GearIcon,
   overview: HomeIcon,
   "copilot-impact": GraphIcon,
+  "executive-summary": BriefcaseIcon,
+  users: PeopleIcon,
+  languages: CodeIcon,
+  clients: DeviceDesktopIcon,
+  "client-versions": VersionsIcon,
+  "copilot-adoption": RocketIcon,
+  "model-usage": CpuIcon,
+  "cli-adoption": TerminalIcon,
+  "ai-adoption-phases": StackIcon,
   "budget-lookup": CreditCardIcon,
   feedback: CommentDiscussionIcon,
   access: ShieldLockIcon,

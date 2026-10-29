@@ -32,9 +32,10 @@ variable "name_prefix" {
 variable "modules" {
   description = "Optional module flags (D-1). Enabling a module needs only a secret and a permission; schema never changes."
   type = object({
-    ai_credits    = optional(bool, false)
-    budget_lookup = optional(bool, false)
-    feedback      = optional(bool, false)
+    ai_credits     = optional(bool, false)
+    budget_lookup  = optional(bool, false)
+    feedback       = optional(bool, false)
+    upstream_views = optional(bool, false)
   })
   default = {}
 }

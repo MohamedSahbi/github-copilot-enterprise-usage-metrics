@@ -12,6 +12,7 @@ The portal reads only the new portal database. Configure the following app setti
 | `ENTRA_TENANT_ID` | Allowed tenant; sign-in requires this tenant and an immutable Entra object ID |
 | `AUTH_GITHUB_ID` | Separate sign-in OAuth app client ID |
 | `AUTH_GITHUB_SECRET` | Sign-in OAuth app secret, Key Vault reference; not an ingestion or directory credential |
+| `MODULE_UPSTREAM_VIEWS` | `false` by default (Safe Alpha: Overview and Copilot Impact tables). `true` renders every upstream view from the curated SQL facts for the selected scope over the last 28 days. A scope with fewer users than the minimum group size shows no metrics unless it is the viewer's own data or `PER_USER_DETAIL_ENABLED=true`; without per-user detail, logins are replaced by placeholders and Users/User Details stay hidden |
 | `MODULE_BUDGET_LOOKUP` | Optional Budget Lookup visibility flag; `false` by default, never grants data access |
 | `BUDGET_LOOKUP_KEY` | Separate owner-provided classic PAT with `manage_billing:enterprise`; Key Vault reference wired only when Budget Lookup is enabled |
 | `ENTERPRISE_SLUG` | Configured enterprise whose live individual/default-per-user AI-credit budgets are read |

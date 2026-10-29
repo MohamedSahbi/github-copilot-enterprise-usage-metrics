@@ -43,6 +43,7 @@ export default defineConfig({
           ACCESS_REQUEST_URL: "https://example.invalid/request-access",
           ACCESS_CONTACT: "Portal support",
           PER_USER_DETAIL_ENABLED: process.env.E2E_PER_USER_DETAIL_ENABLED === "1" ? "true" : "false",
+          MODULE_UPSTREAM_VIEWS: process.env.E2E_UPSTREAM_VIEWS === "1" ? "true" : "false",
         },
       },
 });

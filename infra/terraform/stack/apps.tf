@@ -51,6 +51,7 @@ locals {
     MODULE_AI_CREDITS                 = tostring(var.modules.ai_credits)
     MODULE_BUDGET_LOOKUP              = tostring(var.modules.budget_lookup)
     MODULE_FEEDBACK                   = tostring(var.modules.feedback)
+    MODULE_UPSTREAM_VIEWS             = tostring(var.modules.upstream_views)
     SQL_SERVER                        = local.sql_server_fqdn
     SQL_DATABASE                      = local.sql_database_name
     KEY_VAULT_URI                     = module.key_vault.uri
