@@ -20,7 +20,7 @@ const command: DirectoryCommit = {
 };
 
 type Failure = "reservation" | "invalidation" | "ownership" | "user" | "state" | "run" | "commit";
-function setup(failOn: Failure | null = null, failPhase = 0, lockResult = 0, conflicts: number[] = []) {
+function setup(failOn: Failure | null = null, failPhase = 0, lockResult = 0, conflicts: number[] = [], tenant?: string) {
   function phase(index: number) {
     const transaction = new sql.Transaction();
     const statements: string[] = [];
@@ -54,10 +54,29 @@ function setup(failOn: Failure | null = null, failPhase = 0, lockResult = 0, con
   const phases = [phase(0), phase(1)];
   let nextPhase = 0;
   const createTransaction = vi.fn(() => phases[nextPhase++]!.transaction);
-  return { phases, createTransaction, writer: createDirectorySqlWriter(createTransaction) };
+  return { phases, createTransaction, writer: createDirectorySqlWriter(createTransaction, { entraTenantId: tenant }) };
 }
 
 describe("directory SQL evidence and publication transactions", () => {
+  it("applies soft revocation only for a published run with a configured tenant", async () => {
+    const tenant = "00000000-0000-4000-8000-000000000009";
+    const suspended = DirectoryUserSchema.parse({ ...command.users[0]!.user, entra_account_enabled: false, state: "suspended" });
+    const published = {
+      ...command,
+      users: [{ ...command.users[0]!, user: suspended }],
+      run: { ...command.run, status: "published" as const, error_code: null },
+    };
+    const withTenant = setup(null, 0, 0, [], tenant);
+    await withTenant.writer.commit(published);
+    expect(withTenant.phases[1]!.statements.join("\n")).toContain("INSERT INTO portal.GrantRevocation");
+    const withoutTenant = setup();
+    await withoutTenant.writer.commit(published);
+    expect(withoutTenant.phases[1]!.statements.join("\n")).not.toContain("GrantRevocation");
+    const failed = setup(null, 0, 0, [], tenant);
+    await failed.writer.commit({ ...command, users: published.users });
+    expect(failed.phases[1]!.statements.join("\n")).not.toContain("GrantRevocation");
+  });
+
   it("commits negatives first, then atomically publishes profiles/run/success under the same lock", async () => {
     const fake = setup();
     await fake.writer.commit(command);
