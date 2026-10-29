@@ -122,6 +122,8 @@ expect_invalid access_request_url "https://example.com/request access" "access_r
 expect_invalid directory_department_attribute "not a path" "directory_department_attribute must be empty or an Entra attribute path."
 expect_invalid directory_business_area_attribute "not a path" "directory_business_area_attribute must be empty or an Entra attribute path."
 expect_invalid stale_data_threshold_hours 1.5 "stale_data_threshold_hours must be a positive whole number."
+expect_invalid min_group_size 1 "min_group_size must be a whole number of at least 2."
+expect_invalid min_group_size 4.5 "min_group_size must be a whole number of at least 2."
 expect_invalid directory_sync_schedule "0 0 2 * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
 expect_invalid directory_sync_schedule "0 0 2 * * monday" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."
 expect_invalid directory_sync_schedule "0 0 ? * * *" "directory_sync_schedule must be a six-field UTC NCRONTAB expression."

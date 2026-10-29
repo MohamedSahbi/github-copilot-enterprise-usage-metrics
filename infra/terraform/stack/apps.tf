@@ -48,6 +48,7 @@ locals {
     DIRECTORY_DEPARTMENT_ATTRIBUTE    = var.directory_department_attribute
     DIRECTORY_BUSINESS_AREA_ATTRIBUTE = var.directory_business_area_attribute
     STALE_DATA_THRESHOLD_HOURS        = tostring(var.stale_data_threshold_hours)
+    MIN_GROUP_SIZE                    = tostring(var.min_group_size)
     MODULE_AI_CREDITS                 = tostring(var.modules.ai_credits)
     MODULE_BUDGET_LOOKUP              = tostring(var.modules.budget_lookup)
     MODULE_FEEDBACK                   = tostring(var.modules.feedback)

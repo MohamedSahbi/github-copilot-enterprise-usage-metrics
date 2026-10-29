@@ -3,6 +3,7 @@
 
 import type { GrantErrorCode } from "./access";
 import type { IsoDate, Role, Scope } from "./rows";
+import { MIN_GROUP_SIZE_FLOOR } from "./settings";
 
 export const MAX_DATE_RANGE_DAYS = 400;
 export const MAX_PAGE_SIZE = 100;
@@ -142,7 +143,7 @@ export function normalizePage(req: PageRequest): { page: number; pageSize: numbe
 }
 
 export function suppress<T>(userCount: number, minGroupSize: number, value: T, namesVisible: boolean): Suppressible<T> {
-  const floor = Number.isFinite(minGroupSize) ? Math.max(minGroupSize, DEFAULT_MIN_GROUP_SIZE) : DEFAULT_MIN_GROUP_SIZE;
+  const floor = Number.isFinite(minGroupSize) ? Math.max(minGroupSize, MIN_GROUP_SIZE_FLOOR) : DEFAULT_MIN_GROUP_SIZE;
   const small = !Number.isFinite(userCount) || userCount < 0 || userCount < floor;
   if (!namesVisible && small) return { suppressed: true, userCount: null, value: null };
   return { suppressed: false, userCount, value };

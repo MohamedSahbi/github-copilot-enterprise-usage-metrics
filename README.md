@@ -51,7 +51,7 @@ The alpha is a restricted private release. It ships:
 
 - **Two dashboards.** Overview and Copilot Impact, rendered on the server as daily aggregate tables for
   the scopes the viewer holds (company, reports, self, or an exact department or business area).
-  Groups under 5 users are suppressed. The usage JSON APIs and user-detail routes return 404. See the
+  Groups under the minimum group size (5 by default) are suppressed. The usage JSON APIs and user-detail routes return 404. See the
   [Safe Alpha runbook](docs/runbooks/safe-alpha.md) for the exact boundary.
 - **Access.** Entra and GitHub sign-in, direct grants only (navigation and feature flags never grant
   access), admin access and audit pages, and soft revocation when Entra disables an account.
@@ -83,9 +83,13 @@ directory SQL user is mapped (#56).
 
 **`modules.upstream_views`** (default `false`). Shows every dashboard from the upstream viewer:
 Executive Summary, Languages, Clients, Client Versions, Copilot Adoption, Model Usage, CLI Adoption and
-AI Adoption Phases, on top of Overview and Copilot Impact. It uses whole-scope suppression: a scope with
-5 or more users shows every chart, including breakdowns of smaller sub-groups. That is looser than the
-Safe Alpha rule, so it stays off until the owner accepts it (#115, #143).
+AI Adoption Phases, on top of Overview and Copilot Impact. It hides each group below `min_group_size`:
+every day, IDE, version, feature, language, model, usage type and adoption phase with too few users is
+left out, and a scope that ends up below the minimum shows nothing. The viewer's own data and
+`per_user_detail_enabled` are exempt.
+
+**`min_group_size`** (default `5`, at least `2`). The fewest distinct users a group needs before any
+dashboard shows it. Raise it for stricter privacy or lower it for small organizations.
 
 **`per_user_detail_enabled`** (default `false`). Lets the portal show GitHub logins and the Users and
 User Details pages. While off, every response is aggregate-only, and logins are replaced by

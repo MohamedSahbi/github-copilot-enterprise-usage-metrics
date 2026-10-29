@@ -16,9 +16,10 @@ const self: PortalScopeSelection = { kind: "self", value: "self", label: "Me", u
 
 describe("prepareUpstreamRecords", () => {
   it("suppresses a scope below the minimum group size", () => {
+    // The single four-user day is itself a small group, so nothing is left to count.
     expect(prepareUpstreamRecords(records(4), { selection: team, perUserDetailEnabled: false })).toEqual({
       state: "suppressed",
-      userCount: 4,
+      userCount: 0,
     });
   });
 
@@ -38,5 +39,21 @@ describe("prepareUpstreamRecords", () => {
     expect(prepared.state).toBe("ready");
     if (prepared.state !== "ready") return;
     expect(prepared.records.map(({ user_login }) => user_login)).toEqual(["real-login-0", "real-login-1"]);
+  });
+
+  it("hides small groups inside a releasable scope instead of the whole scope", () => {
+    const withFeatures = records(6).map((record, index) => ({
+      ...record,
+      totals_by_feature: [
+        { feature: "code_completion" },
+        ...(index === 0 ? [{ feature: "copilot_cli" }] : []),
+      ],
+    }) as CopilotMetrics);
+    const prepared = prepareUpstreamRecords(withFeatures, { selection: team, perUserDetailEnabled: false });
+    expect(prepared.state).toBe("ready");
+    if (prepared.state !== "ready") return;
+    expect(prepared.userCount).toBe(6);
+    expect(JSON.stringify(prepared.records)).not.toContain("copilot_cli");
+    expect(prepared.records.every(({ totals_by_feature }) => totals_by_feature[0]?.feature === "code_completion")).toBe(true);
   });
 });

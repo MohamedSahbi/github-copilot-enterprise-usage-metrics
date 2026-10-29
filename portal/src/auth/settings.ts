@@ -2,6 +2,20 @@ import { validateSettings } from "../../../shared/src/settings";
 
 type Env = Record<string, string | undefined>;
 
+/** Minimum distinct users a reported group needs (MIN_GROUP_SIZE); 5 when unset, never below 2. */
+export function readMinGroupSize(env: Env = process.env): number {
+  const raw = env.MIN_GROUP_SIZE;
+  if (raw === undefined) return validateOrThrow(undefined);
+  if (raw.trim() === "") throw new Error("MIN_GROUP_SIZE must be a whole number of at least 2");
+  return validateOrThrow(Number(raw));
+}
+
+function validateOrThrow(minGroupSize: number | undefined): number {
+  const validated = validateSettings({ privacy: { minGroupSize } });
+  if (!validated.ok) throw new Error("MIN_GROUP_SIZE must be a whole number of at least 2");
+  return validated.settings.privacy.minGroupSize;
+}
+
 export function readAccessSettings(env: Env = process.env) {
   const freshness = env.ACCESS_PERMISSION_FRESHNESS_MINUTES === undefined ? 5 : Number(env.ACCESS_PERMISSION_FRESHNESS_MINUTES);
   if (!Number.isInteger(freshness) || env.ACCESS_PERMISSION_FRESHNESS_MINUTES === "") {

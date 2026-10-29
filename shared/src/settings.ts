@@ -14,7 +14,9 @@ export interface DeploymentSettings {
   directory: { departmentAttribute: string; businessAreaAttribute: string; emptyAttributeThresholdPercent: number };
 }
 
-export const MIN_GROUP_SIZE_FLOOR = 5;
+// Deployments may lower the minimum group size to 2 or raise it; 1 would hide nothing.
+export const MIN_GROUP_SIZE_FLOOR = 2;
+export const DEFAULT_PRIVACY_MIN_GROUP_SIZE = 5;
 export const MIN_PERMISSION_FRESHNESS_MINUTES = 1;
 export const MAX_PERMISSION_FRESHNESS_MINUTES = 60;
 export const MAX_PER_USER_MONTHS = 36;
@@ -23,7 +25,7 @@ export const MAX_LOGIN_HISTORY_MONTHS = 60;
 export const DEFAULT_SETTINGS: DeploymentSettings = {
   organization: { directory_provider: "entra" },
   retention: { perUserMonths: 13, loginHistoryMonths: 24 },
-  privacy: { minGroupSize: MIN_GROUP_SIZE_FLOOR },
+  privacy: { minGroupSize: DEFAULT_PRIVACY_MIN_GROUP_SIZE },
   access: { breakGlassGroupId: "", permissionFreshnessMinutes: 5 },
   directory: { departmentAttribute: "", businessAreaAttribute: "", emptyAttributeThresholdPercent: 20 },
 };

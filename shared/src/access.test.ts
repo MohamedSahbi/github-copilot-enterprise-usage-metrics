@@ -90,9 +90,11 @@ describe("validateGrantRequest (items 1, 2, 7)", () => {
 });
 
 describe("minimum group size applies to every scope (item 11)", () => {
-  it.each(SCOPES)("suppresses a %s group below 5 users, even with a lowered setting", (scope) => {
-    expect(suppressForScope(scope, 4, 1, { n: 1 }, false)).toEqual({ suppressed: true, userCount: null, value: null });
-    expect(suppressForScope(scope, 5, 1, { n: 1 }, false).suppressed).toBe(false);
+  it.each(SCOPES)("suppresses a %s group below the configured size and never below 2 users", (scope) => {
+    expect(suppressForScope(scope, 4, 5, { n: 1 }, false)).toEqual({ suppressed: true, userCount: null, value: null });
+    expect(suppressForScope(scope, 3, 3, { n: 1 }, false).suppressed).toBe(false);
+    expect(suppressForScope(scope, 1, 1, { n: 1 }, false).suppressed).toBe(true);
+    expect(suppressForScope(scope, 2, 1, { n: 1 }, false).suppressed).toBe(false);
   });
 
   it("shows a business area with fewer than 5 users as suppressed", () => {

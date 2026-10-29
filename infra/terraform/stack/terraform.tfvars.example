@@ -87,6 +87,9 @@ access_contact     = ""
 # ---------------------------------------------------------------------------
 # false keeps every response aggregate-only: no logins, no Users or User Details views.
 per_user_detail_enabled = false
+# Minimum distinct users a day, feature, language, model, IDE or other group needs before any view shows it.
+# Default 5; any whole number of at least 2.
+min_group_size = 5
 
 # Optional modules. Toggling one never changes the SQL schema; each needs at most a secret and a permission.
 modules = {

@@ -26,7 +26,7 @@ test.describe("Upstream views from curated SQL", () => {
       const response = await page.goto(route.path);
       expect(response?.status(), route.path).toBe(200);
       await expect(nav.getByRole("link", { name: route.title, exact: true })).toBeVisible();
-      await expect(page.getByText("Data unavailable")).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Data unavailable", exact: true })).toHaveCount(0);
       await expect(page.getByText(/too few users/i)).toHaveCount(0);
       await page.screenshot({ path: `test-results/screenshots/upstream-${route.title.toLowerCase().replaceAll(" ", "-")}.png`, fullPage: true });
     }
@@ -40,7 +40,7 @@ test.describe("Upstream views from curated SQL", () => {
     const response = await page.goto("/languages");
     expect(response?.status()).toBe(200);
     await expect(page.getByLabel("Scope")).toHaveValue("self:self");
-    await expect(page.getByText("Data unavailable")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Data unavailable", exact: true })).toHaveCount(0);
   });
 
   test("Users stays hidden without per-user detail", async ({ page, signInAs }) => {

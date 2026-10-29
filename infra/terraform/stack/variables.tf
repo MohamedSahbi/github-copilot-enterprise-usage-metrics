@@ -297,6 +297,17 @@ variable "stale_data_threshold_hours" {
   }
 }
 
+variable "min_group_size" {
+  description = "Minimum distinct users a reported group needs before the portal shows it; smaller groups are hidden."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.min_group_size >= 2 && floor(var.min_group_size) == var.min_group_size
+    error_message = "min_group_size must be a whole number of at least 2."
+  }
+}
+
 variable "per_user_detail_enabled" {
   description = "Whether the portal may return per-user detail; false keeps responses aggregate-only."
   type        = bool
