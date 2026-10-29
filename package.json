@@ -19,6 +19,7 @@
     "build": "npm run build --workspaces --if-present",
     "test:e2e": "playwright test",
     "db:migrate": "tsx scripts/db/migrate-cli.ts",
+    "db:runtime-users": "tsx scripts/db/runtime-users-cli.ts",
     "access:bootstrap": "tsx scripts/access/bootstrap.ts",
     "data:remove-runs": "tsx scripts/data/remove-runs.ts",
     "import:legacy-metrics": "tsx scripts/import/legacy-metrics.ts",

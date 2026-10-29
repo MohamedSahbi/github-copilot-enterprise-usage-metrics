@@ -12,7 +12,8 @@ export const LOCK_RESOURCE = "portal-migrations";
 export const DEFAULT_MIGRATIONS_DIR = join(__dirname, "..", "..", "db", "migrations");
 
 export interface MigrateOptions {
-  connectionString: string;
+  /** A connection string, or full connection settings such as an Entra access token (scripts/db/connection.ts). */
+  connectionString: string | sql.config;
   dir?: string;
   lockTimeoutMs?: number;
   log?: (message: string) => void;
@@ -55,7 +56,9 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
   for (const f of names) parseMigrationName(f);
 
   const config: sql.config = {
-    ...sql.ConnectionPool.parseConnectionString(options.connectionString),
+    ...(typeof options.connectionString === "string"
+      ? sql.ConnectionPool.parseConnectionString(options.connectionString)
+      : options.connectionString),
     pool: { min: 1, max: 1 },
     requestTimeout: 600_000,
   };

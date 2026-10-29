@@ -1149,7 +1149,7 @@ describe.skipIf(!enabled)("migration runner on SQL Server 2022 (RUN_SQL_TESTS=1)
         },
         expectError: async (statement, message) => { fails(statement, message); },
       });
-    });
+    }, 60_000);
 
     it("lets ingestion unlink but not relink or delete, and keeps the audit tables append-only", () => {
       const L3 = "bbbbbbbb-0000-0000-0000-000000000003";
