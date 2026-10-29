@@ -120,6 +120,22 @@ expanded users request works app-only. The dedicated Function App and managed
 identity remain the approved target; this verification gate does not authorize
 a different authentication model, code change, or deployment.
 
+### Re-check on 2026-10-29
+
+- **Graph profile read.** The sync reads each user with `GET /users/{id}?$select=...`. The
+  [Get user](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0) reference lists
+  `User.Read.All` as the least-privileged application permission. Reading `accountEnabled` needs no extra
+  permission; only writing it does.
+- **Graph manager read.** The sync calls `GET /users/{id}/manager?$select=id,mail,userPrincipalName`
+  app-only. The "List manager" table still says `Application: Not supported.`, so this call stays
+  unverified until it is tried once in the tenant after `User.Read.All` consent. If the tenant refuses
+  it, each user is recorded with `manager_read_failed`: the run still publishes profiles, manager links
+  are left as they were, and nothing is revoked because of it.
+- **GitHub SCIM read.** [List SCIM provisioned identities for an enterprise](https://docs.github.com/en/enterprise-cloud@latest/rest/enterprise-admin/scim)
+  works only for Enterprise Managed Users. An enterprise owner can read it with a classic PAT that has
+  `admin:enterprise`; GitHub recommends the setup user. The same PAT also lists Copilot seats
+  (`GET /orgs/{org}/copilot/billing/seats`), which is what `read:org` is for.
+
 Issue #67 remains open. Reverse traversal through `directReports` is an
 unapproved candidate, not an approved replacement algorithm. Incomplete
 coverage must never be interpreted as absence or trigger revocation.
