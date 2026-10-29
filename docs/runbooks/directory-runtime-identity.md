@@ -146,32 +146,7 @@ The managed identity is the simpler choice: there is no secret to store,
 rotate or leak. Use an app registration when your tenant only grants Graph
 permissions to app registrations.
 
-Setting `directory_graph_client_id` makes the directory sync call Microsoft
-Graph as that app registration, with its client secret read from Key Vault as
-`directory-graph-client-secret`. SQL, storage and Key Vault stay on the
-directory managed identity. The sync only reads `/users/{id}` and
-`/users/{id}/manager`, so the target app needs `User.Read.All` and nothing
-more.
-
-A temporary shortcut, used by the alpha dev environment, is to point it at an
-existing shared app registration that already has Graph consent, such as the
-portal's sign-in app or a shared automation app. Know what that brings:
-
-- The sync inherits every application role on that app, not only
-  `User.Read.All`. The shared app used in alpha dev also holds
-  `Directory.Read.All` (all groups, devices, apps, roles and policies) and
-  `Group.Create` (a write permission).
-- Every other client secret on that app, owned by other teams or systems,
-  grants the same access. Each of those secrets is outside this deployment's
-  control and rotation.
-- Rotating or revoking a secret the portal shares breaks sign-in and the sync
-  together.
-
-Accept this for dev only. Before test or prod, replace it with a dedicated app
-registration that has only `User.Read.All`, one client secret stored as
-`directory-graph-client-secret`, and no other users; or grant `User.Read.All`
-to the directory managed identity and leave `directory_graph_client_id` unset.
-Record which app each environment uses in the private deployment record.
+SQL, storage and Key Vault always use the directory managed identity.
 
 ## Preconditions before an authorized deployment
 

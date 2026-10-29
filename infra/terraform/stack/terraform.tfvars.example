@@ -55,9 +55,8 @@ directory_sync_enabled = false
 #    (id-<name_prefix>-<environment>-directory). No app registration or secret is needed; an Entra admin grants
 #    Graph User.Read.All (application permission) to that identity once, outside Terraform.
 #  - App registration (set directory_graph_client_id): the sync signs in to Graph with that app's client ID and the
-#    client secret you store in Key Vault as directory-graph-client-secret. Use a dedicated app with only
-#    User.Read.All. Reusing a shared app (for example the portal's sign-in app) gives the sync every role that app
-#    holds, such as Directory.Read.All or Group.Create; dev only, replace it before test or prod.
+#    client secret you store in Key Vault as directory-graph-client-secret. The app needs Graph User.Read.All
+#    (application permission) with admin consent.
 # SQL, storage and Key Vault always use the managed identity. See docs/runbooks/directory-runtime-identity.md.
 # directory_graph_client_id = "00000000-0000-0000-0000-000000000000"
 # Six-field UTC NCRONTAB schedule of the directory timer. Required, no default.
