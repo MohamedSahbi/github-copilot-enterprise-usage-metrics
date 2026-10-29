@@ -50,7 +50,8 @@ function downloadUrl(value: string): URL {
   const url = new URL(value);
   const host = url.hostname.toLowerCase();
   // Signed report URLs are data-plane requests, never authenticated API requests.
-  const allowed = host.endsWith(".blob.core.windows.net") || host.endsWith(".githubusercontent.com");
+  const allowed = host === "copilot-reports.github.com" ||
+    host.endsWith(".blob.core.windows.net") || host.endsWith(".githubusercontent.com");
   if (!allowed || url.protocol !== "https:" || url.username || url.password || url.port || url.hash) {
     throw new MetricsAcquisitionError("invalid_response", false);
   }
