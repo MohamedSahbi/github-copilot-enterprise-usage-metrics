@@ -1,6 +1,7 @@
 import type { UsageSeriesPoint } from "../../../shared/src/api";
 import type { ApiCorePageData } from "../data/apiCoreDataSource";
 import OverviewSummary from "./OverviewSummary";
+import DailySeriesCharts from "./DailySeriesCharts";
 
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -56,6 +57,7 @@ function ApiPageContent({ data, pageTitle }: { data: ApiCorePageData; pageTitle:
         Daily usage metrics are subject to minimum-group privacy controls.
       </p>
       {data.page === "overview" && <OverviewSummary totalUsers={data.totalUsers} />}
+      <DailySeriesCharts rows={data.series} pageTitle={pageTitle} impactOnly={data.page === "copilot-impact"} />
       <SeriesTable rows={data.series} impactOnly={data.page === "copilot-impact"} />
     </section>
   );

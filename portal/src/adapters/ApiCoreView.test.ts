@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ApiCoreView from "./ApiCoreView";
 import type { ApiCorePageData } from "../data/apiCoreDataSource";
 import { formatUserCredits } from "./userCredits";
+
+// The client-side Chart.js view pulls in Primer CSS, which the node test runner cannot load.
+vi.mock("./DailySeriesCharts", () => ({ default: () => null }));
 
 function renderCoreView(data: ApiCorePageData): string {
   return renderToStaticMarkup(createElement(ApiCoreView, { data, pageTitle: "Overview" }));
