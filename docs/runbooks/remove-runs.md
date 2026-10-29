@@ -41,6 +41,11 @@ or `AZURE_CLIENT_ID`). The identity needs delete rights on the `portal` tables.
    npm run data:remove-runs -- --run-id <uuid> ... --execute --expect-fact-rows <n>
    ```
 
+Instead of run IDs, `--synthetic` names every published metrics run that the loader did not write
+(no `raw/users_1_day/.../<run_id>.ndjson` archive path) and prints them as `runIds`. From a pipeline,
+`scripts/data-ops.sh remove-synthetic [--execute --expect-fact-rows <n>]` runs it with the pipeline's
+own Entra token; see [import metrics history](metrics-history-import.md).
+
 Optional `--user-id <id>` and `--organization-id <id>` also remove synthetic `dim_user` (with its
 login history) and `dim_organization` rows, but only when no remaining facts use them. Any other
 reference, such as an access grant or scope assignment, makes the delete fail and rolls back

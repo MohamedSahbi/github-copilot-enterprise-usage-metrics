@@ -8,6 +8,7 @@ describe("remove-runs command arguments", () => {
   it("defaults to a dry run and needs at least one run id", () => {
     expect(parseRemoveRunsArguments(["--run-id", RUN, "--run-id", OTHER, "--user-id", "7", "--organization-id", "9"])).toEqual({
       runIds: [RUN, OTHER],
+      synthetic: false,
       userIds: [7],
       organizationIds: [9],
       execute: false,
@@ -31,5 +32,13 @@ describe("remove-runs command arguments", () => {
     expect(() => parseRemoveRunsArguments(["--run-id", RUN, "--user-id", "0"])).toThrow();
     expect(() => parseRemoveRunsArguments(["--run-id", "--execute"])).toThrow();
     expect(() => parseRemoveRunsArguments(["--run-id", RUN, "--unexpected", "x"])).toThrow();
+  });
+
+  it("--synthetic replaces run ids and keeps the execute gate", () => {
+    expect(parseRemoveRunsArguments(["--synthetic"])).toMatchObject({ runIds: [], synthetic: true, execute: false });
+    expect(parseRemoveRunsArguments(["--synthetic", "--execute", "--expect-fact-rows", "0"])).toMatchObject({ synthetic: true, execute: true, expectFactRows: 0 });
+    expect(() => parseRemoveRunsArguments(["--synthetic", "--run-id", RUN])).toThrow();
+    expect(() => parseRemoveRunsArguments(["--synthetic", "--synthetic"])).toThrow();
+    expect(() => parseRemoveRunsArguments(["--synthetic", "--execute"])).toThrow();
   });
 });

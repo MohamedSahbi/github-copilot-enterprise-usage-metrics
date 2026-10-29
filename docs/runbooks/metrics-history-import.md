@@ -1,0 +1,71 @@
+# Runbook: import metrics history (backfill) through the pipeline
+
+Fills past days from GitHub's one-day usage reports, after clearing any synthetic seed data. Every step runs
+from the deployment pipeline with its own Entra sign-in; nothing is typed into the database by hand. Output is
+counts, days, scope keys and run IDs only.
+
+GitHub keeps one-day reports for 365 days. The metrics timer fetches every day from `BACKFILL_FROM` to yesterday,
+skips days that already have a published run, and resumes on the next run where the last one stopped.
+
+## Gates
+
+- Owner approval for each data-bearing step: the synthetic delete (step 3) and the backfill apply (step 4).
+- A restore point before the delete (see [restore and rollback](restore-rollback.md)). Azure SQL point-in-time
+  restore covers it; record the time the pipeline ran.
+- The metrics timer must be completing runs first (step 1). A timer that fails every run imports nothing.
+
+## Steps
+
+Each step is one manual run of the [data operations pipeline](#data-operations-pipeline),
+which calls `scripts/data-ops.sh`.
+
+1. **Check the timer and the current state (read-only).**
+
+   ```sh
+   scripts/data-ops.sh status --from 2026-09-01
+   ```
+
+   Each day and organization is `published` (with loaded and quarantined row counts), `failed` (with the last
+   error code), `started` or `gap`. Recent days `published` means the GitHub App token works on the report
+   endpoint. `failed` with the same error every day means fix that first.
+
+2. **Find synthetic runs (read-only).** The same output lists `syntheticRunIds`: published runs the metrics loader
+   did not write (no `raw/users_1_day/.../<run_id>.ndjson` archive). A synthetic run on a real organization's day
+   counts as complete, so the backfill skips that day until the run is removed. Then preview the delete:
+
+   ```sh
+   scripts/data-ops.sh remove-synthetic
+   ```
+
+   It deletes inside a transaction, prints `runIds`, `factRows` and per-table counts, and rolls back.
+
+3. **Remove synthetic runs (owner approval).** With the `factRows` value from the preview:
+
+   ```sh
+   scripts/data-ops.sh remove-synthetic --execute --expect-fact-rows <n>
+   ```
+
+   It commits only if the count still matches. Seeded `dim_user` rows, access grants and directory state are not
+   touched (see [remove ingestion runs](remove-runs.md)).
+
+4. **Turn on the backfill (owner approval).** Set `backfill_from = "<yyyy-mm-dd>"` in the environment's tfvars,
+   plan (expect only the `BACKFILL_FROM` app setting on the metrics Function App), then apply.
+
+5. **Report each day.** Rerun step 1 after the timer has had time to catch up. Every day should be `published`;
+   `failed` days carry the error code, and days with quarantined rows are in Administration > Validation issues.
+   For a byte-level check of published days against the raw archive or legacy files, see
+   [metrics reconciliation](metrics-reconciliation.md).
+
+6. **Turn the backfill off** once every day is `published`: remove `backfill_from`, plan, apply. The timer goes
+   back to yesterday only. A `BACKFILL_FROM` older than 365 days makes the timer fail on purpose.
+
+## Data operations pipeline
+
+Data operations get their own pipeline, separate from the deploy pipeline. Its stages live in the deployment template
+repository (`azure-pipelines/data-operations.yml`, Azure Pipelines). A deployment repository's `data-operations.yml`
+only sets its values and `extends` that file, from an unchanged copy of the template's `azure-pipelines/` folder. It never runs on a push or a deploy (`trigger: none`); queue it by
+hand and pick `status`, `remove-synthetic` (dry run) or `remove-synthetic-execute`. The delete runs in a deployment
+job, so the environment's approvals apply. Seeding synthetic data can be added later as another operation.
+Rerunning `remove-synthetic` after the cleanup finds nothing and changes nothing.
+
+The pipeline's sign-in must be in the SQL server's Entra admin group, the same as for `scripts/deploy-db.sh`.
