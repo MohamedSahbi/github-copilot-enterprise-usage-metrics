@@ -6,10 +6,10 @@ test("admin ports explicit grant/revoke and the read-only administration panels"
   await page.getByRole("link", { name: "Administration", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Administration", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Grant Access", exact: true }).click();
-  await page.getByLabel("Entra object ID", { exact: true }).fill(AUTH_OBJECTS_BY_PERSONA.manager);
+  await page.getByLabel("Person", { exact: true }).fill(AUTH_OBJECTS_BY_PERSONA.manager);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("created");
-  await page.getByLabel("Existing principal", { exact: true }).selectOption(AUTH_PRINCIPALS_BY_PERSONA.manager);
+  await page.getByLabel("Person with access", { exact: true }).selectOption(AUTH_PRINCIPALS_BY_PERSONA.manager);
   await page.getByRole("button", { name: "Load grants" }).click();
   const selfGrant = page.getByRole("row").filter({ hasText: "self" });
   await expect(selfGrant).toContainText("user");

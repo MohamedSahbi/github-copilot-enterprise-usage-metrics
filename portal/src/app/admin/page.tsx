@@ -12,6 +12,7 @@ import HealthPanel from "../../admin/HealthPanel";
 import { parsePage } from "../../usage/api";
 import SubPageFrame, { Card, DataTable, buttonClass, fieldClass } from "../../components/SubPageFrame";
 import SideNavCard from "../../components/SideNavCard";
+import PersonLabel from "../../components/PersonLabel";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Administration | GitHub Copilot Usage Metrics" };
@@ -48,8 +49,10 @@ async function AdminContent({ section, params, correlationId }: { section: Secti
         break;
       }
       case "audit": {
-        content = <Card title="Audit log"><DataTable headings={["Time", "Actor Entra ID", "Action", "Target", "Outcome", "Correlation"]}
-          rows={data.rows.map((row) => [date(row.occurred_at), row.actor_entra_oid, row.action, row.target_id, row.outcome, row.correlation_id])} /></Card>;
+        content = <Card title="Audit log"><DataTable headings={["Time", "Actor", "Action", "Target", "Outcome", "Correlation"]}
+          rows={data.rows.map((row) => [date(row.occurred_at),
+            row.actor_entra_oid ? <PersonLabel displayName={row.actor_display_name} email={row.actor_email} id={row.actor_entra_oid} /> : "Ingestion",
+            row.action, row.target_id, row.outcome, row.correlation_id])} /></Card>;
         break;
       }
       case "login-history": {
@@ -74,8 +77,12 @@ async function AdminContent({ section, params, correlationId }: { section: Secti
           actions={<button type="button" disabled aria-describedby="sync-unavailable" className={buttonClass}>Sync now</button>}>
           <p id="sync-unavailable" className="text-sm text-muted">Manual sync is unavailable: no durable directory request receiver is implemented.
             No sync can be requested here. Scheduled directory activation remains separately controlled.</p>
-          <DataTable headings={["User ID", "Entra object ID", "Manager object ID", "Department", "Business area", "Manager resolved"]}
-            rows={data.rows.map((row) => [row.user_id, row.entra_object_id, row.manager_entra_object_id, row.department, row.business_area, row.manager_resolved ? "Yes" : "No"])} />
+          <DataTable headings={["Person", "Manager", "Department", "Business area", "Manager resolved", "User ID"]}
+            rows={data.rows.map((row) => [
+              <PersonLabel key="person" displayName={row.display_name} email={row.email} id={row.entra_object_id} />,
+              row.manager_entra_object_id
+                ? <PersonLabel key="manager" displayName={row.manager_display_name} email={row.manager_email} id={row.manager_entra_object_id} /> : null,
+              row.department, row.business_area, row.manager_resolved ? "Yes" : "No", row.user_id])} />
         </Card>;
         break;
       }

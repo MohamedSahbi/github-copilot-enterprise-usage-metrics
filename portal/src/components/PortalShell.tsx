@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { signOut } from "@/auth/config";
 import type { PortalScopeSelection, PortalViewer } from "@/access/portalAccess";
 import { visibleCorePages } from "@/navigation/corePages";
-import { feedbackEnabled } from "@/feedback/access";
 import SideNavCard from "@/components/SideNavCard";
 
 // Dark-header button, like the GitHub header's secondary actions.
@@ -77,7 +76,6 @@ export default function PortalShell({
             })),
             ...(process.env.MODULE_BUDGET_LOOKUP === "true"
               ? [{ href: "/budget-lookup", label: "Budget Lookup", icon: "budget-lookup" as const, current: pageSlug === "budget-lookup" }] : []),
-            ...(feedbackEnabled() ? [{ href: "/feedback", label: "Feedback", icon: "feedback" as const }] : []),
           ]} />
         </aside>
 
