@@ -101,7 +101,7 @@ variable "directory_sync_enabled" {
 }
 
 variable "directory_graph_client_id" {
-  description = "Optional application (client) ID of an Entra app registration the directory sync uses for Microsoft Graph instead of its managed identity. Its client secret goes in Key Vault as directory-graph-client-secret. Null keeps Graph on the managed identity."
+  description = "Optional application (client) ID of an Entra app registration the directory sync uses for Microsoft Graph instead of its managed identity. Its client secret goes in Key Vault as directory-graph-client-secret. Null (default) keeps Graph on the directory managed identity, which needs Graph User.Read.All granted by an admin and no secret."
   type        = string
   default     = null
 

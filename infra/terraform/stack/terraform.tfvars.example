@@ -50,11 +50,15 @@ stale_data_threshold_hours = 36
 # Set true once the github-directory-pat secret holds a real PAT in Key Vault and the directory SQL user
 # is mapped (#56).
 directory_sync_enabled = false
-# Optional: read Microsoft Graph with an Entra app registration instead of the directory managed identity.
-# The app needs Graph User.Read.All; put its client secret in Key Vault as directory-graph-client-secret.
-# Use a dedicated app with only User.Read.All. Reusing a shared app (for example the portal's sign-in app)
-# gives the sync every role that app holds, such as Directory.Read.All or Group.Create; dev only, replace it
-# before test or prod. See docs/runbooks/directory-runtime-identity.md.
+# Identity the directory sync uses for Microsoft Graph. It only reads users and their managers (User.Read.All).
+#  - Default (leave directory_graph_client_id unset): the directory user-assigned managed identity
+#    (id-<name_prefix>-<environment>-directory). No app registration or secret is needed; an Entra admin grants
+#    Graph User.Read.All (application permission) to that identity once, outside Terraform.
+#  - App registration (set directory_graph_client_id): the sync signs in to Graph with that app's client ID and the
+#    client secret you store in Key Vault as directory-graph-client-secret. Use a dedicated app with only
+#    User.Read.All. Reusing a shared app (for example the portal's sign-in app) gives the sync every role that app
+#    holds, such as Directory.Read.All or Group.Create; dev only, replace it before test or prod.
+# SQL, storage and Key Vault always use the managed identity. See docs/runbooks/directory-runtime-identity.md.
 # directory_graph_client_id = "00000000-0000-0000-0000-000000000000"
 # Six-field UTC NCRONTAB schedule of the directory timer. Required, no default.
 directory_sync_schedule = "0 0 2 * * *"
