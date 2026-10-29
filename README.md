@@ -91,7 +91,9 @@ the App-token check (#64) and the restore and SQL permission gates (#55, #56) ha
 **`directory_sync_enabled`** (default `false`). Turns on the Function App that copies users, managers
 and departments from Entra into SQL, on the `directory_sync_schedule` cron. Manager and department
 scopes need it. While off, the app is disabled and its deploy (SCM) site is stopped, so nothing can run
-or be deployed to it. Turn it on once `github-directory-pat` holds a real PAT in Key Vault and the
+or be deployed to it. While it is off, every plan shows one in-place change on that app
+(`scmSiteAlsoStopped` false to true) because Azure does not read the value back; this is expected (#206).
+Turn it on once `github-directory-pat` holds a real PAT in Key Vault and the
 directory SQL user is mapped (#56).
 
 **`modules.upstream_views`** (default `false`). Shows every dashboard from the upstream viewer:
@@ -114,6 +116,9 @@ placeholders even when `upstream_views` is on.
 anyone access to data, and it never changes the SQL schema.
 
 ## Get started
+
+To deploy for your organization, follow [Get started in an hour](docs/setup/get-started.md). To move an
+existing install to a newer release, follow the [upgrade guide](docs/setup/upgrade.md). In short:
 
 1. **Try it locally first.** With Docker you can run the portal against synthetic data in a few
    minutes, no Azure or GitHub setup needed. See [Develop locally](#develop-locally) below.

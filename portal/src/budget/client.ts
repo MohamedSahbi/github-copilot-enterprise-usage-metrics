@@ -1,16 +1,12 @@
-import {
-  BUDGET_LOOKUP_MAX_PAGES,
-  BUDGET_LOOKUP_TIMEOUT_MS,
-  validateBudgetLookupPage,
-} from "../../../shared/src/budget";
+import { BUDGET_LOOKUP_TIMEOUT_MS } from "../../../shared/src/budget";
 import type { BudgetLookupSourceErrorCode } from "../../../shared/src/api";
-import type { BudgetLookupPageProgress } from "../../../shared/src/budget";
 
 const API_ORIGIN = "https://api.github.com";
 const API_VERSION = "2026-03-10";
-const PER_PAGE = 100;
 
-type BudgetScope = "user" | "multi_user_customer" | "unscoped";
+// Same two reads as the original Lookup-BudgetCostCenter function: the user-filtered
+// "Get all budgets" call is the only one that reports the effective budget and its
+// consumption, and "Get a budget by ID" tells us what that budget is.
 type JsonRecord = Record<string, unknown>;
 type SourceBudget = JsonRecord & { id: string };
 
@@ -88,32 +84,6 @@ function parseLosslessJson(text: string): unknown {
   }
 }
 
-function stableSerialize(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function parseTotalCount(value: unknown): number | null {
-  if (typeof value !== "string" || !/^(0|[1-9]\d*)$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function parseBudgetRecords(value: unknown): SourceBudget[] {
-  if (!Array.isArray(value)) {
-    throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned an invalid budget list.");
-  }
-  return value.map((budget): SourceBudget => {
-    if (!isRecord(budget) || typeof budget.id !== "string" || budget.id.length === 0) {
-      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned a record without a stable ID.");
-    }
-    return { ...budget, id: budget.id };
-  });
-}
-
 function readRetryAfter(response: Response): number | undefined {
   const value = response.headers.get("Retry-After");
   if (!value || !/^\d{1,5}$/.test(value)) return undefined;
@@ -127,18 +97,7 @@ export function createBudgetLookupClient(options: BudgetLookupClientOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? BUDGET_LOOKUP_TIMEOUT_MS;
 
-  async function fetchBudgetPage(
-    scope: BudgetScope,
-    login: string,
-    page: number,
-    signal: AbortSignal,
-  ): Promise<{ budgets: SourceBudget[]; hasNextPage: boolean; totalCount: number; effectiveBudget: JsonRecord | null }> {
-    const url = new URL(`/enterprises/${encodeURIComponent(enterprise)}/settings/billing/budgets`, API_ORIGIN);
-    if (scope !== "unscoped") url.searchParams.set("scope", scope);
-    url.searchParams.set("user", login);
-    url.searchParams.set("per_page", String(PER_PAGE));
-    url.searchParams.set("page", String(page));
-
+  async function getJson(url: URL, signal: AbortSignal): Promise<JsonRecord | null> {
     let response: Response;
     try {
       response = await fetchImpl(url, {
@@ -169,6 +128,7 @@ export function createBudgetLookupClient(options: BudgetLookupClientOptions) {
         readRetryAfter(response),
       );
     }
+    if (response.status === 404) return null;
     if (!response.ok) {
       throw new BudgetLookupSourceError("budget_source_unavailable", "The budget source request failed.");
     }
@@ -184,62 +144,41 @@ export function createBudgetLookupClient(options: BudgetLookupClientOptions) {
     }
     const body = parseLosslessJson(responseText);
     if (!isRecord(body)) {
-      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned an invalid page.");
+      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned an invalid response.");
     }
-    if (scope === "unscoped" && body.user !== login) {
-      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned a mismatched user identity.");
-    }
-    const budgets = parseBudgetRecords(body.budgets);
-    if (typeof body.has_next_page !== "boolean") {
-      throw new BudgetLookupSourceError("budget_source_incomplete", "The budget source omitted pagination completion.");
-    }
-    const totalCount = parseTotalCount(body.total_count);
-    if (totalCount === null) {
-      throw new BudgetLookupSourceError("budget_source_incomplete", "The budget source omitted a valid total count.");
-    }
-    const effectiveBudget = scope !== "unscoped" ||
-      body.effective_budget === undefined || body.effective_budget === null
-      ? null
-      : isRecord(body.effective_budget)
-        ? body.effective_budget
-        : (() => {
-            throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned invalid effective-budget metadata.");
-          })();
-    return { budgets, hasNextPage: body.has_next_page, totalCount, effectiveBudget };
+    return body;
   }
 
-  async function listBudgets(scope: BudgetScope, login: string, signal: AbortSignal): Promise<{
-    budgets: SourceBudget[];
-    effectiveBudget: JsonRecord | null;
-  }> {
-    let progress: BudgetLookupPageProgress | null = null;
-    const budgets: SourceBudget[] = [];
-    let effectiveBudget: JsonRecord | null = null;
-    let effectiveFingerprint: string | null = null;
+  function budgetsUrl(path = ""): URL {
+    return new URL(`/enterprises/${encodeURIComponent(enterprise)}/settings/billing/budgets${path}`, API_ORIGIN);
+  }
 
-    for (let pageNumber = 1; pageNumber <= BUDGET_LOOKUP_MAX_PAGES; pageNumber += 1) {
-      const page = await fetchBudgetPage(scope, login, pageNumber, signal);
-      const validated = validateBudgetLookupPage({
-        ids: page.budgets.map((budget) => budget.id),
-        hasNextPage: page.hasNextPage,
-        totalCount: page.totalCount,
-      }, progress);
-      if (!validated.ok) {
-        throw new BudgetLookupSourceError("budget_source_incomplete", "The budget source returned incomplete pagination.");
-      }
-      progress = validated.progress;
-      budgets.push(...page.budgets);
-      if (scope === "unscoped" && page.effectiveBudget) {
-        const fingerprint = stableSerialize(page.effectiveBudget);
-        if (effectiveFingerprint !== null && effectiveFingerprint !== fingerprint) {
-          throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned conflicting effective-budget metadata.");
-        }
-        effectiveFingerprint = fingerprint;
-        effectiveBudget = page.effectiveBudget;
-      }
-      if (progress.complete) return { budgets, effectiveBudget };
+  async function readEffectiveBudget(login: string, signal: AbortSignal): Promise<JsonRecord | null> {
+    const url = budgetsUrl();
+    url.searchParams.set("user", login);
+    url.searchParams.set("per_page", "1");
+    const body = await getJson(url, signal);
+    if (body === null) {
+      throw new BudgetLookupSourceError("budget_source_unavailable", "The budget source request failed.");
     }
-    throw new BudgetLookupSourceError("budget_source_incomplete", "The budget source exceeded its page limit.");
+    if (typeof body.user === "string" && body.user !== login) {
+      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned a mismatched user identity.");
+    }
+    const effective = body.effective_budget;
+    if (effective === undefined || effective === null) return null;
+    if (!isRecord(effective) || typeof effective.id !== "string" || effective.id.length === 0) {
+      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned invalid effective-budget metadata.");
+    }
+    return effective;
+  }
+
+  async function readBudget(id: string, signal: AbortSignal): Promise<SourceBudget | null> {
+    const budget = await getJson(budgetsUrl(`/${encodeURIComponent(id)}`), signal);
+    if (budget === null) return null;
+    if (budget.id !== id) {
+      throw new BudgetLookupSourceError("budget_source_invalid", "The budget source returned a mismatched budget ID.");
+    }
+    return { ...budget, id };
   }
 
   return {
@@ -265,14 +204,19 @@ export function createBudgetLookupClient(options: BudgetLookupClientOptions) {
       });
       try {
         const read = async (): Promise<GitHubBudgetSourceData> => {
-          const individual = await listBudgets("user", login, signal);
-          const defaults = await listBudgets("multi_user_customer", login, signal);
-          const effective = await listBudgets("unscoped", login, signal);
-          return {
-            individualBudgets: individual.budgets,
-            defaultPerUserBudgets: defaults.budgets,
-            effectiveBudget: effective.effectiveBudget,
-          };
+          const effectiveBudget = await readEffectiveBudget(login, signal);
+          const result: GitHubBudgetSourceData = { individualBudgets: [], defaultPerUserBudgets: [], effectiveBudget };
+          if (effectiveBudget === null) return result;
+
+          const budget = await readBudget(effectiveBudget.id as string, signal);
+          if (budget === null) return result;
+          // "Get a budget by ID" never reports spend, so the record carries the effective figure.
+          const withConsumption = budget.consumed_amount === undefined
+            ? { ...budget, consumed_amount: effectiveBudget.consumed_amount }
+            : budget;
+          if (budget.budget_scope === "user") result.individualBudgets.push(withConsumption);
+          else if (budget.budget_scope === "multi_user_customer") result.defaultPerUserBudgets.push(withConsumption);
+          return result;
         };
         return await Promise.race([read(), timeout]);
       } finally {

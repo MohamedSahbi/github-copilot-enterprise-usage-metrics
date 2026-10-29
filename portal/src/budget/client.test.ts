@@ -6,112 +6,121 @@ const config = {
   enterprise: "example-enterprise",
 };
 
-function page(budgets: unknown[], hasNextPage: boolean, totalCount: number, extra: Record<string, unknown> = {}) {
-  return new Response(JSON.stringify({
-    budgets,
-    has_next_page: hasNextPage,
-    total_count: totalCount,
-    ...extra,
-  }), { status: 200 });
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status });
 }
 
 function rawPage(body: string) {
   return new Response(body, { status: 200 });
 }
 
+const individual = {
+  id: "individual-1",
+  budget_type: "BundlePricing",
+  budget_product_sku: "ai_credits",
+  budget_scope: "user",
+  budget_amount: 10,
+};
+
 describe("GitHub Budget Lookup client", () => {
-  it("uses only the fixed GET endpoint and completes all three user-filtered lists", async () => {
+  it("reads the user's effective budget, then that budget by ID, with fixed GET requests", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(page([{ id: "individual-1", budget_amount: 10 }], false, 1))
-      .mockResolvedValueOnce(page([{ id: "default-1", budget_amount: 20 }], false, 1))
-      .mockResolvedValueOnce(page([], false, 0, {
-        user: "octo-user",
-        effective_budget: { id: "individual-1", budget_amount: 10 },
-      }));
+      .mockResolvedValueOnce(json({
+        budgets: [{ id: "other" }],
+        has_next_page: true,
+        total_count: 40,
+        effective_budget: { id: "individual-1", budget_amount: 10, consumed_amount: 2.5 },
+      }))
+      .mockResolvedValueOnce(json(individual));
 
     const result = await createBudgetLookupClient({ ...config, fetchImpl }).read("octo-user");
 
-    expect(result.individualBudgets).toEqual([{ id: "individual-1", budget_amount: "10" }]);
-    expect(result.defaultPerUserBudgets).toEqual([{ id: "default-1", budget_amount: "20" }]);
-    expect(result.effectiveBudget).toEqual({ id: "individual-1", budget_amount: "10" });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-    for (const [input, init] of fetchImpl.mock.calls) {
-      expect(String(input)).toMatch(/^https:\/\/api\.github\.com\/enterprises\/example-enterprise\/settings\/billing\/budgets\?/);
+    expect(result).toEqual({
+      individualBudgets: [{ ...individual, budget_amount: "10", consumed_amount: "2.5" }],
+      defaultPerUserBudgets: [],
+      effectiveBudget: { id: "individual-1", budget_amount: "10", consumed_amount: "2.5" },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchImpl.mock.calls) {
       expect(init?.method).toBe("GET");
       expect(init?.cache).toBe("no-store");
       expect(init?.redirect).toBe("error");
       expect(new Headers(init?.headers).get("X-GitHub-Api-Version")).toBe("2026-03-10");
       expect(new Headers(init?.headers).get("Accept")).toBe("application/vnd.github+json");
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer synthetic-token");
-      const url = new URL(String(input));
-      expect(url.searchParams.get("user")).toBe("octo-user");
-      expect(url.searchParams.get("per_page")).toBe("100");
-      expect(url.searchParams.get("page")).toBe("1");
     }
-    expect(new URL(String(fetchImpl.mock.calls[0]![0])).searchParams.get("scope")).toBe("user");
-    expect(new URL(String(fetchImpl.mock.calls[1]![0])).searchParams.get("scope")).toBe("multi_user_customer");
-    expect(new URL(String(fetchImpl.mock.calls[2]![0])).searchParams.has("scope")).toBe(false);
+    const list = new URL(String(fetchImpl.mock.calls[0]![0]));
+    expect(list.origin + list.pathname).toBe("https://api.github.com/enterprises/example-enterprise/settings/billing/budgets");
+    expect(Object.fromEntries(list.searchParams)).toEqual({ user: "octo-user", per_page: "1" });
+    expect(String(fetchImpl.mock.calls[1]![0]))
+      .toBe("https://api.github.com/enterprises/example-enterprise/settings/billing/budgets/individual-1");
   });
 
-  it("follows explicit pagination and preserves decimal JSON tokens", async () => {
+  it("files the default per-user budget separately and preserves decimal JSON tokens", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(rawPage('{"budgets":[{"id":"one","budget_amount":0.123456789012345}],"has_next_page":true,"total_count":2}'))
-      .mockResolvedValueOnce(rawPage('{"budgets":[{"id":"two","budget_amount":9007199254740993}],"has_next_page":false,"total_count":2}'))
-      .mockResolvedValueOnce(page([], false, 0, { effective_budget: "ignored-user-list-metadata" }))
-      .mockResolvedValueOnce(page([], false, 0, { user: "octo-user" }));
+      .mockResolvedValueOnce(rawPage('{"budgets":[],"effective_budget":{"id":"default-1","budget_amount":9007199254740993,"consumed_amount":0.123456789}}'))
+      .mockResolvedValueOnce(rawPage('{"id":"default-1","budget_type":"BundlePricing","budget_product_sku":"ai_credits","budget_scope":"multi_user_customer","budget_amount":9007199254740993}'));
 
     const result = await createBudgetLookupClient({ ...config, fetchImpl }).read("octo-user");
 
-    expect(result.individualBudgets).toEqual([
-      { id: "one", budget_amount: "0.123456789012345" },
-      { id: "two", budget_amount: "9007199254740993" },
-    ]);
-    expect(new URL(String(fetchImpl.mock.calls[1]![0])).searchParams.get("page")).toBe("2");
+    expect(result.individualBudgets).toEqual([]);
+    expect(result.defaultPerUserBudgets).toEqual([expect.objectContaining({
+      id: "default-1", budget_amount: "9007199254740993", consumed_amount: "0.123456789",
+    })]);
   });
 
-  it("rejects incomplete pages instead of returning partial budgets", async () => {
-    const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ budgets: [{ id: "one" }], total_count: 1 }), { status: 200 }));
+  it("returns no budgets when GitHub reports no effective budget", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(json({ budgets: [], has_next_page: false, total_count: 0 }));
 
     await expect(createBudgetLookupClient({ ...config, fetchImpl }).read("octo-user"))
-      .rejects.toMatchObject({ code: "budget_source_incomplete" });
+      .resolves.toEqual({ individualBudgets: [], defaultPerUserBudgets: [], effectiveBudget: null });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects malformed source pages and conflicting effective metadata", async () => {
-    const malformedFetch = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(page([{ budget_amount: 10 }], false, 1));
-    await expect(createBudgetLookupClient({ ...config, fetchImpl: malformedFetch }).read("octo-user"))
-      .rejects.toMatchObject({ code: "budget_source_invalid" });
+  it("keeps the effective figure but no definition when the budget is gone or out of scope", async () => {
+    const effective = { budgets: [], effective_budget: { id: "cc-1", budget_amount: 5, consumed_amount: 1 } };
+    const goneFetch = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(json(effective))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    const gone = await createBudgetLookupClient({ ...config, fetchImpl: goneFetch }).read("octo-user");
+    expect(gone).toMatchObject({ individualBudgets: [], defaultPerUserBudgets: [], effectiveBudget: { id: "cc-1" } });
 
-    const conflictingFetch = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(page([], false, 0, { effective_budget: { id: "ignored-user-list-metadata" } }))
-      .mockResolvedValueOnce(page([], false, 0, { effective_budget: { id: "ignored-default-list-metadata" } }))
-      .mockResolvedValueOnce(page([{ id: "one" }], true, 2, {
-        user: "octo-user",
-        effective_budget: { id: "effective-one", budget_amount: 5 },
-      }))
-      .mockResolvedValueOnce(page([{ id: "two" }], false, 2, {
-        user: "octo-user",
-        effective_budget: { id: "effective-two", budget_amount: 5 },
-      }));
-    await expect(createBudgetLookupClient({ ...config, fetchImpl: conflictingFetch }).read("octo-user"))
+    const costCenterFetch = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(json(effective))
+      .mockResolvedValueOnce(json({ ...individual, id: "cc-1", budget_scope: "cost_center" }));
+    const costCenter = await createBudgetLookupClient({ ...config, fetchImpl: costCenterFetch }).read("octo-user");
+    expect(costCenter).toMatchObject({ individualBudgets: [], defaultPerUserBudgets: [] });
+  });
+
+  it("rejects malformed responses and mismatched identities", async () => {
+    const cases: unknown[][] = [
+      [[]],
+      [{ effective_budget: "not-an-object" }],
+      [{ effective_budget: { budget_amount: 5 } }],
+      [{ user: "another-user", effective_budget: { id: "individual-1" } }],
+      [{ effective_budget: { id: "individual-1" } }, { ...individual, id: "different" }],
+    ];
+    for (const responses of cases) {
+      const fetchImpl = vi.fn<typeof fetch>();
+      for (const body of responses) fetchImpl.mockResolvedValueOnce(json(body));
+      await expect(createBudgetLookupClient({ ...config, fetchImpl }).read("octo-user"))
+        .rejects.toMatchObject({ code: "budget_source_invalid" });
+    }
+    const malformed = vi.fn<typeof fetch>().mockResolvedValueOnce(rawPage("{"));
+    await expect(createBudgetLookupClient({ ...config, fetchImpl: malformed }).read("octo-user"))
       .rejects.toMatchObject({ code: "budget_source_invalid" });
   });
 
-  it.each(["another-user", undefined])("rejects an unscoped effective response for user %s", async (user) => {
-    const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(page([], false, 0))
-      .mockResolvedValueOnce(page([], false, 0))
-      .mockResolvedValueOnce(page([], false, 0, user === undefined ? {} : { user }));
-    await expect(createBudgetLookupClient({ ...config, fetchImpl }).read("octo-user"))
-      .rejects.toMatchObject({ code: "budget_source_invalid" });
-  });
+  it("maps provider errors, rate limits and deadlines to typed failures", async () => {
+    for (const status of [403, 404, 500]) {
+      const providerFetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status }));
+      await expect(createBudgetLookupClient({ ...config, fetchImpl: providerFetch }).read("octo-user"))
+        .rejects.toMatchObject({ code: "budget_source_unavailable" });
+    }
 
-  it("maps provider errors and deadlines to typed failures", async () => {
-    const providerFetch = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 403 }));
-    await expect(createBudgetLookupClient({ ...config, fetchImpl: providerFetch }).read("octo-user"))
-      .rejects.toMatchObject({ code: "budget_source_unavailable" });
+    const limited = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 429, headers: { "Retry-After": "30" } }));
+    await expect(createBudgetLookupClient({ ...config, fetchImpl: limited }).read("octo-user"))
+      .rejects.toMatchObject({ code: "rate_limited", retryAfterSeconds: 30 });
 
     const hangingFetch = vi.fn<typeof fetch>(() => new Promise(() => {}));
     await expect(createBudgetLookupClient({
@@ -119,6 +128,15 @@ describe("GitHub Budget Lookup client", () => {
       fetchImpl: hangingFetch,
       timeoutMs: 1,
     }).read("octo-user")).rejects.toMatchObject({ code: "budget_source_timeout" });
+  });
+
+  it("reports permission observations for health", async () => {
+    const observed: number[] = [];
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(null, { status: 401 }));
+    await expect(createBudgetLookupClient({
+      ...config, fetchImpl, onPermissionObservation: (status) => observed.push(status),
+    }).read("octo-user")).rejects.toBeInstanceOf(BudgetLookupSourceError);
+    expect(observed).toEqual([401]);
   });
 
   it("rejects redirects without following an alternate source destination", async () => {
@@ -132,13 +150,13 @@ describe("GitHub Budget Lookup client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["request", "response body"])("aborts later-page %s IO at the overall deadline", async (phase) => {
+  it.each(["request", "response body"])("aborts the by-ID %s IO at the overall deadline", async (phase) => {
     vi.useFakeTimers();
     try {
       const aborted = vi.fn();
       let pendingSignal: AbortSignal | undefined;
       const fetchImpl = vi.fn<typeof fetch>()
-        .mockResolvedValueOnce(page([{ id: "first" }], true, 2))
+        .mockResolvedValueOnce(json({ effective_budget: { id: "individual-1", budget_amount: 10 } }))
         .mockImplementationOnce(async (_input, init) => {
           const signal = init?.signal;
           if (!signal) throw new Error("Missing provider cancellation signal");
@@ -165,7 +183,6 @@ describe("GitHub Budget Lookup client", () => {
 
       await vi.advanceTimersByTimeAsync(10);
       expect(fetchImpl).toHaveBeenCalledTimes(2);
-      expect(new URL(String(fetchImpl.mock.calls[1]![0])).searchParams.get("page")).toBe("2");
       expect(pendingSignal?.aborted).toBe(false);
       expect(aborted).not.toHaveBeenCalled();
 
@@ -173,7 +190,6 @@ describe("GitHub Budget Lookup client", () => {
       await rejection;
       expect(pendingSignal?.aborted).toBe(true);
       expect(aborted).toHaveBeenCalledTimes(1);
-      expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
