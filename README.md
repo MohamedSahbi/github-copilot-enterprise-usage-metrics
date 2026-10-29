@@ -45,6 +45,19 @@ flowchart LR
 Everything is created by Terraform in [infra/terraform](infra/terraform/README.md): App Service, two
 Function Apps, SQL, Key Vault, Storage, monitoring and alerts. Secrets live only in Key Vault.
 
+## What this adds to the upstream viewer
+
+The upstream viewer is a single-user tool: you load a usage export in your browser and see every
+chart for everyone in it. This portal keeps those charts and adds what a company needs to share them.
+The screenshots below come from the local stack with synthetic data.
+
+| | |
+|---|---|
+| ![Sign-in page with Microsoft Entra ID and GitHub buttons](docs/images/sign-in.png) | ![Overview page with scope picker, privacy notice and daily charts](docs/images/overview-scoped.png) |
+| **Company sign-in.** People sign in with Entra ID or GitHub instead of uploading a file. | **Scoped dashboards from SQL.** Data comes from the scheduled GitHub sync, not a manual export. The scope picker shows only the scopes a viewer was granted, and small groups are hidden. |
+| ![Administration access control page](docs/images/admin-access.png) | ![Administration audit log page](docs/images/admin-audit.png) |
+| **Access grants.** Admins grant a role and scope (self, reports, department, business area, company) to an Entra principal. | **Audit and operations.** Every grant change is logged with a correlation ID, next to login history, health and the pinned upstream version. |
+
 ## Status: alpha (0.2.x)
 
 The alpha is a restricted private release. It ships:
