@@ -101,6 +101,17 @@ expect_valid -var portal_public_url=https://portal.example.com:8443/
 expect_valid -var 'organization={ enterprise_slug = "example-enterprise", organizations = ["example-org"], login_suffix = "_example", directory_provider = "csv", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }'
 expect_valid -var 'organization={ enterprise_slug = "example-enterprise", organizations = ["example-org", "example-team"], login_suffix = "_example", directory_provider = "entra", entra_tenant_id = "00000000-0000-0000-0000-000000000000" }'
 
+for value in B1 B3 S1 P1v2 P0v3 P1v3 P3mv3 P0v4 P5mv4; do
+  expect_valid -var app_service_sku="$value"
+done
+expect_valid -var app_service_sku=P1v3 -var app_service_zone_redundant=true
+for value in GP_S_Gen5_2 GP_Gen5_4 BC_Gen5_2 HS_Gen5_8; do
+  expect_valid -var sql_database_sku="$value"
+done
+expect_valid -var sql_database_sku=Basic -var sql_max_size_gb=2
+expect_valid -var sql_database_sku=S0 -var sql_max_size_gb=250
+expect_valid -var storage_replication_type=LRS
+
 expect_invalid auth_trust_host true "auth_trust_host can be true only when trusted_forwarding_ingress is true."
 expect_invalid key_vault_operator_object_ids '["not-a-guid"]' "Operator object IDs must be unique Entra user GUIDs."
 expect_invalid key_vault_operator_object_ids '[""]' "Operator object IDs must be unique Entra user GUIDs."
@@ -145,6 +156,22 @@ expect_invalid key_vault_allowed_ipv4_addresses '["2001:db8::1"]' "Addresses mus
 expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11/24"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
 expect_invalid key_vault_allowed_ipv4_addresses '["192.0.2.11","192.0.2.11"]' "Addresses must be unique bare IPv4 literals (maximum 1000)."
 expect_invalid key_vault_allowed_ipv4_addresses '[]' "Set key_vault_allowed_ipv4_addresses when private endpoints are disabled."
+
+for value in F1 Y1 EP1 P1 b1 P4v3 ""; do
+  expect_invalid app_service_sku "$value" "app_service_sku must be a Linux App Service plan SKU"
+done
+for value in Standard S5 GP_S_Gen5 GP_Gen4_2 gp_s_gen5_1 ""; do
+  expect_invalid sql_database_sku "$value" "sql_database_sku must be Basic, S0-S12, P1-P15, or a Gen5 vCore SKU"
+done
+expect_invalid storage_replication_type Standard_LRS "storage_replication_type must be LRS, ZRS, GRS, GZRS, RAGRS or RAGZRS."
+expect_invalid sql_serverless_min_capacity 0 "sql_serverless_min_capacity must be above zero."
+expect_invalid app_service_zone_redundant true "app_service_zone_redundant needs a Premium app_service_sku"
+if plan -var sql_database_sku=Basic -var sql_max_size_gb=32; then
+  printf 'Expected sql_max_size_gb=32 to be rejected for Basic.\n' >&2
+  exit 1
+fi
+grep -Fq "sql_max_size_gb must fit sql_database_sku" "$test_root/output" || { cat "$test_root/output" >&2; exit 1; }
+invalid_cases=$((invalid_cases + 1))
 
 sed '/^metrics_sync_schedule = /d' "$test_root/valid.tfvars" >"$test_root/missing-metrics-schedule.tfvars"
 if terraform -chdir="$test_root" plan -refresh=false -input=false -no-color \

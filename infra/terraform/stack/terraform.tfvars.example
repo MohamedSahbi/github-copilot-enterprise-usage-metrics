@@ -143,5 +143,29 @@ network = {
   mode = "create"
 }
 
-# Further optional inputs with defaults, see variables.tf: existing_sql, existing_monitoring, sql_database_sku,
-# sql_max_size_gb, sql_serverless_min_capacity, app_service_sku, app_service_zone_redundant, log_retention_days, tags.
+# ---------------------------------------------------------------------------
+# Sizing (SKUs)
+# ---------------------------------------------------------------------------
+# The values below are the defaults; changing one resizes the resource in place on the next apply.
+# One Linux App Service plan hosts the portal and both Functions apps, so this SKU sets the speed of all three.
+# B1-B3, S1-S3, P1v2-P3v2, P0v3-P3v3, P1mv3-P5mv3, P0v4-P3v4 or P1mv4-P5mv4. Consumption (Y1) and Elastic Premium
+# (EP*) cannot host the portal. Linux pay-as-you-go list prices in West Europe (Azure Retail Prices API, October 2026,
+# 730 hours): B1 ~$13, B2 ~$26, B3 ~$52, P0v3 ~$65, S1 ~$69, P0v4 ~$76 a month. B2 doubles B1's cores and memory for
+# under $50; P0v3 is the cheapest Premium SKU (about $42 a month on a one-year reservation). Check your region's price.
+app_service_sku = "B1"
+# true spreads the plan across availability zones; needs a Premium SKU (P1v2 or newer) and a zone-capable region.
+app_service_zone_redundant = false
+
+# Demo database (ignored when existing_sql is set). Basic, S0-S12, P1-P15, or a Gen5 vCore SKU: GP_S_Gen5_N
+# (serverless, pauses when idle), GP_Gen5_N, BC_Gen5_N or HS_Gen5_N, where N is the vCore count.
+sql_database_sku = "GP_S_Gen5_1"
+# Maximum size in GB. At most 2 for Basic; Standard and Premium take fixed steps (1, 2, 5, 10, 20, 30, 40, 50,
+# 100, 150, 200, 250, ...), so 32 only works with vCore SKUs.
+sql_max_size_gb = 32
+# Minimum vCores a serverless (GP_S_*) database keeps while active; above zero. Ignored for other SKUs.
+sql_serverless_min_capacity = 0.5
+
+# Replication of the raw archive and both Functions host storage accounts: LRS, ZRS, GRS, GZRS, RAGRS or RAGZRS.
+storage_replication_type = "ZRS"
+
+# Further optional inputs with defaults, see variables.tf: existing_sql, existing_monitoring, log_retention_days, tags.
