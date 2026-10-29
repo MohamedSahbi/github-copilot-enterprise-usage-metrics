@@ -57,9 +57,14 @@ the SQL Entra admin group member that also runs `scripts/deploy-db.sh`.
    [metrics reconciliation](metrics-reconciliation.md).
 
 6. **Turn the backfill off** once every day is `published`: remove `backfill_from`, plan, apply. The timer goes
-   back to yesterday only. A `BACKFILL_FROM` older than 365 days makes the timer fail on purpose.
+   back to yesterday only, and remove the temporary data step from the pipeline. A `BACKFILL_FROM` older than 365 days makes the timer fail on purpose.
 
 ## Pipeline step (Azure DevOps example)
+
+This is a one-time, temporary step, not part of every deploy. Add it only for the import, queue the pipeline by
+hand with `dataOperation` set for each step above, and delete the step (and the parameter) once the synthetic runs
+are gone and every day is `published`. A run with the default `none` skips it entirely. Rerunning
+`remove-synthetic` after the cleanup finds nothing and changes nothing.
 
 ```yaml
 - task: AzureCLI@2
@@ -73,6 +78,12 @@ the SQL Entra admin group member that also runs `scripts/deploy-db.sh`.
       portal/scripts/deploy-infra.sh init "${{ parameters.environment }}" "config/${{ parameters.environment }}.tfvars"
       git -C portal checkout -- infra/terraform/stack/.terraform.lock.hcl
       portal/scripts/data-ops.sh ${{ parameters.dataOperation }}
+  condition: ne('${{ parameters.dataOperation }}', 'none')
 ```
 
-Give `dataOperation` a default of `none` and skip the step for it, so a normal deploy never runs a data step.
+```yaml
+parameters:
+  - name: dataOperation
+    type: string
+    default: none   # e.g. "status --from 2026-09-01", "remove-synthetic", "remove-synthetic --execute --expect-fact-rows 63"
+```
