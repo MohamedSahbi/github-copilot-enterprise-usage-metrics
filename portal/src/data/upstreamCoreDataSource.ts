@@ -13,6 +13,7 @@ import type { PortalScopeSelection } from "../access/portalAccess";
 import { getPortalSqlPool } from "../db/pool";
 import type { AuthorizedUsageAccess } from "../usage/api";
 import { getScopedCuratedRows, resolveUsageRange } from "../usage/sql-usage";
+import { suppressSmallGroups } from "../usage/groupSuppression";
 import { pseudonymizeLogins, toUpstreamRecords } from "../usage/upstreamRecords";
 import { grantsForSelection } from "./apiCoreDataSource";
 
@@ -31,10 +32,15 @@ export interface UpstreamQuery {
 }
 
 /**
- * Whole-scope suppression: below the minimum group size nothing is aggregated, unless the
- * viewer looks at their own data or the deployment allows per-user detail. Without per-user
- * detail, logins are replaced before aggregation so no view can name a person.
+ * Per-group suppression: every day, IDE, version, feature, language, model, usage flag and
+ * phase group under the minimum group size is removed before aggregation, and a scope left
+ * below the minimum shows nothing. A viewer's own data and deployments that allow per-user
+ * detail are exempt. Without per-user detail, logins are replaced so no view can name a person.
  */
+function distinctUsers(records: readonly CopilotMetrics[]): number {
+  return new Set(records.map(({ user_id }) => user_id)).size;
+}
+
 export function prepareUpstreamRecords(
   records: readonly CopilotMetrics[],
   { selection, perUserDetailEnabled, minGroupSize = DEFAULT_MIN_GROUP_SIZE }: Pick<
@@ -42,15 +48,17 @@ export function prepareUpstreamRecords(
     "selection" | "perUserDetailEnabled" | "minGroupSize"
   >,
 ): { state: "ready"; records: CopilotMetrics[]; userCount: number } | { state: "suppressed"; userCount: number } {
-  const userCount = new Set(records.map(({ user_id }) => user_id)).size;
-  if (selection.kind !== "self" && !perUserDetailEnabled && userCount < minGroupSize) {
-    return { state: "suppressed", userCount };
+  if (selection.kind === "self" || perUserDetailEnabled) {
+    return {
+      state: "ready",
+      records: perUserDetailEnabled ? [...records] : pseudonymizeLogins(records),
+      userCount: distinctUsers(records),
+    };
   }
-  return {
-    state: "ready",
-    records: perUserDetailEnabled ? [...records] : pseudonymizeLogins(records),
-    userCount,
-  };
+  const released = suppressSmallGroups(records, minGroupSize);
+  const userCount = distinctUsers(released);
+  if (userCount < minGroupSize) return { state: "suppressed", userCount };
+  return { state: "ready", records: pseudonymizeLogins(released), userCount };
 }
 
 async function loadScopedRecords(query: UpstreamQuery): Promise<CopilotMetrics[] | null> {
