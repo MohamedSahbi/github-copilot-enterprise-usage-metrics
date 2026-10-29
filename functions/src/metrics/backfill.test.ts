@@ -107,11 +107,28 @@ describe("bounded metrics backfill", () => {
     expect(h.recordFailure).not.toHaveBeenCalled();
   });
 
-  it("does not reclassify loader or resume-store failures as acquisition gaps", async () => {
+  it("counts a loader failure without reclassifying it as a gap and keeps loading the remaining days and organizations", async () => {
     const h = harness();
-    h.load.mockRejectedValue(new Error("loader failed"));
-    await expect(runMetricsBackfill(input, h)).rejects.toThrow("loader failed");
+    h.load.mockRejectedValueOnce(new Error("archive_write_failed SECRET_MARKER"));
+    await expect(runMetricsBackfill({ organizations: ["fixture-org", "second-org"], today: "2026-10-26",
+      backfillFrom: "2026-10-24" }, h)).resolves.toMatchObject({ failed: 1, published: 3, gaps: 0 });
+    expect(h.load).toHaveBeenCalledTimes(4);
     expect(h.recordFailure).not.toHaveBeenCalled();
+    expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain("SECRET_MARKER");
+  });
+
+  it("resolves each organization once, and records a gap per day when that fails", async () => {
+    const h = harness();
+    await runMetricsBackfill({ ...input, backfillFrom: "2026-10-23" }, h);
+    expect(h.resolveOrganization).toHaveBeenCalledOnce();
+    const failing = harness();
+    failing.resolveOrganization.mockRejectedValue(new MetricsAcquisitionError("installation_identity", false));
+    await expect(runMetricsBackfill({ ...input, backfillFrom: "2026-10-24" }, failing)).resolves.toMatchObject({ gaps: 2 });
+    expect(failing.recordFailure).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reclassify resume-store failures as acquisition gaps", async () => {
+    const h = harness();
     h.isComplete.mockRejectedValue(new Error("resume store failed"));
     await expect(runMetricsBackfill({ ...input, resume: true }, h)).rejects.toThrow("resume store failed");
     expect(h.recordFailure).not.toHaveBeenCalled();

@@ -51,7 +51,7 @@ function setup(failOn: Failure | null = null, failPhase = 0, lockResult = 0, con
     });
     return { transaction, statements, requests, begin, commit, rollback };
   }
-  const phases = [phase(0), phase(1)];
+  const phases = [phase(0), phase(1), phase(2)];
   let nextPhase = 0;
   const createTransaction = vi.fn(() => phases[nextPhase++]!.transaction);
   return { phases, createTransaction, writer: createDirectorySqlWriter(createTransaction, { entraTenantId: tenant }) };
@@ -80,7 +80,8 @@ describe("directory SQL evidence and publication transactions", () => {
   it("commits negatives first, then atomically publishes profiles/run/success under the same lock", async () => {
     const fake = setup();
     await fake.writer.commit(command);
-    for (const phase of fake.phases) {
+    expect(fake.createTransaction).toHaveBeenCalledTimes(2);
+    for (const phase of fake.phases.slice(0, 2)) {
       expect(phase.begin).toHaveBeenCalledWith(sql.ISOLATION_LEVEL.SERIALIZABLE);
       expect(phase.commit).toHaveBeenCalledOnce();
       expect(phase.rollback).not.toHaveBeenCalled();
@@ -149,6 +150,27 @@ describe("directory SQL evidence and publication transactions", () => {
     expect(fake.phases[0]!.rollback).not.toHaveBeenCalled();
     expect(fake.phases[1]!.rollback).toHaveBeenCalledOnce();
     if (stage !== "commit") expect(fake.phases[1]!.commit).not.toHaveBeenCalled();
+  });
+
+  it("marks a reserved run failed when publication fails, instead of leaving it started forever", async () => {
+    const fake = setup("user", 1);
+    await expect(fake.writer.commit({
+      ...command, run: { ...command.run, status: "published", error_code: null },
+      users: command.users.map((profile) => ({ ...profile, managerResolved: true, errorCode: null })),
+      sync: command.sync.map((state) => ({ ...state, last_success_at: now, last_error_code: null })),
+    })).rejects.toThrow("directory_write_failed");
+    const recovery = fake.phases[2]!.statements.join("\n");
+    expect(recovery).toContain("SET status = 'failed', error_code = 'directory_write_failed'");
+    expect(recovery).toContain("WHERE run_id = @runId AND status = 'started'");
+    expect(recovery).toContain("last_error_code IS NULL");
+    expect(fake.phases[2]!.commit).toHaveBeenCalledOnce();
+  });
+
+  it("still reports the publication failure when the recovery write fails too", async () => {
+    const fake = setup("user", 1);
+    vi.spyOn(fake.phases[2]!.transaction, "commit").mockRejectedValue(new Error("private-recovery@example.invalid"));
+    await expect(fake.writer.commit(command)).rejects.toThrow("directory_write_failed");
+    expect(fake.phases[2]!.rollback).toHaveBeenCalledOnce();
   });
 
   it("writes nothing after failing to acquire the directory lock", async () => {

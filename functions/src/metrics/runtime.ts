@@ -111,6 +111,10 @@ export function createMetricsRuntimeHandler(env: Environment, overrides: Metrics
       logger.error({ event: "metrics_runtime_failed", correlationId, source: "users_1_day", errorCode: "runtime_failed" });
       throw new Error("metrics_runtime_failed");
     }
+    if (result.failed > 0) {
+      logger.error({ event: "metrics_runtime_failed", correlationId, source: "users_1_day", errorCode: "load_failed", ...result });
+      throw new Error("metrics_runtime_failed");
+    }
     if (result.gaps > 0 || result.quarantined > 0) {
       logger.error({ event: "metrics_runtime_failed", correlationId, source: "users_1_day", errorCode: "incomplete", ...result });
       throw new Error("metrics_runtime_incomplete");

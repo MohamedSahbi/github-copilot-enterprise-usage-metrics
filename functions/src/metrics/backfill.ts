@@ -47,7 +47,7 @@ export async function runMetricsBackfill(
     correlationId?: string;
   },
   dependencies: MetricsBackfillDependencies,
-): Promise<{ published: number; skipped: number; gaps: number; quarantined: number; dryRun: number }> {
+): Promise<{ published: number; skipped: number; gaps: number; quarantined: number; failed: number; dryRun: number }> {
   const days = metricsDays(input.backfillFrom, input.today ?? new Date().toISOString().slice(0, 10));
   const correlationId = z.uuid().parse(input.correlationId ?? randomUUID());
   const organizations = z.array(z.string().min(1).max(39).regex(/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/))
@@ -55,15 +55,21 @@ export async function runMetricsBackfill(
   if (new Set(organizations.map((org) => org.toLowerCase())).size !== organizations.length) {
     throw new TypeError("Duplicate organization identities");
   }
-  const summary = { published: 0, skipped: 0, gaps: 0, quarantined: 0, dryRun: 0 };
+  const summary = { published: 0, skipped: 0, gaps: 0, quarantined: 0, failed: 0, dryRun: 0 };
   for (const organizationLogin of organizations) {
+    // Resolve once per organization; a failure is still recorded as a gap for every selected day.
+    let resolvedId: number | undefined;
+    let resolveError: unknown;
+    try {
+      resolvedId = await dependencies.resolveOrganization(organizationLogin);
+    } catch (error) {
+      resolveError = error;
+    }
     for (const reportDay of days) {
-      let organizationId: number | undefined;
+      const organizationId = resolvedId;
       let acquired: Awaited<ReturnType<MetricsBackfillDependencies["acquire"]>>;
-      try {
-        organizationId = await dependencies.resolveOrganization(organizationLogin);
-      } catch (error) {
-        await gap(error);
+      if (organizationId === undefined) {
+        await gap(resolveError);
         continue;
       }
       if (input.resume && await dependencies.isComplete(organizationId, reportDay)) {
@@ -82,9 +88,19 @@ export async function runMetricsBackfill(
         summary.dryRun++;
         continue;
       }
-      const result = await dependencies.load({
-        reportDay, organizationId, organizationLogin, content: acquired.content, correlationId,
-      });
+      let result: MetricsDayLoadResult;
+      try {
+        result = await dependencies.load({
+          reportDay, organizationId, organizationLogin, content: acquired.content, correlationId,
+        });
+      } catch {
+        // The loader records its own failed run; one bad day must not stop the remaining days and organizations.
+        dependencies.logger.error({
+          event: "metrics_day_load_failed", correlationId, reportDay, source: "users_1_day",
+        });
+        summary.failed++;
+        continue;
+      }
       if (result.status === "published" && result.rowsRead > 0 &&
           result.rowsRead === result.rowsLoaded && result.rowsQuarantined === 0) {
         summary.published++;
