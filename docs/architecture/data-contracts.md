@@ -632,20 +632,20 @@ server-resolved current target login, encoded parameters and
 `Accept: application/vnd.github+json`. No caller URL, enterprise or login.
 
 1. Complete the authorization/module/freshness checks above.
-2. Page `GET /enterprises/{enterprise}/settings/billing/budgets` with
-   `scope=user&user={resolved-login}&per_page=100&page=N`; exact-match each
-   individual's returned login and supported classification.
-3. Page the same endpoint with `scope=multi_user_customer` and the same user
-   filter; validate scope/entity applicability to the configured enterprise.
-4. Page the user-filtered **unscoped** list solely for GitHub-reported
-   `effective_budget` metadata; exact-match top-level response identity and
-   reject conflicting metadata across pages. Do not expose other returned
-   records or fetch their details. This GET is the explicit #137 D-55 amendment.
-5. Validated supported budget-ID detail GET and
-   `.../budgets/{budget_id}/user-states?user={resolved-login}&per_page=100&page=N`
-   are follow-ups only when required. Exact-match row login before identity/
-   amount attribution; never enumerate all user states.
+2. `GET /enterprises/{enterprise}/settings/billing/budgets?user={resolved-login}&per_page=1`
+   and read only the GitHub-reported `effective_budget` (`id`, `budget_amount`,
+   `consumed_amount`). If the response names a top-level `user`, it must match.
+   No other returned record is exposed. No effective budget means no budgets.
+3. `GET .../budgets/{effective_budget.id}` to classify that one budget. A
+   supported `user` budget is the individual budget, a supported
+   `multi_user_customer` budget is the default per user; anything else is
+   `outside_mvp`, and a 404 leaves only the effective figure. The by-ID
+   response has no spend, so the record carries the effective `consumed_amount`.
+4. `.../budgets/{budget_id}/user-states?user={resolved-login}` stays a follow-up.
 
+This is the same pair of reads the original `Lookup-BudgetCostCenter` function
+runs in production (owner revision 2026-10-29, PR #241); it replaced the earlier
+scoped-list paging, which GitHub's list example does not back up.
 The list `user` filter selects consumption details, not necessarily budgets or
 membership. Exclude unmatched records; ambiguous identity/applicability is an
 error. Never infer membership, numeric identity or an effective fallback from

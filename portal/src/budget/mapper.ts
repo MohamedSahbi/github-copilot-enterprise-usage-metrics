@@ -61,12 +61,8 @@ function supportedBudgets(
     });
     if (!classification.success || classification.data.budget_scope !== scope) continue;
 
-    if (scope === "user") {
-      if (typeof budget.user !== "string") {
-        throw new BudgetLookupSourceError("budget_source_invalid", "The budget source omitted target-user identity.");
-      }
-      if (budget.user !== login) continue;
-    }
+    // "Get a budget by ID" may leave out the target user; when it names one, it must match.
+    if (scope === "user" && typeof budget.user === "string" && budget.user !== login) continue;
 
     result.push(recordBudget(budget, scope === "user" ? "individual" : "default_per_user"));
   }

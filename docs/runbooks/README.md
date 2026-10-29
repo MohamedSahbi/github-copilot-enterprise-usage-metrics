@@ -11,4 +11,5 @@ Deploy, rollback, cut-over, credential rotation, restore, backfill, and incident
 - [Directory failure recovery and retry](../../functions/README.md#directory-failure-recovery-and-retry): durable per-user negative evidence, atomic profile publication and ordered fresh-snapshot retries.
 - [One-time legacy metrics import](legacy-metrics-import.md): operator-run import of raw legacy Blob reports through the existing day loader.
 - [Remove ingestion runs](remove-runs.md): operator-run removal of named metrics runs, such as synthetic seed data, dry run first.
+- [Live Budget Lookup check](budget-live-check.md): read-only probe of the GitHub budgets API for one login before turning Budget Lookup on.
 - [Safe Alpha release surface](safe-alpha.md): released server-rendered pages, denied endpoints, scope restrictions, and synthetic verification.

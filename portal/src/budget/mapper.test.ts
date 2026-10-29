@@ -86,9 +86,15 @@ describe("Budget Lookup source mapper", () => {
       .toEqual({ status: "not_reported" });
   });
 
+  it("accepts an individual budget by ID that leaves out the target user", () => {
+    const withoutUser: Record<string, unknown> & { id: string } = { ...source.individualBudgets[0]! };
+    delete withoutUser.user;
+    const mapped = mapBudgetLookupSource({ ...source, individualBudgets: [withoutUser] }, "octo-user", 123);
+    expect(mapped.budgets.map((budget) => budget.id)).toEqual(["individual-1", "default-1"]);
+  });
+
   it.each([
     [{ ...source, individualBudgets: [{ ...source.individualBudgets[0], user: "octo-user", budget_amount: "1.0000000001" }] }],
-    [{ ...source, individualBudgets: [{ ...source.individualBudgets[0], user: undefined }] }],
     [{ ...source, individualBudgets: [{ ...source.individualBudgets[0], id: "duplicate" }], defaultPerUserBudgets: [{ ...source.defaultPerUserBudgets[0], id: "duplicate" }] }],
     [{ ...source, effectiveBudget: { id: "individual-1", budget_amount: "not-a-decimal", consumed_amount: null } }],
   ])("rejects malformed, ambiguous or imprecise source data", (invalid) => {
