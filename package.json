@@ -24,6 +24,7 @@
     "data:remove-runs": "tsx scripts/data/remove-runs.ts",
     "import:legacy-metrics": "tsx scripts/import/legacy-metrics.ts",
     "reconcile:metrics": "tsx scripts/reconciliation/metrics.ts",
+    "budget:probe": "tsx scripts/budget/probe.ts",
     "db:fixtures": "tsx scripts/stack/stack.ts fixtures",
     "stack:up": "tsx scripts/stack/stack.ts up",
     "stack:down": "tsx scripts/stack/stack.ts down",
