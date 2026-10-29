@@ -23,6 +23,7 @@ export interface DirectoryRuntimeConfig {
   sqlDatabase: string;
   managedIdentityClientId: string;
   directoryPat: string | null;
+  entraTenantId: string | null;
 }
 
 export function readDirectoryRuntimeConfig(env: Environment): DirectoryRuntimeConfig {
@@ -50,8 +51,11 @@ export function readDirectoryRuntimeConfig(env: Environment): DirectoryRuntimeCo
   }
   const directoryPat = provider.data === "entra" ? required("GITHUB_DIRECTORY_PAT") : null;
   if (directoryPat?.startsWith("@Microsoft.KeyVault(")) throw new Error("directory_configuration_invalid");
+  const entraTenantId = env.ENTRA_TENANT_ID?.trim() || null;
+  if (entraTenantId !== null && !isGuid(entraTenantId)) throw new Error("directory_configuration_invalid");
   return {
     provider: provider.data, enterprise, organizations, sqlServer, sqlDatabase, managedIdentityClientId, directoryPat,
+    entraTenantId,
     attributes: { departmentAttribute: settings.settings.directory.departmentAttribute,
       businessAreaAttribute: settings.settings.directory.businessAreaAttribute },
   };
@@ -117,7 +121,8 @@ function runtimeWriter(config: DirectoryRuntimeConfig): DirectoryWriter {
       let failure: DirectoryWriteError | null = null;
       try {
         await pool.connect();
-        await createDirectorySqlWriter(() => new sql.Transaction(pool)).commit(command);
+        await createDirectorySqlWriter(() => new sql.Transaction(pool), { entraTenantId: config.entraTenantId })
+          .commit(command);
       } catch {
         failure = new DirectoryWriteError("directory_write_failed");
       }

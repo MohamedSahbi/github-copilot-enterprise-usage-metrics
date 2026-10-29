@@ -20,7 +20,7 @@ Inputs worth knowing:
 | `organization` | Enterprise slug, organizations, login suffix, group prefix, directory provider, Entra tenant ID. Passed to the portal as app settings; real values live in the private deployment repository (D-46). |
 | `github_app_id` | Required positive-decimal GitHub App identifier, passed only to metrics ingestion; not secret material. The private key remains operator-managed in Key Vault. |
 | `backfill_from` | Optional inclusive metrics API start date (`YYYY-MM-DD`); omitted means no historical API fetch. Runtime enforces the moving supported window. |
-| `modules` | Optional modules (D-1): `ai_credits`, `budget_lookup`, `feedback`. Toggling never changes the SQL schema. |
+| `modules` | Optional modules (D-1): `ai_credits`, `budget_lookup`, `feedback`, `upstream_views` (all upstream dashboard views from SQL). Toggling never changes the SQL schema. |
 | `network.mode` | `create` (demo), `existing` (enterprise default), or `import` (D-35). |
 | `private_endpoints_enabled` | On by default (D-19); disable only for development. |
 | `key_vault_allowed_ipv4_addresses` | Unique bare IPv4 possible-outbound addresses for apps that need Key Vault when public access is enabled; Terraform emits `/32` rules and requires a non-empty list when private endpoints are disabled. |

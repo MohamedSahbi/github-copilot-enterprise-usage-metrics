@@ -21,6 +21,11 @@ describe("fail-closed directory runtime configuration", () => {
     expect(Object.keys(readDirectoryRuntimeConfig(env))).not.toContain("schedule");
   });
 
+  it("reads the Entra tenant for soft revocation, and leaves it off when unset", () => {
+    expect(readDirectoryRuntimeConfig(env).entraTenantId).toBeNull();
+    expect(readDirectoryRuntimeConfig({ ...env, ENTRA_TENANT_ID: clientId }).entraTenantId).toBe(clientId);
+  });
+
   it.each(["DIRECTORY_PROVIDER", "ENTERPRISE_SLUG", "ORGANIZATIONS", "SQL_SERVER", "SQL_DATABASE", "AZURE_CLIENT_ID", "GITHUB_DIRECTORY_PAT"])(
     "rejects absent %s without exposing environment values", (key) => {
       expect(() => readDirectoryRuntimeConfig({ ...env, [key]: undefined })).toThrow("directory_configuration_invalid");
@@ -33,6 +38,7 @@ describe("fail-closed directory runtime configuration", () => {
     { ORGANIZATIONS: "fixture-org,fixture-org" },
     { DIRECTORY_DEPARTMENT_ATTRIBUTE: "department;$select=mail" },
     { DIRECTORY_PROVIDER: "auto" },
+    { ENTRA_TENANT_ID: "not-a-tenant-guid" },
   ])("rejects invalid configuration instead of falling back", (override) => {
     expect(() => readDirectoryRuntimeConfig({ ...env, ...override })).toThrow("directory_configuration_invalid");
   });

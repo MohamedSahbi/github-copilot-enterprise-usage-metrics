@@ -17,6 +17,7 @@ import { FEATURE_TAXONOMY } from "../../../shared/src/features";
 import type { Scope } from "../../../shared/src/rows";
 import type { AuthorizedUsageAccess } from "./api";
 import { bindTeamFreshness, eligibleManagerEdge } from "../authz/sql-team-freshness";
+import type { CuratedBreakdownRow, CuratedDailyRow, CuratedFamilyRow } from "./curatedRows";
 
 interface ScopedRequest {
   request: sql.Request;
@@ -467,4 +468,56 @@ export async function getUserUsage(
     })),
     totalItems,
   };
+}
+
+const DAY = "CONVERT(CHAR(10), {alias}.usage_day, 23) AS usage_day";
+
+/**
+ * Curated per-user daily rows for the authorized scope, shaped for `toUpstreamRecords`.
+ * Callers own suppression: these rows are for server-side aggregation only.
+ */
+export async function getScopedCuratedRows(
+  pool: sql.ConnectionPool,
+  access: AuthorizedUsageAccess,
+  range: DateRange & { organizationIds?: number[] },
+  correlationId: string,
+): Promise<{ daily: CuratedDailyRow[]; breakdown: CuratedBreakdownRow[]; families: CuratedFamilyRow[] }> {
+  const query = async <T>(select: string): Promise<T[]> => {
+    const scoped = scopedRequest(pool, access, correlationId, range.organizationIds);
+    bindRange(scoped.request, range);
+    const result = await scoped.request.query<T>(`${scoped.cte}
+      ${select}
+      OPTION (MAXRECURSION 100)`);
+    return result.recordset;
+  };
+  const daily = await query<CuratedDailyRow>(`
+    SELECT f.organization_id, f.user_id, u.login AS user_login, ${DAY.replace("{alias}", "f")},
+      f.interaction_count, f.code_generation_count, f.code_acceptance_count,
+      f.loc_suggested_to_add, f.loc_suggested_to_delete, f.loc_added, f.loc_deleted,
+      f.used_agent, f.used_chat, f.used_cli, f.used_cloud_agent, f.used_copilot_app, f.used_vscode_agent,
+      f.used_code_review_active, f.used_code_review_passive,
+      CONVERT(VARCHAR(40), f.ai_credits_used) AS ai_credits_used,
+      f.ai_adoption_phase_number, f.ai_adoption_phase, f.ai_adoption_phase_version, f.extra_json
+    FROM portal.fact_user_daily_usage AS f
+    INNER JOIN AuthorizedUsers AS au ON au.user_id = f.user_id
+    INNER JOIN portal.dim_user AS u ON u.user_id = f.user_id
+    WHERE f.usage_day BETWEEN @fromDay AND @toDay
+      AND ${organizationFilter("f")}`);
+  const breakdown = await query<CuratedBreakdownRow>(`
+    SELECT b.organization_id, b.user_id, ${DAY.replace("{alias}", "b")}, b.breakdown_kind, b.key_1, b.key_2,
+      b.interaction_count, b.code_generation_count, b.code_acceptance_count,
+      b.loc_suggested_to_add, b.loc_suggested_to_delete, b.loc_added, b.loc_deleted,
+      b.session_count, b.request_count, b.prompt_tokens, b.output_tokens, b.version_info,
+      b.prompt_count, b.total_user_messages
+    FROM portal.fact_usage_breakdown AS b
+    INNER JOIN AuthorizedUsers AS au ON au.user_id = b.user_id
+    WHERE b.usage_day BETWEEN @fromDay AND @toDay
+      AND ${organizationFilter("b")}`);
+  const families = await query<CuratedFamilyRow>(`
+    SELECT c.organization_id, c.user_id, ${DAY.replace("{alias}", "c")}, c.family, c.item_name, c.interaction_count
+    FROM portal.fact_usage_family_count AS c
+    INNER JOIN AuthorizedUsers AS au ON au.user_id = c.user_id
+    WHERE c.usage_day BETWEEN @fromDay AND @toDay
+      AND ${organizationFilter("c")}`);
+  return { daily, breakdown, families };
 }

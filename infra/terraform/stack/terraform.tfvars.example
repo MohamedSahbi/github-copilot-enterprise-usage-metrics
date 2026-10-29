@@ -40,9 +40,10 @@ stale_data_threshold_hours         = 36
 per_user_detail_enabled            = false
 
 modules = {
-  ai_credits    = false
-  budget_lookup = false
-  feedback      = true
+  ai_credits     = false
+  budget_lookup  = false
+  feedback       = true
+  upstream_views = false
 }
 
 # Move raw archive blobs to Cool after this many months; retained without deletion.

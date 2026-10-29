@@ -1,5 +1,6 @@
 import sql from "mssql";
 import { directoryIdentityConflict, writeDirectoryUsers } from "../ingestion/user-writer.js";
+import { applyDirectoryRevocations, readPreviousStates, revocationCandidates } from "./revocation.js";
 import type { DirectoryWriter } from "./sync.js";
 
 export class DirectoryWriteError extends Error {
@@ -10,7 +11,11 @@ export class DirectoryWriteError extends Error {
 }
 
 // Each phase uses the same connected new-database pool and global directory lock.
-export function createDirectorySqlWriter(createTransaction: () => sql.Transaction): DirectoryWriter {
+// Soft revocation (#76) needs the Entra tenant that grants and links are keyed on; without it, none is written.
+export function createDirectorySqlWriter(
+  createTransaction: () => sql.Transaction,
+  options: { entraTenantId?: string | null } = {},
+): DirectoryWriter {
   async function transact(write: (transaction: sql.Transaction) => Promise<void>): Promise<void> {
     const transaction = createTransaction();
     let active = false;
@@ -130,7 +135,14 @@ export function createDirectorySqlWriter(createTransaction: () => sql.Transactio
                   ON state.source = required.source AND state.last_attempt_at = CONVERT(datetime2(0), @lastAttempt)
                 WHERE state.source IS NULL)
               THROW 51000, 'DIRECTORY_STALE_SNAPSHOT', 1`);
+        const previousStates = await readPreviousStates(transaction, users);
         await writeDirectoryUsers(transaction, users);
+        if (run.status === "published" && options.entraTenantId) {
+          await applyDirectoryRevocations(transaction, {
+            candidates: revocationCandidates(users, previousStates),
+            tenantId: options.entraTenantId, runId: run.run_id, correlationId: run.correlation_id,
+          });
+        }
         for (const state of sync) {
           await transaction.request()
             .input("source", sql.VarChar(16), state.source)

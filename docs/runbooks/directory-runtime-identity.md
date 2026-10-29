@@ -80,6 +80,20 @@ is recorded here as an architecture reference, not a new permission grant or a
 claim that those scopes have been revalidated. Do not add scopes or change
 secret values in this task.
 
+## Soft revocation of disabled Entra accounts (#76)
+
+When a published directory run reads an account that Entra reports as disabled (or deleted), the
+directory writer, in the same transaction that publishes the profiles:
+
+- sets `unlinked_at`, `unlink_seq` and `unlink_reason` on the account's active `PrincipalLinkState` row;
+- appends a `GrantRevocation` row, on the active-to-disabled transition or once if none exists yet;
+- appends one `IngestionAuditEvent` per change, with `detail_json` limited to `{"reason": ...}`.
+
+Nothing is deleted, and `Principal` and `AccessGrant` are not read. `v_active_grant` then hides every
+grant issued before the revocation, so a re-enabled account needs a new grant. The tenant comes from
+the common `ENTRA_TENANT_ID` app setting; when it is empty, no revocation is written. Failed or
+partial runs never revoke.
+
 ## Microsoft Graph permission prerequisite
 
 The Graph endpoint and permission references below were checked on
