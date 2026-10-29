@@ -93,6 +93,12 @@ variable "metrics_sync_enabled" {
   default     = false
 }
 
+variable "directory_sync_enabled" {
+  description = "Turns the directory Function App and its SCM site on. Off by default; the owner sets it per environment once the directory PAT is in Key Vault and the directory SQL user is mapped (#56)."
+  type        = bool
+  default     = false
+}
+
 variable "organization" {
   description = "Organization facts the portal reads as app settings (D-46). Real values live only in the private deployment repository."
   type = object({

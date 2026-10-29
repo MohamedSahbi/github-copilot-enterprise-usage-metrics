@@ -422,17 +422,35 @@ run "optional_module_secret_ownership" {
   }
 }
 
-run "directory_runtime_cannot_be_enabled_by_tfvars" {
+run "directory_runtime_off_by_default" {
   command = plan
 
   assert {
     condition = alltrue([
+      var.directory_sync_enabled == false,
       local.directory_platform_state.enabled == false,
       local.directory_platform_state.scm_site_also_stopped == true,
       nonsensitive(module.directory.resource).body.properties.enabled == false,
       nonsensitive(module.directory.resource).body.properties.scmSiteAlsoStopped == true,
     ])
-    error_message = "The actual planned ARM body must keep the directory Function disabled and its SCM site stopped; no Terraform input may activate it."
+    error_message = "By default the planned ARM body must keep the directory Function disabled and its SCM site stopped."
+  }
+}
+
+run "directory_sync_enabled" {
+  command = plan
+
+  variables {
+    directory_sync_enabled = true
+  }
+
+  assert {
+    condition = alltrue([
+      nonsensitive(module.directory.resource).body.properties.enabled == true,
+      nonsensitive(module.directory.resource).body.properties.scmSiteAlsoStopped == false,
+      local.ingestion_app_settings["AzureWebJobs.metricsSync.Disabled"] == "true",
+    ])
+    error_message = "directory_sync_enabled = true must enable only the directory Function App and its SCM site."
   }
 }
 
