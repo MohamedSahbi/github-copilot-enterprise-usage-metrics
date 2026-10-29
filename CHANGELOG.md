@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.31](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.30...v0.2.31) (2026-10-29)
+
+
+### Bug Fixes
+
+* **budget:** read live budgets the way the original lookup does, plus a live check ([#241](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/241)) ([bc229de](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/bc229dea12c7470f63e0bdfac6b77de99f0f80e4))
+* **directory:** make the timer registration test fast and record permission re-check ([#227](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/227)) ([1eb9b68](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1eb9b68af6ea9df4def9352ef84b0f387c1881cd)), closes [#154](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/154)
+
 ## [0.2.30](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.29...v0.2.30) (2026-10-29)
 
 
