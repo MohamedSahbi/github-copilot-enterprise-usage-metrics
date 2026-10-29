@@ -123,6 +123,14 @@ run "demo_example" {
 
   assert {
     condition = alltrue([
+      !contains(keys(local.directory_app_settings), "GRAPH_CLIENT_ID"),
+      !contains(keys(local.directory_app_settings), "GRAPH_CLIENT_SECRET"),
+    ])
+    error_message = "Without directory_graph_client_id the directory sync keeps Graph on its managed identity."
+  }
+
+  assert {
+    condition = alltrue([
       local.raw_archive_identity_key == "ingestion",
       toset(keys(local.raw_archive_role_assignments)) == toset(["ingestion_blob", "ingestion_queue", "ingestion_table"]),
     ])
@@ -212,6 +220,25 @@ run "metrics_sync_enabled" {
   assert {
     condition     = !contains(keys(local.directory_app_settings), "AzureWebJobs.metricsSync.Disabled")
     error_message = "The directory app must not carry the metrics timer setting."
+  }
+}
+
+run "directory_graph_client" {
+  command = plan
+
+  variables {
+    directory_graph_client_id = "00000000-0000-0000-0000-000000000002"
+  }
+
+  assert {
+    condition = alltrue([
+      local.directory_app_settings["GRAPH_CLIENT_ID"] == "00000000-0000-0000-0000-000000000002",
+      startswith(local.directory_app_settings["GRAPH_CLIENT_SECRET"], "@Microsoft.KeyVault("),
+      local.secret_identity_by_name["directory-graph-client-secret"] == "directory",
+      !contains(keys(local.portal_app_settings), "GRAPH_CLIENT_SECRET"),
+      !contains(keys(local.ingestion_app_settings), "GRAPH_CLIENT_SECRET"),
+    ])
+    error_message = "directory_graph_client_id must give only the directory app a Graph client ID and a Key Vault reference to its secret."
   }
 }
 

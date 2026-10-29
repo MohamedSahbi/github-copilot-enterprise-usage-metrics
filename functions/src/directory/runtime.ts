@@ -1,4 +1,4 @@
-import { ManagedIdentityCredential } from "@azure/identity";
+import { ClientSecretCredential, ManagedIdentityCredential, type TokenCredential } from "@azure/identity";
 import sql from "mssql";
 import { z } from "zod";
 import { isGuid } from "../../../shared/src/access.js";
@@ -24,6 +24,8 @@ export interface DirectoryRuntimeConfig {
   managedIdentityClientId: string;
   directoryPat: string | null;
   entraTenantId: string | null;
+  /** Optional app registration for Microsoft Graph; null keeps Graph on the managed identity. */
+  graphClient: { clientId: string; clientSecret: string } | null;
 }
 
 export function readDirectoryRuntimeConfig(env: Environment): DirectoryRuntimeConfig {
@@ -53,9 +55,18 @@ export function readDirectoryRuntimeConfig(env: Environment): DirectoryRuntimeCo
   if (directoryPat?.startsWith("@Microsoft.KeyVault(")) throw new Error("directory_configuration_invalid");
   const entraTenantId = env.ENTRA_TENANT_ID?.trim() || null;
   if (entraTenantId !== null && !isGuid(entraTenantId)) throw new Error("directory_configuration_invalid");
+  const graphClientId = env.GRAPH_CLIENT_ID?.trim() || null;
+  let graphClient: DirectoryRuntimeConfig["graphClient"] = null;
+  if (graphClientId !== null) {
+    const clientSecret = required("GRAPH_CLIENT_SECRET");
+    if (!isGuid(graphClientId) || entraTenantId === null || clientSecret.startsWith("@Microsoft.KeyVault(")) {
+      throw new Error("directory_configuration_invalid");
+    }
+    graphClient = { clientId: graphClientId, clientSecret };
+  }
   return {
     provider: provider.data, enterprise, organizations, sqlServer, sqlDatabase, managedIdentityClientId, directoryPat,
-    entraTenantId,
+    entraTenantId, graphClient,
     attributes: { departmentAttribute: settings.settings.directory.departmentAttribute,
       businessAreaAttribute: settings.settings.directory.businessAreaAttribute },
   };
@@ -99,8 +110,14 @@ export function createDirectoryTransport(
   };
 }
 
-function managedIdentityGraphToken(clientId: string): () => Promise<string> {
-  const credential = new ManagedIdentityCredential({ clientId });
+export function graphTokenCredential(config: DirectoryRuntimeConfig): TokenCredential {
+  if (config.graphClient && config.entraTenantId) {
+    return new ClientSecretCredential(config.entraTenantId, config.graphClient.clientId, config.graphClient.clientSecret);
+  }
+  return new ManagedIdentityCredential({ clientId: config.managedIdentityClientId });
+}
+
+function tokenProvider(credential: TokenCredential): () => Promise<string> {
   return async () => {
     const token = await credential.getToken("https://graph.microsoft.com/.default");
     if (!token) throw new DirectoryProviderError("source_read_failed");
@@ -147,7 +164,7 @@ export interface DirectoryRuntimeOverrides {
 export function createDirectoryRuntimeHandler(env: Environment, overrides: DirectoryRuntimeOverrides = {}) {
   const config = readDirectoryRuntimeConfig(env);
   if (config.provider === "csv" && !overrides.readCsv) throw new Error("directory_csv_source_required");
-  const graphToken = overrides.graphToken ?? managedIdentityGraphToken(config.managedIdentityClientId);
+  const graphToken = overrides.graphToken ?? tokenProvider(graphTokenCredential(config));
   return createDirectoryHandler(async (): Promise<DirectorySyncInput> => {
     const common = { enterprise: config.enterprise, organizations: config.organizations, attributes: config.attributes };
     if (config.provider === "csv") {
