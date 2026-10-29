@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.25](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.24...v0.2.25) (2026-10-29)
+
+
+### Features
+
+* **admin:** show people by name and email; drop the Feedback page ([#222](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/222)) ([ce7247b](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/ce7247b135b278039bd91ce7de9ccfca08e6bf53))
+* **infra:** validated, documented SKU settings for App Service, SQL and storage ([#224](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/224)) ([43c354c](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/43c354cb116b93a8124a9deb44ba4749572f4224))
+* **portal:** chart released daily values on Overview and Copilot Impact ([#216](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/216)) ([1744f1b](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/1744f1b9c5cd472a665646ac692d65fc1426ba88))
+* **portal:** hide each small group in the upstream views, with a configurable minimum group size ([#220](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/220)) ([e064339](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/e064339146790d662a7c8c3c4127fddc4ed67d0d))
+* upstream views from SQL (beta) and Entra soft revocation (alpha v2) ([#217](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/217)) ([c74a9c6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/c74a9c63a353613db792b04a0b52cc9f9498e648))
+
 ## [0.2.24](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.23...v0.2.24) (2026-10-29)
 
 
