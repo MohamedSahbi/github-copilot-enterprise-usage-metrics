@@ -33,7 +33,9 @@ On your machine: Terraform 1.11 or newer, the Azure CLI, Node 22, and git.
 
 ## 1. Create a private deployment repository
 
-Keep your organization's values out of this public repository. Create a private repository that holds:
+Keep your organization's values out of this public repository. Create a private repository from the
+config-only [deployment template](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics-deployment).
+It holds:
 
 - `config/<env>.tfvars`: copied from
   [terraform.tfvars.example](../../infra/terraform/stack/terraform.tfvars.example)
@@ -97,6 +99,11 @@ The secret-scoped role assignments need the secrets to exist, so a brand-new env
 vault first, then the secrets, then runs the full apply. Reaching the vault depends on your network:
 see [Key Vault access](../../infra/terraform/README.md#temporary-operator-secret-management-access).
 Afterwards, check that every app's Key Vault references show `Resolved`.
+
+> **Alpha constraint.** The network setup is the weakest part of the alpha. There is no scripted
+> vault-only first apply yet, and a new environment needs either a private network path to the vault or
+> a temporary operator IP in `key_vault_allowed_ipv4_addresses` to create the secrets. An improved
+> network Terraform module is planned for the beta.
 
 ## 5. Load the database and deploy the apps
 
