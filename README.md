@@ -54,7 +54,7 @@ The screenshots below come from the local stack with synthetic data.
 | | |
 |---|---|
 | ![Sign-in page with Microsoft Entra ID and GitHub buttons](docs/images/sign-in.png) | ![Overview page with scope picker, privacy notice and daily charts](docs/images/overview-scoped.png) |
-| **Company sign-in.** People sign in with Entra ID or GitHub instead of uploading a file. The test personas only appear on the local stack. | **Scoped dashboards from SQL.** Data comes from the scheduled GitHub sync, not a manual export. The scope picker shows only the scopes a viewer was granted, and small groups are hidden. |
+| **Company sign-in.** People sign in with Entra ID or GitHub instead of uploading a file. | **Scoped dashboards from SQL.** Data comes from the scheduled GitHub sync, not a manual export. The scope picker shows only the scopes a viewer was granted, and small groups are hidden. |
 | ![Administration access control page](docs/images/admin-access.png) | ![Administration audit log page](docs/images/admin-audit.png) |
 | **Access grants.** Admins grant a role and scope (self, reports, department, business area, company) to an Entra principal. | **Audit and operations.** Every grant change is logged with a correlation ID, next to login history, health and the pinned upstream version. |
 
