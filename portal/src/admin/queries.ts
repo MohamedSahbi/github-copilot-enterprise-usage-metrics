@@ -19,6 +19,40 @@ export async function readHealthRuns(pool: sql.ConnectionPool): Promise<HealthRu
       MAX(CASE WHEN status = 'published' THEN completed_at END) AS last_success
     FROM portal.IngestionRun GROUP BY source_kind`)).recordset;
 }
+export interface SyncRunObservation {
+  source_kind: "directory" | "users_1_day";
+  last_started_at: Date | null;
+  last_started_open: boolean | null;
+  last_status: string | null;
+  last_completed_at: Date | null;
+  last_report_day: Date | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  last_correlation_id: string | null;
+  last_success_at: Date | null;
+  failed_last_24h: number;
+}
+// Read-only view of what the directory and metrics workers already record in portal.IngestionRun.
+export async function readSyncRuns(pool: sql.ConnectionPool): Promise<SyncRunObservation[]> {
+  return (await pool.request().query<SyncRunObservation>(`
+    SELECT s.source_kind, l.started_at AS last_started_at, l.is_open AS last_started_open,
+      c.status AS last_status, c.completed_at AS last_completed_at, c.report_day AS last_report_day,
+      c.error_code AS last_error_code, m.message AS last_error_message, c.correlation_id AS last_correlation_id,
+      ok.last_success_at, f.failed_last_24h
+    FROM (VALUES ('directory'), ('users_1_day')) s (source_kind)
+    OUTER APPLY (SELECT TOP (1) started_at, CAST(CASE WHEN completed_at IS NULL
+        AND status IN ('started', 'staged', 'validated') THEN 1 ELSE 0 END AS bit) AS is_open
+      FROM portal.IngestionRun WHERE source_kind = s.source_kind ORDER BY started_at DESC, run_id DESC) l
+    OUTER APPLY (SELECT TOP (1) run_id, status, completed_at, report_day, error_code, correlation_id FROM portal.IngestionRun
+      WHERE source_kind = s.source_kind AND completed_at IS NOT NULL ORDER BY completed_at DESC, run_id DESC) c
+    OUTER APPLY (SELECT TOP (1) message FROM portal.ValidationIssue WHERE run_id = c.run_id AND message IS NOT NULL
+      ORDER BY CASE severity WHEN 'fatal' THEN 0 WHEN 'reject' THEN 1 ELSE 2 END, issue_id) m
+    OUTER APPLY (SELECT MAX(completed_at) AS last_success_at FROM portal.IngestionRun
+      WHERE source_kind = s.source_kind AND status = 'published') ok
+    OUTER APPLY (SELECT COUNT(*) AS failed_last_24h FROM portal.IngestionRun
+      WHERE source_kind = s.source_kind AND status IN ('failed', 'quarantined')
+        AND completed_at >= DATEADD(hour, -24, SYSUTCDATETIME())) f`)).recordset;
+}
 // Latest directory name and email for an Entra object ID, for recognition only (active rows first).
 const DIRECTORY_PERSON = (oid: string) => `SELECT TOP (1) display_name, email FROM portal.dim_user
   WHERE entra_object_id = ${oid} ORDER BY CASE WHEN state = 'active' THEN 0 ELSE 1 END, user_id DESC`;

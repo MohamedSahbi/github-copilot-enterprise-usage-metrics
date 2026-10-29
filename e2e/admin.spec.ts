@@ -21,7 +21,7 @@ test("admin ports explicit grant/revoke and the read-only administration panels"
 
   for (const [section, label] of [
     ["hierarchy", "Manager Hierarchy"], ["audit", "Audit Log"], ["login-history", "Login History"],
-    ["issues", "Issues Inbox"], ["health", "Health"], ["upstream", "Upstream Version"],
+    ["issues", "Issues Inbox"], ["sync", "Sync Status"], ["health", "Health"], ["upstream", "Upstream Version"],
   ] as const) {
     await page.getByRole("link", { name: label, exact: true }).click();
     if (section === "hierarchy") {
@@ -35,6 +35,10 @@ test("admin ports explicit grant/revoke and the read-only administration panels"
     if (section === "audit") {
       await expect(page.getByRole("cell", { name: "grant.created", exact: true }).first()).toBeVisible();
       await expect(page.getByRole("cell", { name: "grant.revoked", exact: true }).first()).toBeVisible();
+    }
+    if (section === "sync") {
+      await expect(page.getByRole("heading", { name: "Directory sync (Entra)", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Metrics sync (GitHub)", exact: true })).toBeVisible();
     }
     if (section === "health") await expect(page.getByText("SQL reachable: Yes", { exact: false })).toBeVisible();
     if (section === "upstream") await expect(page.getByText("Pinned upstream commit:", { exact: false })).toContainText(/[0-9a-f]{40}/);
