@@ -1,10 +1,11 @@
 import { getPortalSqlPool } from "../db/pool";
 import { readAccessSettings } from "../auth/settings";
 import { grantFormData } from "./grants";
-import { readAudit, readGrants, readHealthRuns, readHierarchy, readIssues, readLoginHistory, readPrincipals } from "./queries";
+import { syncWarnings } from "./sync-status";
+import { readAudit, readGrants, readHealthRuns, readHierarchy, readIssues, readLoginHistory, readPrincipals, readSyncRuns } from "./queries";
 
 export async function readAdminPage(
-  section: "access" | "audit" | "login-history" | "issues" | "hierarchy" | "health",
+  section: "access" | "audit" | "login-history" | "issues" | "hierarchy" | "health" | "sync",
   page: { page: number; pageSize: number },
   params: { principalId?: string; userId?: string },
   correlationId: string,
@@ -37,9 +38,20 @@ export async function readAdminPage(
         return { section, rows, total: rows[0]?.total ?? 0 };
       }
       case "health": return { section, runs: await readHealthRuns(pool), observedAt: Date.now(), total: 0 };
+      case "sync": return { section, runs: await readSyncRuns(pool), observedAt: Date.now(), total: 0 };
     }
   } catch {
     process.stderr.write(`${JSON.stringify({ level: "error", event: "admin.page_failed", correlationId })}\n`);
     return null;
+  }
+}
+
+// Sync problems for the warning shown on every admin section. Never fails the page: unreadable state shows no warning.
+export async function readSyncWarnings(correlationId: string) {
+  try {
+    return syncWarnings(await readSyncRuns(await getPortalSqlPool()), Date.now());
+  } catch {
+    process.stderr.write(`${JSON.stringify({ level: "error", event: "admin.sync_status_failed", correlationId })}\n`);
+    return [];
   }
 }

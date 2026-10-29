@@ -5,7 +5,7 @@ import { NavList } from "@primer/react";
 import {
   BriefcaseIcon, CodeIcon, CpuIcon, CreditCardIcon, DeviceDesktopIcon, GearIcon, GitCommitIcon,
   GraphIcon, HistoryIcon, HomeIcon, IssueOpenedIcon, LogIcon, OrganizationIcon, PeopleIcon, PulseIcon, RocketIcon,
-  ShieldLockIcon, StackIcon, TerminalIcon, VersionsIcon, type Icon,
+  ShieldLockIcon, StackIcon, SyncIcon, TerminalIcon, VersionsIcon, type Icon,
 } from "@primer/octicons-react";
 
 // Icons are looked up by name because components cannot cross the server/client boundary as props.
@@ -28,6 +28,7 @@ const ICONS = {
   audit: LogIcon,
   "login-history": HistoryIcon,
   issues: IssueOpenedIcon,
+  sync: SyncIcon,
   health: PulseIcon,
   upstream: GitCommitIcon,
 } satisfies Record<string, Icon>;

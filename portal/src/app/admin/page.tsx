@@ -5,10 +5,11 @@ import type { ReactNode } from "react";
 import { isGuid } from "../../../../shared/src/access";
 import { requireAdmin } from "../../admin/server";
 import { getAccess } from "../../authz/server";
-import { readAdminPage } from "../../admin/page-data";
+import { readAdminPage, readSyncWarnings } from "../../admin/page-data";
 import AccessControl from "../../admin/AccessControl";
 import IssuesInbox from "../../admin/IssuesInbox";
 import HealthPanel from "../../admin/HealthPanel";
+import SyncStatus, { SyncWarning } from "../../admin/SyncStatus";
 import { parsePage } from "../../usage/api";
 import SubPageFrame, { Card, DataTable, buttonClass, fieldClass } from "../../components/SubPageFrame";
 import SideNavCard from "../../components/SideNavCard";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Administration | GitHub Copilot Usage Metrics" };
 const sections = {
   access: "Access Control", hierarchy: "Manager Hierarchy", audit: "Audit Log",
-  "login-history": "Login History", issues: "Issues Inbox", health: "Health", upstream: "Upstream Version",
+  "login-history": "Login History", issues: "Issues Inbox", sync: "Sync Status", health: "Health", upstream: "Upstream Version",
 };
 type Section = keyof typeof sections;
 type Params = { section?: string; page?: string; principalId?: string; userId?: string };
@@ -87,6 +88,7 @@ async function AdminContent({ section, params, correlationId }: { section: Secti
         break;
       }
       case "health": return <HealthPanel runs={data.runs} observedAt={data.observedAt} />;
+      case "sync": return <SyncStatus runs={data.runs} observedAt={data.observedAt} />;
     }
   const href = (next: number) => {
     const query = new URLSearchParams({ section, page: String(next) });
@@ -115,10 +117,13 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   if (Object.values(params).some((value) => value !== undefined && typeof value !== "string")) notFound();
   const section = params.section ?? "access";
   if (!Object.hasOwn(sections, section)) notFound();
-  return <SubPageFrame title="Administration" description="Manage access control, manager hierarchy and the audit log."
+  return <SubPageFrame title="Administration" description="Manage access control, manager hierarchy and the audit log, and check sync status."
     nav={<SideNavCard label="Admin sections" heading="Administration" items={Object.entries(sections).map(([key, title]) => ({
       href: `/admin?section=${key}`, label: title, icon: key as Section, current: section === key,
     }))} />}>
-    <AdminContent section={section as Section} params={params} correlationId={correlationId} />
+    <div className="space-y-6">
+      {section !== "sync" && <SyncWarning warnings={await readSyncWarnings(correlationId)} />}
+      <AdminContent section={section as Section} params={params} correlationId={correlationId} />
+    </div>
   </SubPageFrame>;
 }
