@@ -94,6 +94,17 @@ describe("metrics runtime composition", () => {
     expect(JSON.stringify(h.context.error.mock.calls)).not.toContain("SQL_SECRET_MARKER");
   });
 
+  it("fails the timer after a loader failure, but only once every other day has been tried", async () => {
+    const h = harness();
+    vi.mocked(h.dependencies.load).mockRejectedValueOnce(new Error("archive_write_failed"));
+    const handler = createMetricsRuntimeHandler({ ...env, BACKFILL_FROM: "2026-10-23" }, {
+      now, createDependencies: h.createDependencies,
+    });
+    await expect(handler({}, h.context)).rejects.toThrow("metrics_runtime_failed");
+    expect(h.dependencies.load).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(h.context.error.mock.calls)).toContain("load_failed");
+  });
+
   it("revalidates a backfill window that expires while the host remains alive", async () => {
     const h = harness();
     let clock = new Date("2026-10-26T01:00:00Z");
