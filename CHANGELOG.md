@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.30](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.29...v0.2.30) (2026-10-29)
+
+
+### Bug Fixes
+
+* raw archive network access and directory profile quarantine ([#238](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/238)) ([3b655b4](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/3b655b4aaa132da48cb4ff47e87d517a884dd8b0))
+* **sync:** keep metrics running past a failed day; close stuck directory runs ([#239](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/239)) ([736ae64](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/736ae64e93b1f6238ebab51fbacea7e64721921a))
+
 ## [0.2.29](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.28...v0.2.29) (2026-10-29)
 
 
