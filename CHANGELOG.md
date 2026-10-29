@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.26](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.25...v0.2.26) (2026-10-29)
+
+
+### Features
+
+* **admin:** show directory and metrics sync status ([#225](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/225)) ([117f0f6](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/117f0f69bcf47c1e7d617ac9e1601e1441b5e537))
+
 ## [0.2.25](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.24...v0.2.25) (2026-10-29)
 
 
