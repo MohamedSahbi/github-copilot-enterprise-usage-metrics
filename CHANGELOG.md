@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.29](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.28...v0.2.29) (2026-10-29)
+
+
+### Bug Fixes
+
+* **db:** preflight checks securable objects, not their constraints ([#236](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/236)) ([30b4db7](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/30b4db788718c0681b49956246e6f2f5e63231fc))
+
 ## [0.2.28](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.27...v0.2.28) (2026-10-29)
 
 
