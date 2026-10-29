@@ -44,8 +44,9 @@ output "identities" {
 }
 
 output "sql_server_fqdn" {
-  description = "SQL server host name, the target of scripts/deploy-db.sh."
+  description = "SQL server host name, the target of scripts/deploy-db.sh. Not a secret: the SQL module marks its whole resource sensitive, and output -raw still prints it."
   value       = local.sql_server_fqdn
+  sensitive   = true
 }
 
 output "sql_database_name" {
