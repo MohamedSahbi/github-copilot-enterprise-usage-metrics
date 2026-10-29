@@ -101,9 +101,9 @@ modules = {
   feedback = true
   # All upstream dashboard views (Executive Summary, Languages, Clients, Client Versions, Copilot Adoption,
   # Model Usage, CLI Adoption, AI Adoption Phases, plus Users/User Details with per-user detail) built from SQL.
-  # false keeps the Safe Alpha surface: Overview and Copilot Impact daily tables only. true uses whole-scope
-  # suppression (a scope under 5 users shows nothing), which is looser than the per-chart Safe Alpha rule,
-  # so it stays off until the owner approves it. See docs/runbooks/safe-alpha.md.
+  # false (the variable's default) keeps the Safe Alpha surface: Overview and Copilot Impact only. true hides
+  # every group below min_group_size in each view, and a scope below it shows nothing. Keep it off until the
+  # owner approves the extra views; docs/runbooks/safe-alpha.md has the steps to turn it on.
   upstream_views = false
 }
 

@@ -72,3 +72,24 @@ Never weaken console capture or axe checks. An intentional excluded-page 404
 generates a browser resource error, so the released-page no-console-errors
 assertion runs before that intentional navigation; the explicit 404 assertion
 and excluded-page axe audit remain.
+
+## Turning on the upstream views
+
+`modules.upstream_views = true` replaces this release surface with every upstream
+view, built from the curated SQL facts. Each day, IDE, version, feature, language,
+model, usage type and adoption phase group with fewer than `min_group_size`
+distinct users is hidden, and a scope that ends up below the minimum shows
+nothing. The viewer's own data and `per_user_detail_enabled` are exempt; without
+per-user detail, Users and User Details stay hidden and logins become placeholders.
+
+To turn it on in an environment:
+
+1. Pin a release that has both inputs (0.2.25 or later; `min_group_size` arrived in #220).
+2. In that environment's tfvars, set `upstream_views = true` inside `modules` and
+   `min_group_size` to the agreed minimum (default 5, at least 2).
+3. Run a plan. Expect only the portal app settings to change:
+   `MODULE_UPSTREAM_VIEWS` to `true` and `MIN_GROUP_SIZE` to the new value. Nothing
+   else, and no SQL change.
+4. Apply, then sign in and check that the new views appear and small groups are hidden.
+
+To turn it off again, set `upstream_views = false` and apply; no data changes.
