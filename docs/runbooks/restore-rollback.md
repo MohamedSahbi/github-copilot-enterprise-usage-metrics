@@ -193,6 +193,17 @@ portal access, feedback, audit or all directory lifecycle state.
    features, versioning, blob soft delete and change feed; inspect its range and
    limitations before use. It does not recover deleted containers/accounts.
    Account/container deletion needs independently verified protection or backup.
+
+   **Versioned containers (the raw archive):** with blob versioning on, deleting a
+   blob keeps its earlier versions and leaves no soft-deleted blob, so `undelete`
+   fails with `BlobNotFound`. Restore the previous version instead: list versions
+   (`az storage blob list --include v --prefix <path> --auth-mode login`), pick the
+   version ID whose hash matches `SourceArtifact`, and copy it back over the blob
+   (`az storage blob copy start --source-uri "<blob-url>?versionid=<id>"
+   --destination-blob <path> ... --auth-mode login`). Use `undelete` only on
+   containers without versioning. `az storage blob delete` has no `--version-id`
+   option; deleting a single version (for example, drill clean-up) needs the Blob
+   REST API (`DELETE <blob-url>?versionid=<id>`) with an Entra token.
 3. Recover into an isolated location first where supported. Verify exact content
    hashes and sizes against the manifest and `SourceArtifact`, plus metadata,
    paths and availability. Enumerate missing/extra objects and failed copies;

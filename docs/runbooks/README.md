@@ -9,4 +9,5 @@ Deploy, rollback, cut-over, credential rotation, restore, backfill, and incident
 - [Directory runtime identity boundary](directory-runtime-identity.md): approved target separation, current source-configuration gap, and verified Graph permission prerequisites.
 - [Directory failure recovery and retry](../../functions/README.md#directory-failure-recovery-and-retry): durable per-user negative evidence, atomic profile publication and ordered fresh-snapshot retries.
 - [One-time legacy metrics import](legacy-metrics-import.md): operator-run import of raw legacy Blob reports through the existing day loader.
+- [Remove ingestion runs](remove-runs.md): operator-run removal of named metrics runs, such as synthetic seed data, dry run first.
 - [Safe Alpha release surface](safe-alpha.md): released server-rendered pages, denied endpoints, scope restrictions, and synthetic verification.
