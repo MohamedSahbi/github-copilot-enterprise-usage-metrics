@@ -17,6 +17,7 @@ IF IS_ROLEMEMBER(N'public', @identity_name) <> 1
 IF EXISTS (
     SELECT 1 FROM sys.database_permissions
     WHERE grantee_principal_id = @identity_id
+      AND NOT (class = 0 AND major_id = 0 AND permission_name = N'CONNECT' AND state = 'G')
 )
     THROW 50203, N'Ingestion identity has a direct database permission; use the component role only', 1;
 IF EXISTS (

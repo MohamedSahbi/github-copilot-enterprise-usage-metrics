@@ -51,13 +51,13 @@ service connection) must be a member of the SQL server's Entra admin group, and 
 
 ## Step
 
-After `npm run db:migrate`, create the environment-specific portal, metrics and directory users as the deploy identity. Names and Entra object (principal) IDs come from environment deployment outputs, never this repository. For `CREATE USER ... WITH SID ..., TYPE = E`, use the managed identity **object ID** as the SID, not its client/application ID. The database does not validate the ID, so a wrong value only fails at sign-in. Validate on Azure SQL in a non-production environment before the first deployment.
+After `npm run db:migrate`, create the environment-specific portal, metrics and directory users as the deploy identity. Names and managed identity client IDs come from environment deployment outputs, never this repository. For `CREATE USER ... WITH SID ..., TYPE = E` on a managed identity or service principal, use the identity's **client (application) ID** as the SID, not its object (principal) ID. Object IDs are the right SID only for human Entra users. The database does not validate the ID, so a wrong value only fails at sign-in, as a `connection_failed_user_error` in the Azure SQL connection metrics. Confirmed on Azure SQL in the sandbox: users created from the object ID were refused at sign-in and worked once recreated from the client ID.
 
 ```sql
--- Each SID is the corresponding managed identity object (principal) ID, never its client ID.
-DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-object-id>' AS uniqueidentifier));
-DECLARE @metrics_sid varbinary(16) = CONVERT(varbinary(16), CAST('<metrics-identity-object-id>' AS uniqueidentifier));
-DECLARE @directory_sid varbinary(16) = CONVERT(varbinary(16), CAST('<directory-identity-object-id>' AS uniqueidentifier));
+-- Each SID is the corresponding managed identity client (application) ID, never its object ID.
+DECLARE @portal_sid varbinary(16) = CONVERT(varbinary(16), CAST('<portal-identity-client-id>' AS uniqueidentifier));
+DECLARE @metrics_sid varbinary(16) = CONVERT(varbinary(16), CAST('<metrics-identity-client-id>' AS uniqueidentifier));
+DECLARE @directory_sid varbinary(16) = CONVERT(varbinary(16), CAST('<directory-identity-client-id>' AS uniqueidentifier));
 
 DECLARE @sql nvarchar(max);
 IF DATABASE_PRINCIPAL_ID(N'<portal-identity-name>') IS NULL
@@ -92,7 +92,7 @@ IF IS_ROLEMEMBER(N'portal_directory_ingest', N'<directory-identity-name>') <> 1
     ALTER ROLE portal_directory_ingest ADD MEMBER [<directory-identity-name>];
 ```
 
-Never add either identity to `portal_ingest`, `portal_metrics_ingest` and
+The only direct permission an ingestion identity may hold is the `CONNECT` that `CREATE USER` grants automatically; preflight check 50203 allows exactly that grant and nothing else. Never add either identity to `portal_ingest`, `portal_metrics_ingest` and
 `portal_directory_ingest` together, or a portal role. The component roles do not map identities,
 remove legacy memberships, or activate a consumer. This runbook is not deployment authorization.
 

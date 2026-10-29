@@ -4,6 +4,7 @@ Deploy, rollback, cut-over, credential rotation, restore, backfill, and incident
 
 - [Database migrations](migrations.md): running the forward-only runner in development and from the pipeline.
 - [Restore and rollback](restore-rollback.md): pre-change markers, Azure SQL and raw archive recovery, bad legacy import recovery, and quarterly restore evidence. **Data-bearing deployment is gated on review and an exercised non-production restore; #55 remains open pending private operator evidence.**
+- [Phase 2 parallel run](parallel-run.md): separate-database boundaries, deployment gates, evidence, reconciliation cadence and the exit criterion.
 - [Cut-over and rollback gates](cutover.md): D-49 go/no-go checks, separately authorized final migration and traffic switch, and irreversible/data-loss boundaries.
 - [Database users and grants](database-grants.md): `CREATE USER ... WITH SID, TYPE = E` and the rule that runtime identities never get `db_owner`.
 - [Directory runtime identity boundary](directory-runtime-identity.md): approved target separation, current source-configuration gap, and verified Graph permission prerequisites.

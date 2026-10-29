@@ -50,6 +50,8 @@ describe("preflightSql", () => {
     expect(text).toContain("DECLARE @require_component_membership bit = 1;");
     expect(text).toContain("EXECUTE AS USER = @identity_name;");
     expect(PREFLIGHT_SQL.trimEnd().endsWith("REVERT;")).toBe(true);
+    // CREATE USER grants CONNECT automatically; the preflight must allow exactly that grant.
+    expect(PREFLIGHT_SQL).toContain("AND NOT (class = 0 AND major_id = 0 AND permission_name = N'CONNECT' AND state = 'G')");
   });
 });
 
