@@ -5,6 +5,10 @@ locals {
   existing_ai_parts = local.create_monitoring ? [] : split("/", var.existing_monitoring.application_insights_id)
 
   log_analytics_workspace_id = local.create_monitoring ? module.log_analytics[0].resource_id : var.existing_monitoring.log_analytics_workspace_id
+
+  # The module defaults both to "false", which drops all telemetry unless a private link scope is set up.
+  # Like the other resources, open them only when private endpoints are off (dev).
+  log_analytics_public_access_enabled = tostring(!var.private_endpoints_enabled)
 }
 
 module "log_analytics" {
@@ -17,8 +21,10 @@ module "log_analytics" {
   resource_group_name = local.resource_group_name
   tags                = local.tags
 
-  log_analytics_workspace_retention_in_days = var.log_retention_days
-  enable_telemetry                          = false
+  log_analytics_workspace_retention_in_days          = var.log_retention_days
+  log_analytics_workspace_internet_ingestion_enabled = local.log_analytics_public_access_enabled
+  log_analytics_workspace_internet_query_enabled     = local.log_analytics_public_access_enabled
+  enable_telemetry                                   = false
 }
 
 module "application_insights" {

@@ -36,14 +36,12 @@ Tests: `npm run test:sql` runs the runner against a throwaway SQL Server 2022 co
 
 Run the runner once per environment, before the app deploys, from a job that has the deployment identity and nothing else:
 
-1. Resolve the connection string for that environment from Key Vault into the job's secret environment (not into a repository variable or a log).
-2. `npm ci && npm run db:migrate`. Exit code 0 means applied or already up to date; 1 means failure (read the message; it never contains the connection string); 2 means bad input.
-3. Run the grants step in [database-grants.md](database-grants.md).
-4. Deploy the app from a checkout of the pinned release tag with `scripts/deploy-portal.sh <resource-group> <web-app-name>` (zip deploy of the Next.js standalone build; `--package-only` builds the zip without deploying), then run smoke tests.
+1. `scripts/deploy-db.sh`, signed in to Azure CLI as a member of the SQL server's Entra admin group. It reads the server and database from the stack outputs, takes an Entra token for that sign-in, runs `npm run db:migrate` (with `SQL_SERVER`, `SQL_DATABASE` and `SQL_ACCESS_TOKEN` instead of a connection string) and then the grants step in [database-grants.md](database-grants.md). Exit code 0 means applied or already up to date; 1 means failure (read the message; it never contains the token); 2 means bad input.
+2. Deploy the app from a checkout of the pinned release tag with `scripts/deploy-portal.sh <resource-group> <web-app-name>` (zip deploy of the Next.js standalone build; `--package-only` builds the zip without deploying), then run smoke tests.
 
 Do not run two pipelines against one database at once; the applock serialises them, but the second will fail with `LOCK_TIMEOUT` rather than queue indefinitely.
 
-Authentication today is a connection string. The `mssql` driver also accepts Entra authentication options in the connection string; moving the pipeline to token-based sign-in is a follow-up.
+Locally, `SQL_CONNECTION_STRING` still works. A pipeline uses the Entra token path above, so it holds no SQL secret.
 
 ## Restore plan
 

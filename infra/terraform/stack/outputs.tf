@@ -35,11 +35,23 @@ output "identities" {
   description = "Runtime identities by role; used for role assignments and app settings."
   value = {
     for role, id in module.identity : role => {
+      name         = "id-${local.name}-${role}"
       resource_id  = id.resource_id
       client_id    = id.client_id
       principal_id = id.principal_id
     }
   }
+}
+
+output "sql_server_fqdn" {
+  description = "SQL server host name, the target of scripts/deploy-db.sh. Not a secret: the SQL module marks its whole resource sensitive, and output -raw still prints it."
+  value       = local.sql_server_fqdn
+  sensitive   = true
+}
+
+output "sql_database_name" {
+  description = "Portal database name, the target of scripts/deploy-db.sh."
+  value       = local.sql_database_name
 }
 
 output "secret_names" {

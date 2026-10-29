@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.28](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.27...v0.2.28) (2026-10-29)
+
+
+### Features
+
+* **db:** migrate and map runtime identities from the pipeline ([#235](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/235)) ([74b18d0](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/74b18d08d9553d3a28a09509d889745f728d4ebf))
+* **directory:** optional app registration for Microsoft Graph ([#230](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/230)) ([416f3a7](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/416f3a7847afd35638523f9881bd42ae20985acf))
+
+
+### Bug Fixes
+
+* **monitoring:** accept public Log Analytics ingestion and query when private endpoints are off ([#231](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/231)) ([564a1f2](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/564a1f20ae53460cdeeb28eb3685e693c3896bd4))
+
 ## [0.2.27](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.26...v0.2.27) (2026-10-29)
 
 
