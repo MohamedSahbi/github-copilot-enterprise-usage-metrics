@@ -1,76 +1,150 @@
 # Copy to terraform.tfvars (git-ignored) and adjust. Non-secret values only; secrets live in Key Vault.
+# Every input is described in variables.tf and infra/terraform/README.md. Values below are placeholders.
+
+# ---------------------------------------------------------------------------
+# Naming and placement
+# ---------------------------------------------------------------------------
+# Environment name (for example dev, test, prod). Each environment has its own root, resource group and state.
 environment = "dev"
-location    = "westeurope"
+# Azure region for every resource.
+location = "westeurope"
+# Short prefix for resource names, for example the product or team name. Resources are named <prefix>-<environment>-...
 name_prefix = "cmp"
 
-# Optional: deploy into a pre-existing resource group.
+# Optional: deploy into a pre-existing resource group instead of creating rg-<name_prefix>-<environment>.
+# The deploying identity then needs Owner, or Contributor plus User Access Administrator, on that group.
 # existing_resource_group_name = "rg-existing"
 
+# ---------------------------------------------------------------------------
+# Organization (passed to the portal as app settings; real values stay in your private deployment repo)
+# ---------------------------------------------------------------------------
 organization = {
-  enterprise_slug    = "example-enterprise"
-  organizations      = ["example-org"]
-  login_suffix       = "_example"
-  group_prefix       = "copilot-"
-  directory_provider = "entra"
-  entra_tenant_id    = "00000000-0000-0000-0000-000000000000"
+  enterprise_slug    = "example-enterprise"                   # GitHub enterprise slug the metrics are read from
+  organizations      = ["example-org"]                        # GitHub organizations in scope
+  login_suffix       = "_example"                             # EMU login suffix, used to match GitHub logins to directory users
+  group_prefix       = "copilot-"                             # Prefix of the directory groups the portal reads
+  directory_provider = "entra"                                # Directory used for people, managers and access
+  entra_tenant_id    = "00000000-0000-0000-0000-000000000000" # The only tenant allowed to sign in; also used for soft revocation
 }
 
-# Nonsecret GitHub App identifier used only by metrics ingestion. The private key stays in Key Vault.
+# ---------------------------------------------------------------------------
+# Metrics ingestion
+# ---------------------------------------------------------------------------
+# Numeric ID of the GitHub App used only by metrics ingestion. Not a secret; the private key stays in Key Vault.
 github_app_id = "123456"
-# Optional inclusive metrics backfill start (YYYY-MM-DD); omit to request no historical fetch.
+# Optional inclusive backfill start (YYYY-MM-DD). Omit to fetch no history; the runtime enforces the API's moving window.
 # backfill_from = "2025-10-10"
+# Six-field UTC NCRONTAB schedule of the metrics timer (sec min hour day month weekday). Required, no default.
+metrics_sync_schedule = "0 0 2 * * *"
+# Switch for the metrics timer. false keeps AzureWebJobs.metricsSync.Disabled = true, so nothing is fetched
+# on the schedule. Set true per environment only once the GitHub App token check (#64) and the restore and
+# SQL permission gates (#55, #56) have passed.
+metrics_sync_enabled = false
+# Raise the data-staleness alert after this many hours without a successful ingestion.
+stale_data_threshold_hours = 36
 
-# Sign-in identifiers are placeholders. OAuth secrets are created in Key Vault using the secret_names output.
-# Optional custom HTTPS origin; null uses the portal's default azurewebsites.net hostname.
-portal_public_url                 = null
-auth_trust_host                    = false
-trusted_forwarding_ingress         = false
-auth_microsoft_entra_id_id         = "00000000-0000-0000-0000-000000000000"
-auth_github_id                     = "REPLACE_WITH_CLIENT_ID"
-access_break_glass_group_id        = ""
+# ---------------------------------------------------------------------------
+# Directory sync (Entra users, managers and departments)
+# ---------------------------------------------------------------------------
+# Switch for the directory Function App. false keeps the app disabled and its SCM (deploy) site stopped.
+# Set true once the github-directory-pat secret holds a real PAT in Key Vault and the directory SQL user
+# is mapped (#56).
+directory_sync_enabled = false
+# Six-field UTC NCRONTAB schedule of the directory timer. Required, no default.
+directory_sync_schedule = "0 0 2 * * *"
+# Entra attribute paths used for department and business-area scopes; empty disables that scope.
+directory_department_attribute    = ""
+directory_business_area_attribute = ""
+
+# ---------------------------------------------------------------------------
+# Sign-in (client IDs only; OAuth secrets are created in Key Vault using the secret_names output)
+# ---------------------------------------------------------------------------
+# Optional custom HTTPS origin for sign-in callbacks; null uses the portal's default azurewebsites.net hostname.
+portal_public_url = null
+# Trust forwarded host headers. Set both to true only behind an ingress (Front Door, App Gateway) that you control.
+auth_trust_host            = false
+trusted_forwarding_ingress = false
+# Client ID of the portal's Entra sign-in app registration.
+auth_microsoft_entra_id_id = "00000000-0000-0000-0000-000000000000"
+# Client ID of the separate GitHub OAuth app used for sign-in (not the ingestion GitHub App).
+auth_github_id = "REPLACE_WITH_CLIENT_ID"
+
+# ---------------------------------------------------------------------------
+# Access
+# ---------------------------------------------------------------------------
+# Entra group object ID allowed to use the restricted break-glass path; empty disables it.
+access_break_glass_group_id = ""
+# Maximum age, in minutes, of verified permission evidence before it is checked again.
 access_permission_freshness_minutes = 5
-access_no_access_message           = "You do not currently have permission to use this portal."
-access_request_url                 = ""
-access_contact                     = ""
-directory_department_attribute     = ""
-directory_business_area_attribute  = ""
-directory_sync_schedule            = "0 0 2 * * *"
-metrics_sync_schedule              = "0 0 2 * * *"
-stale_data_threshold_hours         = 36
-min_group_size                     = 5
-per_user_detail_enabled            = false
+# Shown to a signed-in user who has no usable grant.
+access_no_access_message = "You do not currently have permission to use this portal."
+# Optional HTTPS request-access link and plain-text contact on the no-access page; empty hides each.
+access_request_url = ""
+access_contact     = ""
 
+# ---------------------------------------------------------------------------
+# Privacy and optional modules
+# ---------------------------------------------------------------------------
+# false keeps every response aggregate-only: no logins, no Users or User Details views.
+per_user_detail_enabled = false
+# Minimum distinct users a day, feature, language, model, IDE or other group needs before any view shows it.
+# Default 5; any whole number of at least 2.
+min_group_size = 5
+
+# Optional modules. Toggling one never changes the SQL schema; each needs at most a secret and a permission.
 modules = {
-  ai_credits     = false
-  budget_lookup  = false
-  feedback       = true
+  # AI-credit reporting.
+  ai_credits = false
+  # Budget Lookup page; needs the owner-provided budget PAT (manage_billing:enterprise) in Key Vault.
+  budget_lookup = false
+  # In-portal feedback.
+  feedback = true
+  # All upstream dashboard views (Executive Summary, Languages, Clients, Client Versions, Copilot Adoption,
+  # Model Usage, CLI Adoption, AI Adoption Phases, plus Users/User Details with per-user detail) built from SQL.
+  # false keeps the Safe Alpha surface: Overview and Copilot Impact daily tables only. true uses whole-scope
+  # suppression (a scope under 5 users shows nothing), which is looser than the per-chart Safe Alpha rule,
+  # so it stays off until the owner approves it. See docs/runbooks/safe-alpha.md.
   upstream_views = false
 }
 
-# Move raw archive blobs to Cool after this many months; retained without deletion.
+# ---------------------------------------------------------------------------
+# Raw archive retention
+# ---------------------------------------------------------------------------
+# Move raw archive blobs to the Cool tier after this many months; they are kept, never deleted.
 raw_archive_cool_after_months = 13
-# Days deleted blobs, deleted containers and noncurrent versions stay recoverable.
+# Days that deleted blobs, deleted containers and noncurrent versions stay recoverable.
 raw_archive_recovery_days = 30
 
-# Required unless existing_sql is set: the Entra user, group, or managed identity (passed in, not created) that administers the demo SQL server.
+# ---------------------------------------------------------------------------
+# SQL, monitoring and networking
+# ---------------------------------------------------------------------------
+# Required unless existing_sql is set: the Entra user, group or managed identity (passed in, not created)
+# that administers the demo SQL server.
 sql_admin = {
   login_username = "example-sql-admins"
   object_id      = "00000000-0000-0000-0000-000000000000"
 }
 
+# Email receivers for the Azure Monitor alert action group.
 alert_emails = ["team@example.com"]
 
 # Development only: skip private endpoints. Keep true for test and prod.
 private_endpoints_enabled = false
 
 # Synthetic documentation-only IPv4. Supply every app's possible outbound IPs in private environment tfvars.
+# Required (non-empty) when private endpoints are off.
 key_vault_allowed_ipv4_addresses = ["192.0.2.10"]
 # Optional: restrict the public portal to these IPv4 addresses (default Deny). Empty leaves it open to sign-in.
 portal_allowed_ipv4_addresses = []
 
-# Optional Entra USER object IDs for secret management; supply real IDs only in private config.
+# Optional Entra USER object IDs allowed to manage vault secrets (Secrets Officer); supply real IDs only in private config.
 key_vault_operator_object_ids = []
 
+# create (demo: new VNet and DNS zones), existing (enterprise default: pass subnet_id, integration_subnet_id
+# and private_dns_zones), or import.
 network = {
   mode = "create"
 }
+
+# Further optional inputs with defaults, see variables.tf: existing_sql, existing_monitoring, sql_database_sku,
+# sql_max_size_gb, sql_serverless_min_capacity, app_service_sku, app_service_zone_redundant, log_retention_days, tags.
