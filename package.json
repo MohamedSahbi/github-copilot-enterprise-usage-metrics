@@ -46,7 +46,7 @@
     "postgrator": "^8.0.0",
     "tsx": "^4.20.0",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
   }
 }
