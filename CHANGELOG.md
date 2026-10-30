@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.32](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.31...v0.2.32) (2026-10-29)
+
+
+### Features
+
+* data-ops pipeline tools (run-status, remove-synthetic, backfill) ([#242](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/issues/242)) ([0a2cdb0](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/commit/0a2cdb014543d72517ebdb3ab3bc96a6f2e30e11))
+
 ## [0.2.31](https://github.com/MohamedSahbi/github-copilot-enterprise-usage-metrics/compare/v0.2.30...v0.2.31) (2026-10-29)
 
 
