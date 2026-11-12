@@ -859,7 +859,7 @@ The grill sessions resolved the earlier stakeholder questions (§14). These rema
 | Add D-53 (config placement: Terraform inputs in tfvars, pipeline-only settings in a YAML deployment config, human-only facts in Markdown) to §14 | Decision | **Resolved:** added as D-53 (§12.8, issue #36); proposed in PR #14 and the `config-placement` skill |
 | Add D-54 (the deployment template is Azure DevOps first, GitHub Actions optional; the wrapper pins a portal tag and runs its scripts) to §14 | Decision | **Resolved:** added as D-54 (§12.8, issue #36) |
 | Review the guarded test sign-in provider (§13.4) with the security and spec reviewers | Review | Before Phase 2 (issue #35) |
-| Move `bug-backlog.yml` off `pull_request_target` (deprecated from 2 December 2026) | Fix | Before 2 December 2026 (issue #34) |
+| Move `bug-backlog.yml` off `pull_request_target` (blocked by default in public repositories from 2 December 2026) | Fix | **Resolved:** the workflow uses `pull_request`; it only runs for same-repository PRs by Copilot or the owner (issue #34) |
 | Build the VNet for `network.mode = create` and the alert rules, including email or Azure Monitor alerts for Admin issues inbox entries | Build | Before test and prod promotion (issue #37) |
 | Migration runner | Decision | **Resolved:** postgrator with forward-only `yyyyMMddHHmmss.do.description.sql` names (D-48, §13.6) |
 | Portal authz PR implements the access-model rules from PR #48 (grant API, stale-sync denial of elevated scopes, link lifecycle reads) | Build | Follow-up (issue #49) |

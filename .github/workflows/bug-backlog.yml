@@ -1,9 +1,11 @@
 name: Bug backlog
 
 on:
-  # pull_request_target so the token can create issues for Copilot-authored PRs. It runs base-branch
-  # code only and reads the PR text from the event file; it never checks out or executes PR code.
-  pull_request_target:
+  # pull_request, not pull_request_target: GitHub blocks pull_request_target by default in public
+  # repositories from 2 December 2026 (issue #34). The job only runs for PRs authored by Copilot or
+  # the owner, which are same-repository branches, so the token gets the issues: write granted below.
+  # Fork PRs get a read-only token and no secrets, and the author filter skips them anyway.
+  pull_request:
     types: [opened, edited]
 
 permissions:
